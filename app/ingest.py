@@ -137,6 +137,42 @@ def run(pull: bool = True) -> tuple[bool, str]:
         _running.release()
 
 
+_queue = threading.Lock()
+_again = False
+
+
+def start_background(pull: bool = True) -> str:
+    """يبدأ فهرسة في الخلفية ويعود فوراً: "started" أو "queued".
+
+    الفهرسة بالنموذج المحلي تستغرق دقائق على معالج خادم، وطلب ينتظرها
+    يتجاوز مهلة workflow الموقع. وإشارة تصل أثناء فهرسة جارية تُحفظ
+    لدورة واحدة بعدها، فتعديل دُمج أثناء الفهرسة لا يفوت بيان.
+    """
+    global _again
+    with _queue:
+        if not _running.acquire(blocking=False):
+            _again = True
+            return "queued"
+    threading.Thread(target=_background, args=(pull,), daemon=True).start()
+    return "started"
+
+
+def _background(pull: bool) -> None:
+    """يملك _running من لحظة start_background حتى آخر دورة."""
+    global _again
+    while True:
+        try:
+            _run(pull)
+        except Exception:  # noqa: BLE001 — _run يسجّل فشله، وهذا احتياط للقفل
+            pass
+        with _queue:
+            # التحرير داخل _queue: إشارة تصل بين القرار والتحرير لا تضيع
+            if not _again:
+                _running.release()
+                return
+            _again = False
+
+
 def _run(pull: bool) -> tuple[bool, str]:
     store.init()
     run_id = store.start_run()

@@ -130,6 +130,7 @@ def transport(responses):
 
 real_client = httpx.Client
 sleeps = []
+real_sleep = embed.time.sleep
 embed.time.sleep = sleeps.append
 httpx_client = lambda responses: (lambda **kw: real_client(transport=transport(responses), **kw))  # noqa: E731
 
@@ -159,6 +160,8 @@ check("401 لا يُعاد (المفتاح خاطئ)", len(calls) == 1)
 batches = list(embed._batches(["x" * 70_000, "y" * 70_000, "z"]))
 check("الدفعات تُقسَم بعدد الأحرف", [len(b) for b in batches] == [1, 2], [len(b) for b in batches])
 embed.httpx.Client = real_client
+# time.sleep هو دالة الوحدة نفسها: يُعاد كي لا يبقى معطّلاً لبقية الاختبارات
+embed.time.sleep = real_sleep
 
 # ── ٢. الفهرسة: الفشل لا يمسح الفهرس ──────────────────────────────
 print("\n── الفهرسة ──")
@@ -298,7 +301,51 @@ codes = [fresh.post("/admin/login", data={"password": "x"}, follow_redirects=Fal
          .headers["location"] for _ in range(6)]
 check("محاولات الدخول محدودة", "error=slow" in codes[-1], codes[-1])
 
-# ── ٦. تيليغرام ──────────────────────────────────────────────────
+# ── ٦. الفهرسة في الخلفية ────────────────────────────────────────
+print("\n── الفهرسة في الخلفية ──")
+import threading  # noqa: E402
+import time  # noqa: E402
+
+runs = []
+gate = threading.Event()
+real_run = ingest._run
+
+
+def slow_run(pull):
+    runs.append(pull)
+    gate.wait(5)
+    return True, "ok"
+
+
+ingest._run = slow_run
+first = ingest.start_background(pull=False)
+second = ingest.start_background(pull=False)
+third = ingest.start_background(pull=False)
+check("إشارة أولى تبدأ، والتاليتان أثناءها تُدمجان في دورة واحدة",
+      (first, second, third) == ("started", "queued", "queued"), (first, second, third))
+gate.set()
+for _ in range(50):
+    if not ingest.running():
+        break
+    time.sleep(0.05)
+check("دورتان فقط: الجارية، وواحدة بعدها تشمل آخر تعديل", len(runs) == 2, runs)
+check("القفل يُحرَّر بعد آخر دورة", not ingest.running())
+
+config.REINDEX_SECRET = "reindex-secret"
+gate.clear()
+r = client.post("/admin/reindex", headers={"X-Bayan-Secret": "reindex-secret"})
+check("/admin/reindex يردّ فوراً بـ 202", r.status_code == 202 and r.json()["state"] == "started",
+      r.text)
+check("سرّ خاطئ يُرفض", client.post("/admin/reindex", headers={"X-Bayan-Secret": "x"})
+      .status_code == 403)
+gate.set()
+for _ in range(50):
+    if not ingest.running():
+        break
+    time.sleep(0.05)
+ingest._run = real_run
+
+# ── ٧. تيليغرام ──────────────────────────────────────────────────
 print("\n── تيليغرام ──")
 upd = {"update_id": 1, "message": {"chat": {"id": 5}, "text": "مرحبا"}}
 check("بلا TELEGRAM_WEBHOOK_SECRET يُرفض كل تحديث",

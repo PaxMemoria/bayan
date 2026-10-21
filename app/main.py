@@ -172,10 +172,14 @@ async def reindex(request: Request, x_bayan_secret: str | None = Header(default=
     ):
         raise HTTPException(403, "سرّ غير صالح")
 
-    ok, detail = await asyncio.to_thread(ingest.run, True)
-    if ok:
-        await asyncio.to_thread(retrieve.warm)
-    return JSONResponse({"ok": ok, "detail": detail}, status_code=200 if ok else 500)
+    # الفهرسة تستغرق دقائق على معالج خادم، فتبدأ في الخلفية ويعود الرد فوراً.
+    # النتيجة في اللوحة، والخادم يلتقط الفهرس الجديد بنفسه عند اكتماله.
+    state = ingest.start_background(pull=True)
+    detail = {
+        "started": "بدأت الفهرسة. النتيجة في لوحة التحكم.",
+        "queued": "فهرسة جارية الآن، وستتبعها دورة تشمل هذا التعديل.",
+    }[state]
+    return JSONResponse({"ok": True, "state": state, "detail": detail}, status_code=202)
 
 
 @app.get("/admin/status")

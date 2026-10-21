@@ -11,7 +11,6 @@ import asyncio
 import hashlib
 import hmac
 import html
-import threading
 import time
 from urllib.parse import parse_qs, urlencode, urlsplit
 
@@ -38,8 +37,8 @@ TYPES = {"tool": "أداة", "tool_removed": "أداة مُزالة", "investiga
 
 # رسائل ما بعد الإجراء: مفاتيح ثابتة، فلا يُعرض في الصفحة نص من الرابط.
 FLASH = {
-    "reindex": ("ok", "بدأت الفهرسة. حدّث الصفحة بعد دقائق لترى النتيجة."),
-    "busy": ("warn", "فهرسة أخرى جارية الآن."),
+    "reindex": ("ok", "بدأت الفهرسة، وتستغرق دقائق. حدّث الصفحة بعدها لترى النتيجة."),
+    "busy": ("warn", "فهرسة جارية الآن، وستتبعها دورة أخرى تشمل آخر تعديل."),
     "saved": ("ok", "حُفظت الإعدادات."),
     "blocked": ("ok", "حُظر المستخدم. لن يتلقى بعد الآن إلا رسالة الرفض."),
     "unblocked": ("ok", "رُفع الحظر."),
@@ -437,21 +436,13 @@ def _provider_label() -> str:
     return f"{config.EMBED_MODEL} {where}"
 
 
-def _reindex_job() -> None:
-    ok, _ = ingest.run(True)
-    if ok:
-        retrieve.warm()
-
-
 @router.post("/admin/reindex-now")
 async def reindex_now(request: Request):
     denied, _ = await _post_gate(request)
     if denied:
         return denied
-    if ingest.running():
-        return _back("/admin", msg="busy")
-    threading.Thread(target=_reindex_job, daemon=True).start()
-    return _back("/admin", msg="reindex")
+    state = ingest.start_background(pull=True)
+    return _back("/admin", msg="reindex" if state == "started" else "busy")
 
 
 # ─────────────────────────────────────────────────────── الأسئلة

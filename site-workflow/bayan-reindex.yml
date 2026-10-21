@@ -41,13 +41,15 @@ jobs:
       - name: تشغيل المُستخرِج للتحقق
         run: node scripts/export-bayan-knowledge.mjs
 
+      # الخادم يبدأ الفهرسة في الخلفية ويردّ فوراً بـ 202: الفهرسة بالنموذج
+      # المحلي تستغرق دقائق، ونتيجتها في لوحة بيان لا هنا.
       - name: إرسال إشارة إعادة الفهرسة
         env:
           URL: ${{ secrets.BAYAN_REINDEX_URL }}
           SECRET: ${{ secrets.BAYAN_REINDEX_SECRET }}
         run: |
           code=$(curl -sS -o /tmp/out.json -w '%{http_code}' -X POST "$URL" \
-            -H "X-Bayan-Secret: $SECRET" --max-time 600)
+            -H "X-Bayan-Secret: $SECRET" --max-time 60)
           echo "HTTP $code"
           cat /tmp/out.json
-          [ "$code" = "200" ]
+          [ "$code" = "202" ]

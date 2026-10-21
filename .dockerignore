@@ -1,0 +1,8 @@
+# لا تُرسَل الأسرار ولا بيانات الجمهور إلى سياق البناء
+.env
+data/
+bayan-export/
+.git/
+__pycache__/
+*.pyc
+.venv/
