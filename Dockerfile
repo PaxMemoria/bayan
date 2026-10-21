@@ -4,11 +4,21 @@ ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 WORKDIR /srv
 
 # git و node مطلوبان: بيان يسحب مستودع الموقع ويشغّل المُستخرِج بنفسه
+# openssh-client لسحب مستودع الموقع الخاص بمفتاح النشر: git يُثبَّت هنا بلا
+# حزمه الموصى بها، فلا يأتي بعميل SSH.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential libxml2-dev libxslt1-dev git curl ca-certificates \
+    build-essential libxml2-dev libxslt1-dev git openssh-client curl ca-certificates \
  && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
  && apt-get install -y --no-install-recommends nodejs \
  && rm -rf /var/lib/apt/lists/*
+
+# مفاتيح GitHub الرسمية (من api.github.com/meta، بصمة ed25519
+# SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU). تثبيتها يمنع أن يقبل
+# الخادم مضيفاً ينتحل GitHub عند أول سحب.
+RUN printf '%s\n' \
+  'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' \
+  'github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=' \
+  > /etc/ssh/ssh_known_hosts
 
 COPY requirements.txt .
 # torch للمعالج وحده: الإصدار الافتراضي على Linux يجرّ مكتبات CUDA بعدة GB
