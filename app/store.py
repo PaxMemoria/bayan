@@ -328,6 +328,17 @@ def remember(
         )
 
 
+def questions_since(channel: str, user_id: str, since: float) -> list[float]:
+    """أوقات أسئلة المستخدم منذ since، الأقدم أولاً."""
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT ts FROM messages WHERE channel=? AND user_id=? AND role='user' "
+            "AND ts >= ? ORDER BY ts",
+            (channel, user_id, since),
+        ).fetchall()
+    return [r["ts"] for r in rows]
+
+
 def clear_history(channel: str, user_id: str) -> None:
     with db() as conn:
         conn.execute(

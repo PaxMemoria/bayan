@@ -119,5 +119,8 @@ SESSION_SECRET = os.getenv("SESSION_SECRET", "")
 
 RATE_LIMIT_MESSAGES = int(os.getenv("RATE_LIMIT_MESSAGES", "12"))
 RATE_LIMIT_WINDOW = int(os.getenv("RATE_LIMIT_WINDOW", "60"))
+# أقصى عدد أسئلة للمستخدم الواحد في أي 24 ساعة متتالية، في كل قناة. 0 بلا حدّ.
+# يُعدَّل من اللوحة دون إعادة تشغيل، وقيمة اللوحة تتقدّم على هذه.
+DAILY_LIMIT = int(os.getenv("DAILY_LIMIT", "10"))
 HISTORY_TURNS = int(os.getenv("HISTORY_TURNS", "4"))
 MAX_QUESTION_CHARS = int(os.getenv("MAX_QUESTION_CHARS", "600"))

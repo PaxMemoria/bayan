@@ -647,8 +647,10 @@ async def settings(request: Request, msg: str = "", error: str = ""):
         return denied
     thr = brain.threshold()
     paused = brain.paused()
-    err = ('<div class="alert bad">العتبة رقم بين 0.05 و 0.90.</div>'
-           if error == "threshold" else "")
+    err = {
+        "threshold": '<div class="alert bad">العتبة رقم بين 0.05 و 0.90.</div>',
+        "limit": '<div class="alert bad">الحدّ اليومي عدد صحيح بين 0 و 1000.</div>',
+    }.get(error, "")
     fixed = [
         ("نموذج الإجابة", config.ANSWER_MODEL),
         ("نموذج المتجهات", _provider_label()),
@@ -668,6 +670,12 @@ async def settings(request: Request, msg: str = "", error: str = ""):
 الابتدائية في ⁦.env⁩ هي {config.MIN_RELEVANCE:.2f}.</p>
 <input id="t" name="threshold" type="number" step="0.01" min="0.05" max="0.9"
 value="{thr:.2f}" style="max-width:140px">
+<label for="dl">حدّ الأسئلة لكل مستخدم في 24 ساعة</label>
+<p class="help">يُحسب لكل مستخدم في كل قناة على آخر 24 ساعة. من يبلغه يتلقى رسالة
+تخبره متى يسأل مجدداً، ولا يُستدعى النموذج. 0 يعني بلا حدّ. القيمة الابتدائية
+في ⁦.env⁩ هي {config.DAILY_LIMIT}.</p>
+<input id="dl" name="daily_limit" type="number" step="1" min="0" max="1000"
+value="{brain.daily_limit()}" style="max-width:140px">
 <label><input type="checkbox" name="paused" value="1" {'checked' if paused else ''}>
 أوقف بيان مؤقتاً</label>
 <p class="help">حين يتوقف بيان يُجاب كل سؤال بهذه الرسالة: «{e(config.PAUSED_MESSAGE)}»</p>
@@ -686,6 +694,11 @@ async def save_settings(request: Request):
     denied, form = await _post_gate(request)
     if denied:
         return denied
+    limit = (form.get("daily_limit") or "").strip()
+    if limit:
+        if not limit.isdigit() or int(limit) > 1000:
+            return _back("/admin/settings", error="limit")
+        store.set_setting("daily_limit", str(int(limit)))
     if form.get("reset"):
         store.clear_setting("min_relevance")
     else:

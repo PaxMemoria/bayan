@@ -9,6 +9,7 @@
 """
 import logging
 import re
+import time
 
 from anthropic import Anthropic
 
@@ -196,6 +197,48 @@ def paused() -> bool:
     return store.setting("paused", "0") == "1"
 
 
+def daily_limit() -> int:
+    """حدّ الأسئلة اليومي: قيمة اللوحة إن ضُبطت، وإلا DAILY_LIMIT."""
+    try:
+        return int(store.setting("daily_limit", str(config.DAILY_LIMIT)))
+    except ValueError:
+        return config.DAILY_LIMIT
+
+
+def _hours_ar(seconds: float) -> str:
+    """المدة بالساعات مقرّبة إلى الأعلى، كي لا يعود السائل قبل موعده."""
+    if seconds < 3600:
+        return "أقل من ساعة"
+    hours = int(-(-seconds // 3600))
+    if hours == 1:
+        return "ساعة"
+    if hours == 2:
+        return "ساعتين"
+    return f"{hours} ساعات" if hours <= 10 else f"{hours} ساعة"
+
+
+def daily_refusal(channel: str, user_id: str) -> str | None:
+    """رسالة الحدّ اليومي إن بلغه المستخدم، وإلا None.
+
+    العدّ على 24 ساعة متتالية لا على يوم تقويمي، فلا يتجدّد الحدّ كله عند
+    منتصف الليل. والرسالة تقول متى يُتاح السؤال التالي.
+    """
+    limit = daily_limit()
+    if limit <= 0:
+        return None
+    now = time.time()
+    asked = store.questions_since(channel, user_id, now - 86400)
+    if len(asked) < limit:
+        return None
+    # يُتاح سؤال جديد حين يخرج أقدم الأسئلة المحسوبة من نافذة الـ24 ساعة
+    wait = asked[len(asked) - limit] + 86400 - now
+    return (
+        f"بلغت أسئلتك في آخر 24 ساعة الحدّ المسموح، وهو {limit}.\n"
+        f"يمكنك أن تسأل مجدداً بعد {_hours_ar(wait)}.\n"
+        f"دليل الأدوات والتحقيقات متاحان دائماً على {config.SITE_URL}"
+    )
+
+
 # ──────────────────────────────────────────────────── الإجابة
 def answer(question: str, channel: str, user_id: str) -> dict:
     question = question.strip()[: config.MAX_QUESTION_CHARS]
@@ -286,6 +329,10 @@ def handle(question: str, channel: str, user_id: str) -> str:
             f"أجيب عن: {config.SCOPE_DESCRIPTION}.\n"
             "اكتب سؤالك مباشرة.\n/reset لبدء محادثة جديدة."
         )
+
+    # بعد الأوامر: /start و /help لا تُحسب من الحدّ ولا يمنعها
+    if (refusal := daily_refusal(channel, user_id)) is not None:
+        return refusal
 
     res = answer(question, channel, user_id)
     store.remember(channel, user_id, "user", question,

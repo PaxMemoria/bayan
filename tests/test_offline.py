@@ -8,6 +8,7 @@ import os
 import pathlib
 import sys
 import tempfile
+import time
 
 TMP = pathlib.Path(tempfile.mkdtemp(prefix="bayan-test-"))
 os.environ.update({
@@ -301,10 +302,32 @@ codes = [fresh.post("/admin/login", data={"password": "x"}, follow_redirects=Fal
          .headers["location"] for _ in range(6)]
 check("محاولات الدخول محدودة", "error=slow" in codes[-1], codes[-1])
 
+# ── ٥ب. حدّ الأسئلة اليومي ───────────────────────────────────────
+print("\n── الحدّ اليومي ──")
+store.set_setting("daily_limit", "3")
+replies = [brain.handle(f"ما هي عاصمة بلد رقم {i}؟", "telegram", "u-limit") for i in range(4)]
+check("الأسئلة الثلاثة الأولى تُجاب أو تُرفض كالعادة",
+      all("الحدّ المسموح" not in r for r in replies[:3]))
+check("الرابع يتلقى رسالة الحدّ ومتى يعود",
+      "الحدّ المسموح، وهو 3" in replies[3] and "بعد" in replies[3], replies[3])
+check("رسالة الحدّ لا تُحسب سؤالاً",
+      len(store.questions_since("telegram", "u-limit", time.time() - 86400)) == 3)
+check("/start يعمل بعد بلوغ الحدّ",
+      brain.handle("/start", "telegram", "u-limit") == config.WELCOME_MESSAGE)
+check("مستخدم آخر لا يتأثر", "الحدّ المسموح" not in brain.handle("سؤال", "telegram", "u-other"))
+check("المعرّف نفسه في قناة أخرى لا يتأثر",
+      "الحدّ المسموح" not in brain.handle("سؤال", "whatsapp", "u-limit"))
+store.set_setting("daily_limit", "0")
+check("0 يعني بلا حدّ", "الحدّ المسموح" not in brain.handle("سؤال", "telegram", "u-limit"))
+r = client.post("/admin/settings", data={"threshold": "0.30", "daily_limit": "abc"},
+                follow_redirects=False)
+check("حدّ يومي غير صالح يُرفض من اللوحة", "error=limit" in r.headers["location"])
+client.post("/admin/settings", data={"threshold": "0.30", "daily_limit": "10"})
+check("الحدّ اليومي يُحفظ من اللوحة", brain.daily_limit() == 10)
+
 # ── ٦. الفهرسة في الخلفية ────────────────────────────────────────
 print("\n── الفهرسة في الخلفية ──")
 import threading  # noqa: E402
-import time  # noqa: E402
 
 runs = []
 gate = threading.Event()
