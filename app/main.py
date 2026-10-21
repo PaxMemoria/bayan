@@ -3,11 +3,12 @@ import asyncio
 import hashlib
 import hmac
 import logging
+import threading
 
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 
-from . import brain, config, dashboard, ingest, retrieve, store
+from . import brain, config, dashboard, embed, ingest, retrieve, store
 from .channels import messenger, telegram, whatsapp
 
 logging.basicConfig(
@@ -23,6 +24,8 @@ app.include_router(dashboard.router)
 async def startup() -> None:
     store.init()
     retrieve.warm()
+    # تحميل النموذج المحلي يستغرق ثوانيَ، فيجري في الخلفية والخادم يستقبل
+    threading.Thread(target=embed.preload, daemon=True).start()
     n = store.chunk_count()
     log.info("بيان جاهز — %d مقطع في قاعدة المعرفة", n)
     if n == 0:

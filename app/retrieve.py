@@ -65,17 +65,15 @@ def warm() -> None:
 
         matrix, ids = store.load_embeddings()
         built_with = store.setting("index_embed_model", "")
-        if not ids:
+        reason = embed.unavailable_reason()
+        if reason:
+            s.vector_note = reason
+        elif not ids:
+            s.vector_note = "الفهرس بلا متجهات، أعد الفهرسة"
+        elif built_with != embed.model_id() or matrix.shape[1] != config.EMBED_DIM:
             s.vector_note = (
-                "الفهرس بلا متجهات — أعد الفهرسة" if embed.enabled()
-                else "VOYAGE_API_KEY غير مضبوط"
-            )
-        elif not embed.enabled():
-            s.vector_note = "الفهرس فيه متجهات لكن VOYAGE_API_KEY غير مضبوط"
-        elif built_with and built_with != config.EMBED_MODEL:
-            s.vector_note = (
-                f"الفهرس مبني بـ {built_with} والإعداد الحالي {config.EMBED_MODEL}"
-                " — أعد الفهرسة"
+                f"الفهرس مبني بـ {built_with or 'إعداد سابق'} والإعداد الحالي "
+                f"{embed.model_id()}، أعد الفهرسة"
             )
         else:
             s.matrix, s.ids = matrix, ids
@@ -196,7 +194,7 @@ def _vector(question: str, limit: int, s: _State) -> tuple[list[int], dict[int, 
     except Exception:  # noqa: BLE001 — تعطّل Voyage لا يُسكت بيان
         log.exception("تعذّر متجه السؤال — البحث اللفظي وحده لهذا السؤال")
         return [], {}
-    if not vecs:
+    if not vecs or len(vecs[0]) != s.matrix.shape[1]:
         return [], {}
     q = np.asarray(vecs[0], dtype=np.float32)
     sims = s.matrix @ (q / (np.linalg.norm(q) or 1.0))

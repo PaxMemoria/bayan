@@ -72,17 +72,46 @@ def fake_vectors(texts, input_type="document", retries=6):
     """متجهات حتمية من كلمات النص: تكفي لاختبار المسار لا لجودته."""
     out = []
     for t in texts:
-        v = [0.0] * 16
+        v = [0.0] * config.EMBED_DIM
         for w in t.split():
-            v[hash(w) % 16] += 1.0
+            v[hash(w) % config.EMBED_DIM] += 1.0
         out.append(v)
     return out
 
 
 real_embed = embed.embed
 
+# ── ٠. المزوّد المحلي: ما يمنعه من العمل يُعلَن بسببه ────────────────
+print("── المزوّد المحلي ──")
+from app import nano  # noqa: E402
+
+config.EMBED_PROVIDER, config.EMBED_MODEL = "local", "voyage-4-nano"
+config.LOCAL_MODEL_DIR = TMP / "no-model"
+check("بلا نموذج: المتجهات معطّلة والسبب يذكر fetch_model",
+      not embed.enabled() and "fetch_model" in embed.unavailable_reason(),
+      embed.unavailable_reason())
+fake_dir = TMP / "fake-model"
+fake_dir.mkdir()
+for f in nano.FILES:
+    (fake_dir / f).write_text("x")
+(fake_dir / "REVISION").write_text("deadbeef\n")
+config.LOCAL_MODEL_DIR = fake_dir
+check("نموذج من مراجعة أخرى يُرفض", "المراجعة المثبّتة" in embed.unavailable_reason(),
+      embed.unavailable_reason())
+(fake_dir / "REVISION").write_text(nano.REVISION + "\n")
+check("نموذج بالمراجعة المثبّتة يُقبل", embed.enabled(), embed.unavailable_reason())
+config.EMBED_MODEL = "voyage-4"
+check("المزوّد المحلي لا يقبل نموذجاً غير voyage-4-nano",
+      "voyage-4-nano" in embed.unavailable_reason())
+check("الكود المنقول بلا اتصال بالشبكة",
+      "requests" not in (pathlib.Path(nano.__file__).parent / "modeling.py").read_text()
+      and "urllib" not in (pathlib.Path(nano.__file__).parent / "modeling.py").read_text())
+
+# بقية الاختبارات بمزوّد Voyage المحاكى
+config.EMBED_PROVIDER, config.EMBED_MODEL = "voyage", "voyage-4"
+
 # ── ١. Voyage: إعادة المحاولة ورسالة حساب بلا وسيلة دفع ─────────────
-print("── Voyage ──")
+print("\n── Voyage ──")
 config.VOYAGE_API_KEY = "test"
 calls = []
 
@@ -107,6 +136,9 @@ httpx_client = lambda responses: (lambda **kw: real_client(transport=transport(r
 embed.httpx.Client = httpx_client([429, 503, 200])
 vecs = embed.embed(["أ", "ب"])
 check("429 ثم 503 ثم نجاح: تُعاد المحاولة", vecs and len(vecs) == 2 and len(calls) == 3)
+check("الطلب إلى عنوان MongoDB Atlas", str(calls[-1].url) == "https://ai.mongodb.com/v1/embeddings",
+      str(calls[-1].url))
+check("الطلب يحدّد أبعاد المتجه", json.loads(calls[-1].content).get("output_dimension") == 1024)
 check("الانتظار بين المحاولات", len(sleeps) == 2, sleeps)
 
 embed.httpx.Client = httpx_client([])
@@ -174,6 +206,12 @@ check("تغيّر نموذج المتجهات يعطّل المتجهات حتى
       retrieve.status()["vectors"] == 0 and "voyage-other" in retrieve.status()["vector_note"],
       retrieve.status())
 config.EMBED_MODEL = "voyage-4"
+config.EMBED_DIM = 512
+retrieve.warm()
+check("تغيّر أبعاد المتجه يعطّل المتجهات حتى إعادة الفهرسة",
+      retrieve.status()["vectors"] == 0 and "@512" in retrieve.status()["vector_note"],
+      retrieve.status())
+config.EMBED_DIM = 1024
 retrieve.warm()
 
 r = retrieve.search("كيف تبدو السيول في اليمن من الفضاء؟")

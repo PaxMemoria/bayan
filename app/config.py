@@ -33,17 +33,33 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 ANSWER_MODEL = os.getenv("ANSWER_MODEL", "claude-sonnet-5-5")
 MAX_OUTPUT_TOKENS = int(os.getenv("MAX_OUTPUT_TOKENS", "900"))
 
-VOYAGE_API_KEY = os.getenv("VOYAGE_API_KEY", "")
-# تغيير النموذج يستلزم إعادة الفهرسة: متجهات نموذجين لا تُقارَن، فيُعطَّل
-# البحث الدلالي حتى تُعاد الفهرسة بالنموذج الجديد.
-EMBED_MODEL = os.getenv("EMBED_MODEL", "voyage-4")
+# ───────────────────────────────── المتجهات
+# local  : voyage-4-nano على الخادم نفسه، فلا يغادر سؤال الجمهور الخادم.
+# voyage : خدمة Voyage عبر MongoDB Atlas، وتحتاج VOYAGE_API_KEY.
+EMBED_PROVIDER = os.getenv("EMBED_PROVIDER", "local").strip().lower()
+# تغيير النموذج أو الأبعاد يستلزم إعادة الفهرسة: يُعطَّل البحث الدلالي حتى
+# تُعاد الفهرسة، لأن متجهات إعدادين مختلفين لا تُقارَن.
+EMBED_MODEL = os.getenv(
+    "EMBED_MODEL", "voyage-4-nano" if EMBED_PROVIDER == "local" else "voyage-4"
+)
 EMBED_DIM = int(os.getenv("EMBED_DIM", "1024"))
+LOCAL_MODEL_DIR = Path(
+    os.getenv("LOCAL_MODEL_DIR", DATA_DIR / "models" / "voyage-4-nano")
+)
+# أنوية المعالج للنموذج المحلي. 0 يترك القرار لـ torch.
+EMBED_THREADS = int(os.getenv("EMBED_THREADS", "0"))
+
+VOYAGE_API_KEY = os.getenv("VOYAGE_API_KEY", "")
+# المفاتيح التي تُنشأ في MongoDB Atlas تعمل على هذا العنوان. مفتاح قديم من
+# منصة Voyage نفسها يعمل على https://api.voyageai.com/v1/embeddings
+VOYAGE_ENDPOINT = os.getenv("VOYAGE_ENDPOINT", "https://ai.mongodb.com/v1/embeddings")
 
 # ───────────────────────────────── الاسترجاع
 TOP_K = int(os.getenv("TOP_K", "6"))
 CANDIDATES = int(os.getenv("CANDIDATES", "25"))
 # القيمة الابتدائية للعتبة. تُعدَّل بعد ذلك من اللوحة دون إعادة تشغيل،
-# وقيمة اللوحة تتقدّم على هذه. عايِرها بـ scripts/calibrate.py.
+# وقيمة اللوحة تتقدّم على هذه. 0.30 معايَرة لـ voyage-4-nano بـ1024 بُعداً
+# على 36 سؤالاً؛ أعد المعايرة بـ scripts/calibrate.py عند تغيير النموذج.
 MIN_RELEVANCE = float(os.getenv("MIN_RELEVANCE", "0.30"))
 # بلا متجهات تصبح الثقة تداخلاً لفظياً موزوناً بالندرة — مقياس مختلف
 # يحتاج عتبة أعلى، تُعاير داخلياً إلى مقياس MIN_RELEVANCE نفسه.

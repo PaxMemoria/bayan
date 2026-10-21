@@ -47,6 +47,9 @@ FLASH = {
 
 e = html.escape
 
+# الإعداد الذي عويِرت عليه MIN_RELEVANCE الافتراضية (scripts/calibrate.py)
+CALIBRATED_FOR = "voyage-4-nano@1024"
+
 
 # ─────────────────────────────────────────────────────── الدخول
 def configured() -> bool:
@@ -209,7 +212,8 @@ label{display:block;margin:10px 0 4px;font-weight:600}
 .row form{margin:0}
 table{width:100%;border-collapse:collapse;font-size:14px}
 td,th{padding:6px 8px;border-bottom:1px solid var(--line);text-align:start;
-vertical-align:top;overflow-wrap:anywhere}
+vertical-align:top}
+td.wrap{overflow-wrap:anywhere}
 .state.ok{color:var(--ok);font-weight:600}.state.muted{color:var(--muted)}
 th{color:var(--muted);font-weight:600}
 .bar-chart{height:8px;border-radius:4px;background:var(--line);overflow:hidden}
@@ -337,21 +341,18 @@ def _alerts(counts: dict, emb: int, status: dict, last: dict | None) -> str:
     if counts["_chunks"] == 0:
         out.append(("bad", "قاعدة المعرفة فارغة.",
                     "بيان يرفض كل سؤال. شغّل الفهرسة من أسفل هذه الصفحة."))
-    if not embed.enabled():
+    if status["vector_note"]:
         out.append((
-            "bad", "البحث الدلالي معطّل لأن VOYAGE_API_KEY غير مضبوط.",
-            "يرفض بيان الآن كل سؤال مصاغ بكلمات غير كلمات الموقع، ومنها أسئلة "
-            "مشروعة كثيرة. أضف المفتاح في ملف ⁦.env⁩ على الخادم، ثم أعد تشغيل "
-            "الخادم وأعد الفهرسة. حساب Voyage بلا وسيلة دفع لا يكفي لفهرسة "
-            "بيان، فأضف وسيلة دفع في الحساب أولاً.",
+            "bad", "البحث الدلالي معطّل.",
+            f"{status['vector_note']}. يرفض بيان الآن كل سؤال مصاغ بكلمات غير "
+            "كلمات الموقع، ومنها أسئلة مشروعة كثيرة.",
         ))
-    elif status["vector_note"]:
-        out.append(("bad", "البحث الدلالي معطّل.", status["vector_note"] + "."))
-    elif emb and store.setting("min_relevance", "") == "":
+    elif (emb and store.setting("min_relevance", "") == ""
+          and embed.model_id() != CALIBRATED_FOR):
         out.append((
             "warn", f"العتبة على قيمتها الابتدائية {config.MIN_RELEVANCE:.2f}.",
-            "هذه القيمة لم تُعايَر على متجهات Voyage. شغّل scripts/calibrate.py "
-            "واضبط العتبة من الإعدادات.",
+            f"هذه القيمة معايَرة لـ {CALIBRATED_FOR} لا لـ {embed.model_id()}. "
+            "شغّل scripts/calibrate.py واضبط العتبة من الإعدادات.",
         ))
     if last and last.get("finished") and not last.get("ok"):
         out.append(("warn", f"فشلت آخر فهرسة ({when(last['started'])}).",
@@ -384,7 +385,7 @@ async def overview(request: Request, msg: str = ""):
 الأدوات المُزالة: {counts.get('tool_removed', 0)}.</span></div>
 <div class="card stat"><span>أدوات الدليل</span><b>{counts['_tools']}</b>
 <span>الحسّاسة: {counts['_tools_sensitive']}، المُزالة: {counts['_tools_removed']}.</span></div>
-<div class="card stat"><span>المتجهات ({e(config.EMBED_MODEL)})</span><b>{vec_ok}</b>
+<div class="card stat"><span>المتجهات ({e(_provider_label())})</span><b>{vec_ok}</b>
 <span>مقاطع لها متجهات: {emb} من {counts['_chunks']}.</span></div>
 <div class="card stat"><span>عتبة البوابة</span><b>{thr:.2f}</b>
 <span>{'مضبوطة من اللوحة.' if store.setting('min_relevance', '') else 'قيمة ابتدائية لم تُعدَّل من اللوحة.'}</span></div>
@@ -425,10 +426,15 @@ async def overview(request: Request, msg: str = ""):
 <form method="post" action="/admin/reindex-now" class="row">
 <button type="submit" {'disabled' if busy else ''}>أعد الفهرسة الآن</button>
 <span class="muted">تسحب آخر نسخة من مستودع الموقع، وتشغّل المُستخرِج، وتولّد
-المتجهات. الفهرس الحالي يبقى يعمل حتى تكتمل.</span></form></div>"""
+المتجهات، وتستغرق بضع دقائق. الفهرس الحالي يبقى يعمل حتى تكتمل.</span></form></div>"""
 
     alerts = _alerts(counts, emb, status, last)
     return page("نظرة عامة", alerts + cards + activity + reindex, "home", flash=msg)
+
+
+def _provider_label() -> str:
+    where = "على الخادم" if config.EMBED_PROVIDER == "local" else "عبر Voyage"
+    return f"{config.EMBED_MODEL} {where}"
 
 
 def _reindex_job() -> None:
@@ -609,8 +615,8 @@ async def try_ask(request: Request):
     cat_html = (f"{e(cat['category_ar'])}، والأدوات المعروضة منه: "
                 f"{len(r['category_tools'])}" if cat else "لا شيء")
     passages = "".join(
-        f'<tr><td>{e(TYPES.get(p["type"], p["type"]))}</td><td>{e(p["title"] or "")}</td>'
-        f'<td><a href="{e(p["url"])}" rel="noreferrer">{e(p["url"])}</a></td></tr>'
+        f'<tr><td>{e(TYPES.get(p["type"], p["type"]))}</td><td class="wrap">{e(p["title"] or "")}</td>'
+        f'<td class="wrap"><a href="{e(p["url"])}" rel="noreferrer">{e(p["url"])}</a></td></tr>'
         for p in r["passages"]
     )
     mode = "متجهات ونص" if r.get("used_vectors") else "نص فقط"
@@ -631,7 +637,7 @@ def _channel_state() -> str:
     def row(name: str, ok: bool, need: str) -> str:
         state = ('<span class="state ok">مضبوطة.</span>' if ok
                  else f'<span class="state muted">ينقصها {e(need)}.</span>')
-        return f"<tr><td>{e(name)}</td><td>{state}</td></tr>"
+        return f'<tr><td>{e(name)}</td><td class="wrap">{state}</td></tr>'
 
     meta = bool(config.META_APP_SECRET and config.META_VERIFY_TOKEN)
     return (
@@ -654,7 +660,8 @@ async def settings(request: Request, msg: str = "", error: str = ""):
            if error == "threshold" else "")
     fixed = [
         ("نموذج الإجابة", config.ANSWER_MODEL),
-        ("نموذج المتجهات", config.EMBED_MODEL),
+        ("نموذج المتجهات", _provider_label()),
+        ("أبعاد المتجه", config.EMBED_DIM),
         ("المقاطع لكل سؤال", config.TOP_K),
         ("أقصى عدد أدوات في القائمة", config.MAX_TOOLS_LISTED),
         ("أقصى رسائل المستخدم الواحد", config.RATE_LIMIT_MESSAGES),

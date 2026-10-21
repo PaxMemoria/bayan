@@ -108,17 +108,16 @@ def index(chunks: list[dict], tools: list[dict], log: list[str]) -> None:
     # المتجهات تُولَّد قبل لمس الفهرس: إن فشلت يبقى الفهرس السابق يعمل.
     # ومع وجود المفتاح لا نفهرس بلا متجهات بصمت — الفشل يُعلَن.
     if embed.enabled():
-        log.append(f"جاري توليد المتجهات ({config.EMBED_MODEL})...")
+        log.append(f"جاري توليد المتجهات ({embed.model_id()})...")
         vectors = embed.embed([r["text"] for r in rows], input_type="document")
         if not vectors or len(vectors) != len(rows):
             raise RuntimeError("عدد المتجهات لا يطابق عدد المقاطع")
         for row, vec in zip(rows, vectors):
             row["embedding"] = vec
     else:
-        log.append("⚠ لا يوجد VOYAGE_API_KEY — البحث النصي وحده.")
+        log.append(f"⚠ {embed.unavailable_reason()}. البحث النصي وحده.")
 
-    store.replace_index(tool_rows, rows,
-                        config.EMBED_MODEL if embed.enabled() else "")
+    store.replace_index(tool_rows, rows, embed.model_id() if embed.enabled() else "")
 
 
 _running = threading.Lock()

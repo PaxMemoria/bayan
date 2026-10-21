@@ -4,3 +4,6 @@ httpx==0.28.1
 anthropic>=0.40.0
 numpy>=1.26
 python-dotenv==1.0.1
+# المتجهات المحلية (voyage-4-nano). في Docker يُثبَّت torch من فهرس المعالج.
+torch==2.14.1
+transformers==5.19.0
