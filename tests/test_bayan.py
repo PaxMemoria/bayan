@@ -69,15 +69,38 @@ print("\n── الطبقة ٤: مرشّح الروابط ──")
 if sens:
     bad = sens[0]["link"]
     fake = f"يمكنك استخدام الأداة من هنا: {bad} وهي مفيدة."
-    cleaned, n = brain.strip_forbidden(fake, brain.forbidden_links(
-        {"tools": [sens[0]], "category_tools": []}))
+    cleaned, n = brain.strip_forbidden(fake)
     check("الرابط الممنوع حُذف رغم كتابة النموذج له", n == 1 and bad not in cleaned, cleaned)
     check("استُبدل بصفحة الدليل", "/osint-tools" in cleaned)
 fake2 = f"نطاقها {rm['domain']} ." if rm.get("domain") else None
 if fake2:
-    cleaned, n = brain.strip_forbidden(fake2, brain.forbidden_links(
-        {"tools": [rm], "category_tools": []}))
+    cleaned, n = brain.strip_forbidden(fake2)
     check("نطاق أداة مُزالة حُذف", n == 1 and rm["domain"] not in cleaned, cleaned)
+
+# المقاطع الدلالية تحمل نطاقات أدوات مُزالة. المرشّح يغطي كل الدليل، لا
+# ما استُرجع بالمسار المنظّم وحده.
+with store.db() as c:
+    leaky = c.execute(
+        "SELECT ch.text, t.domain FROM chunks ch JOIN tools t ON t.removed=1 "
+        "AND t.domain IS NOT NULL AND ch.text LIKE '%' || t.domain || '%' LIMIT 1"
+    ).fetchone()
+if leaky:
+    out = f"تجدها على https://www.{leaky['domain']}/x، أو {leaky['domain']}."
+    cleaned, n = brain.strip_forbidden(out)
+    check("نطاق مُزال من مقطع دلالي يُحذف بلا مسار منظّم",
+          n == 2 and leaky["domain"].lower() not in cleaned.lower(), cleaned)
+    check("علامات الترقيم بعد الرابط المحذوف باقية", cleaned.endswith("tools."), cleaned)
+
+banned, allowed = retrieve.link_rules()
+twin = next((a for a in sorted(allowed) for b in banned if a.startswith(b + "?")), None)
+if twin:
+    cleaned, n = brain.strip_forbidden(f"الرابط: https://{twin}")
+    check("رابط أداة عادية يشترك في بادئة مع رابط ممنوع يبقى", n == 0, cleaned)
+ok_link = next(iter(sorted(allowed)))
+cleaned, n = brain.strip_forbidden(f"افتح https://{ok_link} الآن")
+check("رابط أداة عادية يبقى", n == 0 and ok_link in cleaned, cleaned)
+cleaned, n = brain.strip_forbidden("التفاصيل على https://paxmemoria.org/investigations/x")
+check("روابط الموقع تبقى", n == 0, cleaned)
 
 # ── محدودية معروفة: أسئلة المعنى تحتاج متجهات ─────────────────────
 print("\n── محدودية بلا VOYAGE_API_KEY ──")

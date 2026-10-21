@@ -34,12 +34,16 @@ ANSWER_MODEL = os.getenv("ANSWER_MODEL", "claude-sonnet-5-5")
 MAX_OUTPUT_TOKENS = int(os.getenv("MAX_OUTPUT_TOKENS", "900"))
 
 VOYAGE_API_KEY = os.getenv("VOYAGE_API_KEY", "")
-EMBED_MODEL = os.getenv("EMBED_MODEL", "voyage-3")
+# تغيير النموذج يستلزم إعادة الفهرسة: متجهات نموذجين لا تُقارَن، فيُعطَّل
+# البحث الدلالي حتى تُعاد الفهرسة بالنموذج الجديد.
+EMBED_MODEL = os.getenv("EMBED_MODEL", "voyage-4")
 EMBED_DIM = int(os.getenv("EMBED_DIM", "1024"))
 
 # ───────────────────────────────── الاسترجاع
 TOP_K = int(os.getenv("TOP_K", "6"))
 CANDIDATES = int(os.getenv("CANDIDATES", "25"))
+# القيمة الابتدائية للعتبة. تُعدَّل بعد ذلك من اللوحة دون إعادة تشغيل،
+# وقيمة اللوحة تتقدّم على هذه. عايِرها بـ scripts/calibrate.py.
 MIN_RELEVANCE = float(os.getenv("MIN_RELEVANCE", "0.30"))
 # بلا متجهات تصبح الثقة تداخلاً لفظياً موزوناً بالندرة — مقياس مختلف
 # يحتاج عتبة أعلى، تُعاير داخلياً إلى مقياس MIN_RELEVANCE نفسه.
@@ -70,6 +74,12 @@ WELCOME_MESSAGE = os.getenv(
     "• تحقيقاتنا المنشورة — ماذا وثّقت وكيف\n\n"
     "اكتب سؤالك مباشرة.",
 )
+PAUSED_MESSAGE = os.getenv(
+    "PAUSED_MESSAGE",
+    f"{BOT_NAME} متوقف مؤقتاً.\n"
+    f"دليل الأدوات والتحقيقات متاحان على {SITE_URL}",
+)
+ERROR_MESSAGE = "حدث خلل مؤقت. حاول بعد قليل من فضلك."
 # بيان يعمل بالعربية. الأسئلة بلغات أخرى تُجاب بالعربية.
 SHOW_SOURCES = os.getenv("SHOW_SOURCES", "true").lower() == "true"
 

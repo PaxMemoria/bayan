@@ -62,6 +62,7 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 CREATE INDEX IF NOT EXISTS idx_messages_user ON messages(channel, user_id, ts);
 CREATE INDEX IF NOT EXISTS idx_messages_outcome ON messages(outcome, ts);
+CREATE INDEX IF NOT EXISTS idx_messages_ts ON messages(ts);
 
 CREATE TABLE IF NOT EXISTS hits (
     channel TEXT NOT NULL,
@@ -123,20 +124,31 @@ def init() -> None:
 
 
 # ──────────────────────────────────────────────────── الفهرسة
-def reset_index() -> None:
+TOOL_COLS = (
+    "name", "norm_name", "category_ar", "category_en", "norm_category",
+    "summary_ar", "summary_en", "link", "domain", "verification",
+    "sensitive", "caution", "removed", "removal_type_ar",
+    "removal_reason_ar", "removal_date", "replacement", "url",
+)
+
+
+def replace_index(tools: list[dict], chunks: list[dict], embed_model: str) -> None:
+    """يستبدل الفهرس كله في معاملة واحدة.
+
+    إن فشل أي جزء يبقى الفهرس السابق كما هو: إعادة فهرسة فاشلة لا تترك
+    بيان بقاعدة معرفة فارغة. المعرّفات لا يُعاد ترقيمها، فمقطع من فهرس
+    قديم ما زال في ذاكرة عملية أخرى لا يشير خطأً إلى مقطع جديد.
+    """
+    marks = ",".join("?" * len(TOOL_COLS))
     with db() as conn:
-        conn.executescript(
-            "DROP TABLE IF EXISTS chunks_fts;"
-            "DELETE FROM chunks;"
-            "DELETE FROM tools;"
-            "DELETE FROM sqlite_sequence WHERE name IN ('chunks','tools');"
+        conn.execute("DELETE FROM chunks")
+        conn.execute("DELETE FROM tools")
+        conn.execute("INSERT INTO chunks_fts(chunks_fts) VALUES('delete-all')")
+        conn.executemany(
+            f"INSERT INTO tools({','.join(TOOL_COLS)}) VALUES({marks})",
+            [tuple(r.get(c) for c in TOOL_COLS) for r in tools],
         )
-        conn.executescript(SCHEMA)
-
-
-def add_chunks(rows: list[dict]) -> None:
-    with db() as conn:
-        for r in rows:
+        for r in chunks:
             emb = r.get("embedding")
             blob = np.asarray(emb, dtype=np.float32).tobytes() if emb is not None else None
             cur = conn.execute(
@@ -152,23 +164,19 @@ def add_chunks(rows: list[dict]) -> None:
                 "INSERT INTO chunks_fts(rowid, norm_text) VALUES(?,?)",
                 (cur.lastrowid, r["norm_text"]),
             )
+        # كل عملية (الخادم، أو فهرسة من سطر الأوامر) تقارن هذا الرقم بما
+        # حمّلته في ذاكرتها، فتعيد التحميل دون إعادة تشغيل.
+        for key, value in (("index_version", repr(time.time())),
+                           ("index_embed_model", embed_model)):
+            conn.execute(
+                "INSERT INTO settings(key,value) VALUES(?,?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (key, value),
+            )
 
 
-TOOL_COLS = (
-    "name", "norm_name", "category_ar", "category_en", "norm_category",
-    "summary_ar", "summary_en", "link", "domain", "verification",
-    "sensitive", "caution", "removed", "removal_type_ar",
-    "removal_reason_ar", "removal_date", "replacement", "url",
-)
-
-
-def add_tools(rows: list[dict]) -> None:
-    marks = ",".join("?" * len(TOOL_COLS))
-    with db() as conn:
-        conn.executemany(
-            f"INSERT INTO tools({','.join(TOOL_COLS)}) VALUES({marks})",
-            [tuple(r.get(c) for c in TOOL_COLS) for r in rows],
-        )
+def index_version() -> str:
+    return setting("index_version", "")
 
 
 def counts() -> dict:
@@ -190,6 +198,13 @@ def counts() -> dict:
 def chunk_count() -> int:
     with db() as conn:
         return conn.execute("SELECT COUNT(*) c FROM chunks").fetchone()["c"]
+
+
+def embedded_count() -> int:
+    with db() as conn:
+        return conn.execute(
+            "SELECT COUNT(*) c FROM chunks WHERE embedding IS NOT NULL"
+        ).fetchone()["c"]
 
 
 def load_embeddings() -> tuple[np.ndarray, list[int]]:
@@ -265,6 +280,21 @@ def tools_name_like(fragment: str, limit: int = 5) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def link_rules() -> tuple[list[str], list[str]]:
+    """(روابط ونطاقات ممنوعة، روابط مسموحة) لكل أدوات الدليل.
+
+    الممنوع: رابط أو نطاق كل أداة حسّاسة أو مُزالة. المسموح: روابط
+    الأدوات العادية، ليُستثنى منها ما يشترك في بادئة مع رابط ممنوع.
+    """
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT link, domain, (removed=1 OR sensitive=1) banned FROM tools"
+        ).fetchall()
+    banned = [v for r in rows if r["banned"] for v in (r["link"], r["domain"]) if v]
+    allowed = [r["link"] for r in rows if not r["banned"] and r["link"]]
+    return banned, allowed
+
+
 # ──────────────────────────────────────────────────── المحادثات
 def history(channel: str, user_id: str, turns: int) -> list[dict]:
     with db() as conn:
@@ -314,20 +344,46 @@ def is_blocked(channel: str, user_id: str) -> bool:
 
 
 def rate_ok(channel: str, user_id: str) -> bool:
+    return throttle(channel, user_id, config.RATE_LIMIT_MESSAGES,
+                    config.RATE_LIMIT_WINDOW)
+
+
+def throttle(channel: str, key: str, limit: int, window: int) -> bool:
+    """يسجّل محاولة ويُرجع False إن تجاوزت limit خلال window ثانية."""
     now = time.time()
-    cutoff = now - config.RATE_LIMIT_WINDOW
     with db() as conn:
         conn.execute("DELETE FROM hits WHERE ts < ?", (now - 3600,))
         n = conn.execute(
             "SELECT COUNT(*) c FROM hits WHERE channel=? AND user_id=? AND ts > ?",
-            (channel, user_id, cutoff),
+            (channel, key, now - window),
         ).fetchone()["c"]
-        if n >= config.RATE_LIMIT_MESSAGES:
+        if n >= limit:
             return False
         conn.execute(
-            "INSERT INTO hits(channel,user_id,ts) VALUES(?,?,?)", (channel, user_id, now)
+            "INSERT INTO hits(channel,user_id,ts) VALUES(?,?,?)", (channel, key, now)
         )
     return True
+
+
+def block(channel: str, user_id: str, reason: str) -> None:
+    with db() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO blocked(channel,user_id,reason,ts) VALUES(?,?,?,?)",
+            (channel, user_id, reason, time.time()),
+        )
+
+
+def unblock(channel: str, user_id: str) -> None:
+    with db() as conn:
+        conn.execute(
+            "DELETE FROM blocked WHERE channel=? AND user_id=?", (channel, user_id)
+        )
+
+
+def blocked_list() -> list[dict]:
+    with db() as conn:
+        rows = conn.execute("SELECT * FROM blocked ORDER BY ts DESC").fetchall()
+    return [dict(r) for r in rows]
 
 
 def first_time(event_id: str) -> bool:
@@ -382,3 +438,67 @@ def set_setting(key: str, value: str) -> None:
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
             (key, value),
         )
+
+
+def clear_setting(key: str) -> None:
+    with db() as conn:
+        conn.execute("DELETE FROM settings WHERE key=?", (key,))
+
+
+# ──────────────────────────────────────────────── استعلامات اللوحة
+def outcome_stats(since: float) -> dict[str, int]:
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT outcome, COUNT(*) c FROM messages "
+            "WHERE role='user' AND ts >= ? GROUP BY outcome",
+            (since,),
+        ).fetchall()
+    return {r["outcome"] or "": r["c"] for r in rows}
+
+
+def channel_stats(since: float) -> dict[str, dict]:
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT channel, COUNT(*) c, COUNT(DISTINCT user_id) u FROM messages "
+            "WHERE role='user' AND ts >= ? GROUP BY channel",
+            (since,),
+        ).fetchall()
+    return {r["channel"]: {"questions": r["c"], "users": r["u"]} for r in rows}
+
+
+def questions(outcome: str = "", channel: str = "", before: int = 0,
+              by_confidence: bool = False, limit: int = 50) -> list[dict]:
+    """أسئلة الجمهور مع ردّ بيان على كل منها، الأحدث أولاً."""
+    where, args = ["u.role='user'"], []
+    if outcome:
+        where.append("u.outcome=?")
+        args.append(outcome)
+    if channel:
+        where.append("u.channel=?")
+        args.append(channel)
+    if before:
+        where.append("u.id<?")
+        args.append(before)
+    order = "u.confidence DESC, u.id DESC" if by_confidence else "u.id DESC"
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT u.*, (SELECT a.content FROM messages a WHERE a.channel=u.channel "
+            "AND a.user_id=u.user_id AND a.role='assistant' AND a.id>u.id "
+            "ORDER BY a.id LIMIT 1) AS reply "
+            f"FROM messages u WHERE {' AND '.join(where)} ORDER BY {order} LIMIT ?",
+            (*args, limit),
+        ).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["sources"] = json.loads(d["sources"] or "[]")
+        out.append(d)
+    return out
+
+
+def message_owner(message_id: int) -> tuple[str, str] | None:
+    with db() as conn:
+        row = conn.execute(
+            "SELECT channel, user_id FROM messages WHERE id=?", (message_id,)
+        ).fetchone()
+    return (row["channel"], row["user_id"]) if row else None

@@ -5,20 +5,19 @@
 ستة مقاطع متفرقة. وسؤال «كيف أتحقق من تاريخ صورة؟» سؤال معنى، فيذهب
 للمسار الدلالي. المساران يعملان معاً ويتغذّى النموذج من ناتجهما.
 """
+import logging
+import math
 import re
 import threading
+from collections import Counter
 
 import numpy as np
 
 from . import config, embed, store
 from .arabic import fts_query, normalize_ar, tokens, weighted_overlap
 
+log = logging.getLogger("retrieve")
 _lock = threading.Lock()
-_matrix: np.ndarray | None = None
-_ids: list[int] = []
-_categories: list[dict] = []
-_tool_names: list[tuple[str, str]] = []  # (norm_name, name)
-_idf: dict[str, float] = {}
 
 # صيغ تدل على طلب قائمة لا تعريف أداة بعينها
 LIST_INTENT = re.compile(
@@ -28,33 +27,102 @@ LIST_INTENT = re.compile(
 STRUCTURED_CONFIDENCE = 0.95
 
 
+class _State:
+    """كل ما يُحمَّل من الفهرس إلى الذاكرة، يُستبدل دفعة واحدة.
+
+    الاستبدال الذرّي يمنع سؤالاً يصل أثناء إعادة التحميل من قراءة مصفوفة
+    متجهات جديدة مع معرّفات قديمة.
+    """
+
+    def __init__(self) -> None:
+        self.version: str | None = None
+        self.matrix = np.zeros((0, config.EMBED_DIM), dtype=np.float32)
+        self.ids: list[int] = []
+        self.vector_note = ""
+        self.categories: list[dict] = []
+        self.tool_names: list[tuple[str, str]] = []  # (norm_name, name)
+        self.idf: dict[str, float] = {}
+        self.idf_unseen = 1.0
+        self.banned: list[str] = []
+        self.allowed: set[str] = set()
+
+
+_S = _State()
+
+
+def norm_link(value: str) -> str:
+    """صيغة موحّدة لرابط أو نطاق، لمقارنة ما يكتبه النموذج بالدليل."""
+    v = re.sub(r"^[a-z]+://", "", (value or "").strip().lower())
+    return re.sub(r"^www\.", "", v).rstrip("/")
+
+
 def warm() -> None:
-    """تحميل المتجهات وجداول البحث — عند الإقلاع وبعد كل فهرسة."""
-    global _matrix, _ids, _categories, _tool_names
+    """تحميل المتجهات وجداول البحث — عند الإقلاع وكلما تغيّر الفهرس."""
+    global _S
     with _lock:
-        _matrix, _ids = store.load_embeddings()
-        _categories = store.categories()
+        s = _State()
+        s.version = store.index_version()
+
+        matrix, ids = store.load_embeddings()
+        built_with = store.setting("index_embed_model", "")
+        if not ids:
+            s.vector_note = (
+                "الفهرس بلا متجهات — أعد الفهرسة" if embed.enabled()
+                else "VOYAGE_API_KEY غير مضبوط"
+            )
+        elif not embed.enabled():
+            s.vector_note = "الفهرس فيه متجهات لكن VOYAGE_API_KEY غير مضبوط"
+        elif built_with and built_with != config.EMBED_MODEL:
+            s.vector_note = (
+                f"الفهرس مبني بـ {built_with} والإعداد الحالي {config.EMBED_MODEL}"
+                " — أعد الفهرسة"
+            )
+        else:
+            s.matrix, s.ids = matrix, ids
+        if s.vector_note:
+            log.warning("البحث الدلالي معطّل: %s", s.vector_note)
+
+        s.categories = store.categories()
         with store.db() as conn:
-            rows = conn.execute(
-                "SELECT norm_name, name FROM tools WHERE LENGTH(norm_name) >= 4"
-            ).fetchall()
-        with store.db() as conn:
+            s.tool_names = [
+                (r["norm_name"], r["name"]) for r in conn.execute(
+                    "SELECT norm_name, name FROM tools WHERE LENGTH(norm_name) >= 4"
+                ).fetchall()
+            ]
             texts = [r["norm_text"] for r in
                      conn.execute("SELECT norm_text FROM chunks").fetchall()]
-        _tool_names = [(r["norm_name"], r["name"]) for r in rows]
-        _idf = _build_idf(texts)
+        s.idf = _build_idf(texts)
+        # كلمة لا ترد في أي مقطع أندر من أندر كلمة موجودة: log(n)
+        s.idf_unseen = math.log(max(len(texts), 2))
+
+        banned, allowed = store.link_rules()
+        s.banned = sorted({norm_link(b) for b in banned if norm_link(b)},
+                          key=len, reverse=True)
+        s.allowed = {norm_link(a) for a in allowed}
+        _S = s
+
+
+def ensure_fresh() -> None:
+    """يعيد التحميل إن تغيّر الفهرس منذ آخر تحميل (فهرسة من عملية أخرى)."""
+    if store.index_version() != _S.version:
+        warm()
+
+
+def status() -> dict:
+    return {"vectors": len(_S.ids), "vector_note": _S.vector_note}
+
+
+def link_rules() -> tuple[list[str], set[str]]:
+    return _S.banned, _S.allowed
 
 
 def _build_idf(texts: list[str]) -> dict[str, float]:
     """وزن ندرة كل كلمة في قاعدة المعرفة، لاستعماله بلا متجهات."""
-    import math
-    from collections import Counter
-
     df: Counter = Counter()
     for t in texts:
         df.update(set(tokens(t)))
     n = max(len(texts), 1)
-    return {w: math.log(n / (1 + c)) for w, c in df.items()}
+    return {w: max(math.log(n / (1 + c)), 0.0) for w, c in df.items()}
 
 
 # ───────────────────────────────────── المسار المنظّم
@@ -62,7 +130,7 @@ def match_category(question: str) -> dict | None:
     """أطول تصنيف يرد اسمه (عربياً أو إنجليزياً) داخل السؤال."""
     q = normalize_ar(question)
     best = None
-    for cat in _categories:
+    for cat in _S.categories:
         for label in (cat["norm_category"], normalize_ar(cat["category_en"] or "")):
             if len(label) >= 4 and label in q:
                 if best is None or len(label) > best[0]:
@@ -73,7 +141,7 @@ def match_category(question: str) -> dict | None:
 def match_tool_names(question: str, limit: int = 3) -> list[dict]:
     """أدوات يرد اسمها حرفياً في السؤال — الأطول اسماً أولاً."""
     q = normalize_ar(question)
-    hits = [(len(n), name) for n, name in _tool_names if n in q]
+    hits = [(len(n), name) for n, name in _S.tool_names if n in q]
     hits.sort(reverse=True)
     out, seen = [], set()
     for _, name in hits[: limit * 2]:
@@ -120,49 +188,57 @@ def _fts(question: str, limit: int) -> list[int]:
     return [r["rowid"] for r in rows]
 
 
-def _vector(question: str, limit: int) -> tuple[list[int], dict[int, float]]:
-    if _matrix is None or _matrix.shape[0] == 0:
+def _vector(question: str, limit: int, s: _State) -> tuple[list[int], dict[int, float]]:
+    if s.matrix.shape[0] == 0:
         return [], {}
-    vecs = embed.embed([question], input_type="query")
+    try:
+        vecs = embed.embed([question], input_type="query", retries=1)
+    except Exception:  # noqa: BLE001 — تعطّل Voyage لا يُسكت بيان
+        log.exception("تعذّر متجه السؤال — البحث اللفظي وحده لهذا السؤال")
+        return [], {}
     if not vecs:
         return [], {}
     q = np.asarray(vecs[0], dtype=np.float32)
-    sims = _matrix @ (q / (np.linalg.norm(q) or 1.0))
+    sims = s.matrix @ (q / (np.linalg.norm(q) or 1.0))
     top = np.argsort(-sims)[:limit]
-    return [_ids[i] for i in top], {_ids[i]: float(sims[i]) for i in top}
+    return [s.ids[i] for i in top], {s.ids[i]: float(sims[i]) for i in top}
 
 
-def semantic(question: str) -> tuple[list[dict], float]:
+def semantic(question: str) -> tuple[list[dict], float, bool]:
+    """-> (مقاطع، ثقة، هل استُعملت المتجهات)"""
+    s = _S
     lex = _fts(question, config.CANDIDATES)
-    vec, sims = _vector(question, config.CANDIDATES)
+    vec, sims = _vector(question, config.CANDIDATES, s)
 
     scores: dict[int, float] = {}
     for ranked in (lex, vec):
         for rank, cid in enumerate(ranked):
             scores[cid] = scores.get(cid, 0.0) + 1.0 / (60 + rank)
     if not scores:
-        return [], 0.0
+        return [], 0.0, bool(sims)
 
     ordered = sorted(scores, key=scores.get, reverse=True)[: config.TOP_K]
     rows = store.get_chunks(ordered)
     passages = [rows[cid] for cid in ordered if cid in rows]
     if not passages:
-        return [], 0.0
+        return [], 0.0, bool(sims)
 
     if sims:
         confidence = max(sims.get(p["id"], 0.0) for p in passages)
     else:
         # بلا متجهات: تداخل موزون بالندرة، مُعاير إلى مقياس العتبة نفسه
-        raw = max(weighted_overlap(question, p["text"], _idf) for p in passages)
+        raw = max(weighted_overlap(question, p["text"], s.idf, s.idf_unseen)
+                  for p in passages)
         confidence = raw * (config.MIN_RELEVANCE / config.LEXICAL_THRESHOLD)
-    return passages, float(confidence)
+    return passages, float(confidence), bool(sims)
 
 
 # ───────────────────────────────────── الواجهة الموحّدة
 def search(question: str) -> dict:
     """يُرجع ناتج المسارين ودرجة ثقة واحدة."""
+    ensure_fresh()
     struct = structured(question)
-    passages, confidence = semantic(question)
+    passages, confidence, used_vectors = semantic(question)
 
     if struct["tools"] or struct["category_tools"]:
         confidence = max(confidence, STRUCTURED_CONFIDENCE)
@@ -170,6 +246,7 @@ def search(question: str) -> dict:
     return {
         "passages": passages,
         "confidence": confidence,
+        "used_vectors": used_vectors,
         **struct,
         "has_any": bool(passages or struct["tools"] or struct["category_tools"]),
     }

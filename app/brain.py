@@ -141,35 +141,59 @@ def build_context(result: dict) -> str:
 
 
 # ──────────────────────────── الطبقة ٤: مرشّح الروابط الحتمي
-def forbidden_links(result: dict) -> set[str]:
-    """روابط ونطاقات لا يجوز أن تظهر في الإجابة."""
-    out: set[str] = set()
-    pool = [*result["tools"], *result["category_tools"]]
-    for t in pool:
-        if t.get("removed") or t.get("sensitive"):
-            if t.get("link"):
-                out.add(t["link"])
-            if t.get("domain"):
-                out.add(t["domain"])
-    return out
+# رابط أو نطاق كما قد يكتبه النموذج، بمخطط أو بدونه. تيليغرام وواتساب
+# يحوّلان النطاق المجرد إلى رابط قابل للنقر، فـ«github.com/x» رابط فعلاً.
+_URLISH = re.compile(
+    r"(?:[a-z][a-z0-9+.-]*://)?(?:[a-z0-9-]+\.)+[a-z]{2,}(?::\d+)?"
+    r"(?:[/?#][^\s<>()\[\]«»\"'،,؛]*)?",
+    re.IGNORECASE,
+)
 
 
-def strip_forbidden(text: str, banned: set[str]) -> tuple[str, int]:
-    """يحذف الروابط الممنوعة من الإجابة ويعيد عددها."""
-    removed = 0
-    for item in banned:
-        if not item:
-            continue
-        host = re.sub(r"^https?://", "", item).rstrip("/")
-        if not host:
-            continue
-        pattern = re.compile(
-            r"\(?\s*(?:https?://)?" + re.escape(host) + r"[^\s)\]،,؛]*\)?",
-            re.IGNORECASE,
-        )
-        text, n = pattern.subn(f"{config.SITE_URL}/osint-tools", text)
-        removed += n
-    return text, removed
+def _banned(link: str, banned: list[str], allowed: set[str]) -> bool:
+    if link in allowed:
+        return False
+    host = re.split(r"[/?#]", link, maxsplit=1)[0]
+    for b in banned:
+        if link == b or link.startswith((b + "/", b + "?", b + "#")):
+            return True
+        if not re.search(r"[/?#]", b) and host.endswith("." + b):
+            return True
+    return False
+
+
+def strip_forbidden(text: str) -> tuple[str, int]:
+    """يستبدل بصفحة الدليل كل رابط أو نطاق لأداة حسّاسة أو مُزالة.
+
+    القائمة تشمل كل أدوات الدليل لا ما استُرجع للسؤال وحده: المقاطع
+    الدلالية نفسها تحمل نطاقات أدوات مُزالة، والنموذج قد يكرّرها. رابط
+    أداة عادية يشترك في بادئة مع رابط ممنوع يُستثنى بالمطابقة التامة.
+    """
+    banned, allowed = retrieve.link_rules()
+    count = 0
+
+    def sub(m: re.Match) -> str:
+        nonlocal count
+        raw = m.group(0)
+        core = raw.rstrip(".:!?…")
+        if not _banned(retrieve.norm_link(core), banned, allowed):
+            return raw
+        count += 1
+        return f"{config.SITE_URL}/osint-tools" + raw[len(core):]
+
+    return _URLISH.sub(sub, text), count
+
+
+def threshold() -> float:
+    """عتبة البوابة: قيمة اللوحة إن ضُبطت، وإلا MIN_RELEVANCE."""
+    try:
+        return float(store.setting("min_relevance", str(config.MIN_RELEVANCE)))
+    except ValueError:
+        return config.MIN_RELEVANCE
+
+
+def paused() -> bool:
+    return store.setting("paused", "0") == "1"
 
 
 # ──────────────────────────────────────────────────── الإجابة
@@ -177,16 +201,19 @@ def answer(question: str, channel: str, user_id: str) -> dict:
     question = question.strip()[: config.MAX_QUESTION_CHARS]
     if not question:
         return {"text": config.OUT_OF_SCOPE_MESSAGE, "outcome": "refused_gate",
-                "confidence": 0.0, "sources": []}
+                "confidence": 0.0, "sources": [], "retrieval": None}
 
     result = retrieve.search(question)
     confidence = result["confidence"]
 
+    def done(text: str, outcome: str, sources: list[str] | None = None) -> dict:
+        return {"text": text, "outcome": outcome, "confidence": confidence,
+                "sources": sources or [], "retrieval": result}
+
     # ── الطبقة ١ ───────────────────────────────────────────────
-    if not result["has_any"] or confidence < config.MIN_RELEVANCE:
+    if not result["has_any"] or confidence < threshold():
         log.info("رفض بالبوابة | ثقة=%.3f | %s", confidence, question[:60])
-        return {"text": config.OUT_OF_SCOPE_MESSAGE, "outcome": "refused_gate",
-                "confidence": confidence, "sources": []}
+        return done(config.OUT_OF_SCOPE_MESSAGE, "refused_gate")
 
     # ── الطبقة ٢ ───────────────────────────────────────────────
     history = store.history(channel, user_id, config.HISTORY_TURNS)
@@ -206,22 +233,19 @@ def answer(question: str, channel: str, user_id: str) -> dict:
         )
     except Exception:
         log.exception("فشل استدعاء النموذج")
-        return {"text": "حدث خلل مؤقت. حاول بعد قليل من فضلك.",
-                "outcome": "error", "confidence": confidence, "sources": []}
+        return done(config.ERROR_MESSAGE, "error")
 
     text = "".join(b.text for b in resp.content if b.type == "text").strip()
 
     # ── الطبقة ٣ ───────────────────────────────────────────────
     if not text or "OUT_OF_SCOPE" in text:
-        return {"text": config.OUT_OF_SCOPE_MESSAGE, "outcome": "refused_model",
-                "confidence": confidence, "sources": []}
+        return done(config.OUT_OF_SCOPE_MESSAGE, "refused_model")
     text = re.sub(r"\[?OUT_OF_SCOPE\]?", "", text).strip()
     if len(text) < 10:
-        return {"text": config.OUT_OF_SCOPE_MESSAGE, "outcome": "refused_model",
-                "confidence": confidence, "sources": []}
+        return done(config.OUT_OF_SCOPE_MESSAGE, "refused_model")
 
     # ── الطبقة ٤ ───────────────────────────────────────────────
-    text, stripped = strip_forbidden(text, forbidden_links(result))
+    text, stripped = strip_forbidden(text)
     if stripped:
         log.warning("حُذف %d رابط ممنوع من الإجابة | %s", stripped, question[:60])
 
@@ -237,8 +261,7 @@ def answer(question: str, channel: str, user_id: str) -> dict:
         out += "\n\n🔗 المصدر:\n" + "\n".join(sources)
 
     outcome = "tool_list" if result["category_tools"] else "answered"
-    return {"text": out, "outcome": outcome, "confidence": confidence,
-            "sources": sources}
+    return done(out, outcome, sources)
 
 
 def handle(question: str, channel: str, user_id: str) -> str:
@@ -247,6 +270,8 @@ def handle(question: str, channel: str, user_id: str) -> str:
         return config.OUT_OF_SCOPE_MESSAGE
     if not store.rate_ok(channel, user_id):
         return "أرسلت رسائل كثيرة خلال وقت قصير. انتظر دقيقة ثم أعد المحاولة."
+    if paused():
+        return config.PAUSED_MESSAGE
 
     cmd = question.strip().lower()
     if cmd in ("/start", "start", "بدء", "ابدأ"):

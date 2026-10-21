@@ -10,6 +10,7 @@
 import json
 import subprocess
 import sys
+import threading
 
 from . import config, embed, store
 from .arabic import normalize_ar
@@ -66,10 +67,8 @@ def read_exports() -> tuple[list[dict], list[dict]]:
 
 
 def index(chunks: list[dict], tools: list[dict], log: list[str]) -> None:
-    store.reset_index()
-
     # الأدوات كقاعدة بيانات — تُستعلَم بالتصنيف والاسم مباشرة
-    store.add_tools([
+    tool_rows = [
         {
             "name": t["name"],
             "norm_name": normalize_ar(t["name"]),
@@ -91,7 +90,7 @@ def index(chunks: list[dict], tools: list[dict], log: list[str]) -> None:
             "url": t.get("url"),
         }
         for t in tools
-    ])
+    ]
 
     rows = [
         {
@@ -106,19 +105,40 @@ def index(chunks: list[dict], tools: list[dict], log: list[str]) -> None:
         for c in chunks
     ]
 
+    # المتجهات تُولَّد قبل لمس الفهرس: إن فشلت يبقى الفهرس السابق يعمل.
+    # ومع وجود المفتاح لا نفهرس بلا متجهات بصمت — الفشل يُعلَن.
     if embed.enabled():
-        log.append("جاري توليد المتجهات...")
+        log.append(f"جاري توليد المتجهات ({config.EMBED_MODEL})...")
         vectors = embed.embed([r["text"] for r in rows], input_type="document")
+        if not vectors or len(vectors) != len(rows):
+            raise RuntimeError("عدد المتجهات لا يطابق عدد المقاطع")
         for row, vec in zip(rows, vectors):
             row["embedding"] = vec
     else:
         log.append("⚠ لا يوجد VOYAGE_API_KEY — البحث النصي وحده.")
 
-    store.add_chunks(rows)
+    store.replace_index(tool_rows, rows,
+                        config.EMBED_MODEL if embed.enabled() else "")
+
+
+_running = threading.Lock()
+
+
+def running() -> bool:
+    return _running.locked()
 
 
 def run(pull: bool = True) -> tuple[bool, str]:
     """ينفّذ دورة فهرسة كاملة ويُرجع (نجح، التفاصيل)."""
+    if not _running.acquire(blocking=False):
+        return False, "فهرسة أخرى جارية الآن."
+    try:
+        return _run(pull)
+    finally:
+        _running.release()
+
+
+def _run(pull: bool) -> tuple[bool, str]:
     store.init()
     run_id = store.start_run()
     log: list[str] = []

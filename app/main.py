@@ -7,7 +7,7 @@ import logging
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 
-from . import brain, config, ingest, retrieve, store
+from . import brain, config, dashboard, ingest, retrieve, store
 from .channels import messenger, telegram, whatsapp
 
 logging.basicConfig(
@@ -15,7 +15,8 @@ logging.basicConfig(
 )
 log = logging.getLogger("server")
 
-app = FastAPI(title="Bayan", docs_url=None, redoc_url=None)
+app = FastAPI(title="Bayan", docs_url=None, redoc_url=None, openapi_url=None)
+app.include_router(dashboard.router)
 
 
 @app.on_event("startup")
@@ -49,9 +50,13 @@ def _verify_meta(body: bytes, signature: str | None) -> None:
 async def _reply(channel: str, user_id: str, text: str, sender) -> None:
     try:
         reply = await asyncio.to_thread(brain.handle, text, channel, user_id)
+    except Exception:
+        log.exception("فشل في معالجة رسالة من %s", channel)
+        reply = config.ERROR_MESSAGE
+    try:
         await sender(user_id, reply)
     except Exception:
-        log.exception("فشل في معالجة رسالة %s/%s", channel, user_id)
+        log.exception("فشل إرسال الرد على %s", channel)
 
 
 # ------------------------------------------------------------- تيليغرام
@@ -61,7 +66,11 @@ async def telegram_hook(
     bg: BackgroundTasks,
     x_telegram_bot_api_secret_token: str | None = Header(default=None),
 ):
-    if config.TELEGRAM_WEBHOOK_SECRET and not hmac.compare_digest(
+    # بلا سرّ يستطيع أي أحد أن يرسل إلى هذا الرابط تحديثات مزيّفة، فيجعل
+    # بيان يراسل محادثات باسم المنظمة ويستهلك رصيد النموذج.
+    if not config.TELEGRAM_WEBHOOK_SECRET:
+        raise HTTPException(500, "TELEGRAM_WEBHOOK_SECRET غير مضبوط")
+    if not hmac.compare_digest(
         x_telegram_bot_api_secret_token or "", config.TELEGRAM_WEBHOOK_SECRET
     ):
         raise HTTPException(403, "توقيع غير صالح")
@@ -112,20 +121,30 @@ async def meta_hook(
 
 
 # ------------------------------------------------------------- اختبار محلي
+LOOPBACK = {"127.0.0.1", "::1"}
+
+
 @app.post("/debug/ask")
 async def debug_ask(request: Request):
-    """اختبار العقل بدون أي قناة: POST {"question": "..."}"""
+    """اختبار العقل بدون أي قناة: POST {"question": "..."}
+
+    من داخل الخادم وحده (docker compose exec). مفتوحاً للعموم كان سيتيح
+    لأي أحد استدعاء النموذج بلا حدّ معدل ورؤية المقاطع المسترجعة.
+    من المتصفح: صفحة «جرّب بيان» في اللوحة.
+    """
+    if not request.client or request.client.host not in LOOPBACK:
+        raise HTTPException(404)
     data = await request.json()
     question = data.get("question", "")
-    result = await asyncio.to_thread(retrieve.search, question)
-    res = await asyncio.to_thread(
-        brain.answer, question, "debug", data.get("user", "local")
-    )
+    res = await asyncio.to_thread(brain.answer, question, "debug", "local")
+    result = res["retrieval"] or {"tools": [], "category": None,
+                                  "category_tools": [], "passages": []}
     return {
         "reply": res["text"],
         "outcome": res["outcome"],
         "confidence": round(res["confidence"], 3),
-        "threshold": config.MIN_RELEVANCE,
+        "threshold": brain.threshold(),
+        "used_vectors": result.get("used_vectors", False),
         "matched_tools": [t["name"] for t in result["tools"]],
         "matched_category": (result["category"] or {}).get("category_ar"),
         "category_tools": len(result["category_tools"]),
@@ -157,5 +176,8 @@ async def reindex(request: Request, x_bayan_secret: str | None = Header(default=
 
 
 @app.get("/admin/status")
-async def status():
-    return {"counts": store.counts(), "last_run": store.last_run()}
+async def status(request: Request):
+    if not dashboard.is_admin(request):
+        raise HTTPException(404)
+    return {"counts": store.counts(), "last_run": store.last_run(),
+            "retrieval": retrieve.status()}

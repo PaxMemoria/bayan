@@ -15,6 +15,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
 COPY scripts ./scripts
+COPY tests ./tests
 
 ENV DATA_DIR=/srv/data
 RUN mkdir -p /srv/data
