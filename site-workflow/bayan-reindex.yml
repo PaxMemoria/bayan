@@ -1,0 +1,53 @@
+# يُنسخ إلى مستودع الموقع: .github/workflows/bayan-reindex.yml
+#
+# هذا الـ workflow يرسل إشارة واحدة فقط إلى خادم بيان. لا يحمل أي مفتاح
+# من مفاتيح بيان (Anthropic، Voyage، تيليغرام، Meta): الخادم يسحب الموقع
+# بنفسه بمفتاح قراءة فقط ثم يعيد الفهرسة. السرّ الوحيد هنا أقصى ضرر
+# تسريبه إعادة فهرسة غير لازمة.
+#
+# الأسرار المطلوبة في مستودع الموقع:
+#   BAYAN_REINDEX_URL     مثال: https://bayan.paxmemoria.org/admin/reindex
+#   BAYAN_REINDEX_SECRET  نفس REINDEX_SECRET في .env الخاص ببيان
+
+name: إعادة فهرسة بيان
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/data/osintTools.js'
+      - 'src/data/osintToolsRemoved.js'
+      - 'src/data/osintCategories.js'
+      - 'src/data/investigations/**'
+      - 'scripts/export-bayan-knowledge.mjs'
+  workflow_dispatch:
+
+concurrency:
+  group: bayan-reindex
+  cancel-in-progress: true
+
+jobs:
+  signal:
+    runs-on: ubuntu-latest
+    steps:
+      - name: التحقق من أن المُستخرِج ما زال يعمل
+        uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      # نشغّل المُستخرِج هنا أولاً: إن كسره تعديل في بنية البيانات،
+      # يفشل الـ workflow فوراً بدل أن يتوقف بيان صامتاً عن معرفة
+      # آخر تحقيق لأسابيع.
+      - name: تشغيل المُستخرِج للتحقق
+        run: node scripts/export-bayan-knowledge.mjs
+
+      - name: إرسال إشارة إعادة الفهرسة
+        env:
+          URL: ${{ secrets.BAYAN_REINDEX_URL }}
+          SECRET: ${{ secrets.BAYAN_REINDEX_SECRET }}
+        run: |
+          code=$(curl -sS -o /tmp/out.json -w '%{http_code}' -X POST "$URL" \
+            -H "X-Bayan-Secret: $SECRET" --max-time 600)
+          echo "HTTP $code"
+          cat /tmp/out.json
+          [ "$code" = "200" ]
