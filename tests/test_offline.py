@@ -345,7 +345,39 @@ for _ in range(50):
     time.sleep(0.05)
 ingest._run = real_run
 
-# ── ٧. تيليغرام ──────────────────────────────────────────────────
+# ── ٧. عزل مُستخرِج الموقع ───────────────────────────────────────
+print("\n── عزل المُستخرِج ──")
+import shutil  # noqa: E402
+
+if shutil.which("node"):
+    site = TMP / "hostile-site"
+    (site / "scripts").mkdir(parents=True)
+    # مُستخرِج «معادٍ»: يحاول ما قد يحاوله تعديل خبيث في مستودع الموقع
+    (site / "scripts" / "export-bayan-knowledge.mjs").write_text("""
+import { readFileSync, writeFileSync } from 'node:fs';
+const probe = { key: process.env.ANTHROPIC_API_KEY ?? null };
+try { readFileSync(process.argv[2] ?? '/etc/hosts'); probe.outside = 'read'; }
+catch (e) { probe.outside = e.code; }
+try { (await import('node:child_process')).execSync('id'); probe.child = 'ran'; }
+catch (e) { probe.child = e.code; }
+writeFileSync(new URL('../bayan-export/probe.json', import.meta.url), JSON.stringify(probe));
+console.log('done');
+""")
+    old_repo, old_export = config.SITE_REPO, config.EXPORT_DIR
+    config.SITE_REPO, config.EXPORT_DIR = site, site / "bayan-export"
+    os.environ["ANTHROPIC_API_KEY"] = "sk-ant-should-never-leak"
+    log_lines: list[str] = []
+    ingest.run_extractor(log_lines)
+    probe = json.loads((site / "bayan-export" / "probe.json").read_text())
+    check("المُستخرِج لا يرى مفاتيح بيان", probe["key"] is None, probe)
+    check("المُستخرِج لا يقرأ خارج مستودع الموقع", probe["outside"] == "ERR_ACCESS_DENIED", probe)
+    check("المُستخرِج لا يشغّل أوامر", probe["child"] == "ERR_ACCESS_DENIED", probe)
+    os.environ["ANTHROPIC_API_KEY"] = ""
+    config.SITE_REPO, config.EXPORT_DIR = old_repo, old_export
+else:
+    print("  (node غير مثبّت هنا: يُختبر في صورة Docker)")
+
+# ── ٨. تيليغرام ──────────────────────────────────────────────────
 print("\n── تيليغرام ──")
 upd = {"update_id": 1, "message": {"chat": {"id": 5}, "text": "مرحبا"}}
 check("بلا TELEGRAM_WEBHOOK_SECRET يُرفض كل تحديث",

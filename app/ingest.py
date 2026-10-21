@@ -8,6 +8,7 @@
 التشغيل الآلي :  POST /admin/reindex بسرّ REINDEX_SECRET
 """
 import json
+import os
 import subprocess
 import sys
 import threading
@@ -42,12 +43,27 @@ def sync_repo(log: list[str]) -> None:
 
 
 def run_extractor(log: list[str]) -> None:
-    script = config.SITE_REPO / "scripts" / "export-bayan-knowledge.mjs"
+    """يشغّل مُستخرِج الموقع معزولاً.
+
+    ملفات src/data وحدات JavaScript تُنفَّذ هنا، ومن يدفع إلى main الموقع
+    يكتبها. بلا عزل يصير تعديل في الموقع كوداً يعمل على خادم بيان بمفاتيحه
+    وبأرقام هواتف الجمهور، وهذا ما فُصل المستودعان لمنعه. لذلك يُشغَّل:
+    بلا متغيرات بيئة (فيها مفاتيح بيان)، وبنموذج صلاحيات Node: قراءة داخل
+    المستودع وحده، وكتابة في bayan-export وحده، وبلا عمليات فرعية.
+    """
+    repo = config.SITE_REPO.resolve()
+    out = config.EXPORT_DIR.resolve()
+    script = repo / "scripts" / "export-bayan-knowledge.mjs"
     if not script.exists():
         raise RuntimeError(f"المُستخرِج غير موجود: {script}")
+    # الصلاحية تُمنح لمسار موجود عند الإقلاع، فيُنشأ المجلد قبل التشغيل
+    out.mkdir(parents=True, exist_ok=True)
     r = subprocess.run(
-        ["node", str(script)],
-        cwd=str(config.SITE_REPO), capture_output=True, text=True, timeout=600,
+        ["node", "--permission", f"--allow-fs-read={repo}",
+         f"--allow-fs-write={out}", str(script)],
+        cwd=str(repo), capture_output=True, text=True, timeout=600,
+        env={"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": "/tmp",
+             "LANG": "C.UTF-8"},
     )
     if r.returncode != 0:
         raise RuntimeError(f"فشل المُستخرِج: {r.stderr.strip()[:800]}")
