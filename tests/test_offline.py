@@ -267,6 +267,19 @@ check("نص الجمهور مُهرَّب", "<script>alert" not in r.text and "&
 check("رقم الهاتف لا يظهر في اللوحة", "966500000001" not in r.text)
 check("/admin/status بعد الدخول يعمل", client.get("/admin/status").status_code == 200)
 
+r = client.get("/admin?lang=en")
+check("?lang=en يعرض اللوحة بالإنجليزية ومن اليسار",
+      "Overview" in r.text and 'dir="ltr"' in r.text and "نظرة عامة" not in r.text)
+check("ملاحظة البحث الدلالي بالإنجليزية في اللوحة الإنجليزية",
+      "Semantic search is off." in r.text and "VOYAGE_API_KEY is not set" in r.text)
+check("اختيار اللغة يُحفظ في كوكي", r.cookies.get("bayan_lang") == "en")
+check("الصفحة التالية تبقى بالإنجليزية", "Gate threshold" in client.get("/admin/settings").text)
+check("رابط العودة إلى العربية في الشريط", "lang=ar" in r.text and "العربية" in r.text)
+r = client.get("/admin/messages?lang=ar")
+check("?lang=ar يعيد العربية ومن اليمين",
+      "أسئلة الجمهور" in r.text and 'dir="rtl"' in r.text)
+check("قيمة لغة غير معروفة لا تُقبل", 'dir="rtl"' in client.get("/admin?lang=fr").text)
+
 msg_id = store.questions()[0]["id"]
 r = client.post("/admin/block", data={"msg_id": str(msg_id), "next": "/admin/messages"},
                 headers={"origin": "https://evil.example"}, follow_redirects=False)

@@ -1,7 +1,11 @@
-"""لوحة تحكم بيان — عربية، بلا JavaScript، خلف كلمة مرور.
+"""لوحة تحكم بيان — بالعربية والإنجليزية، بلا JavaScript، خلف كلمة مرور.
+
+Bayan's dashboard, in Arabic and English, with no JavaScript, behind a
+password.
 
 تعرض حالة الفهرس والمتجهات، وأسئلة الجمهور ونتيجة كل منها، وتجربة بيان
-دون قناة، والعتبة وزر الإيقاف، والمحظورين.
+دون قناة، والعتبة والحدّ اليومي وزر الإيقاف، والمحظورين. اللغة تُختار
+برابط في الشريط (?lang=en أو ?lang=ar) وتُحفظ في كوكي.
 
 الخصوصية: معرّف واتساب هو رقم الهاتف، فلا تعرض اللوحة أي معرّف. كل
 مستخدم يظهر ببصمة مشتقّة بـ SESSION_SECRET لا تُعكس إلى رقمه، والحظر
@@ -22,32 +26,252 @@ from . import brain, config, embed, ingest, retrieve, store
 router = APIRouter()
 
 COOKIE = "bayan_admin"
+LANG_COOKIE = "bayan_lang"
 SESSION_HOURS = 12
 MAX_FORM_BYTES = 16_384
-
-OUTCOMES = {
-    "answered": ("أُجيب", "ok"),
-    "tool_list": ("قائمة أدوات", "ok"),
-    "refused_gate": ("رفضته البوابة", "warn"),
-    "refused_model": ("رفضه النموذج", "muted"),
-    "error": ("خطأ", "bad"),
-}
-CHANNELS = {"telegram": "تيليغرام", "whatsapp": "واتساب", "messenger": "ماسنجر"}
-TYPES = {"tool": "أداة", "tool_removed": "أداة مُزالة", "investigation": "تحقيق"}
-
-# رسائل ما بعد الإجراء: مفاتيح ثابتة، فلا يُعرض في الصفحة نص من الرابط.
-FLASH = {
-    "reindex": ("ok", "بدأت الفهرسة، وتستغرق دقائق. حدّث الصفحة بعدها لترى النتيجة."),
-    "busy": ("warn", "فهرسة جارية الآن، وستتبعها دورة أخرى تشمل آخر تعديل."),
-    "saved": ("ok", "حُفظت الإعدادات."),
-    "blocked": ("ok", "حُظر المستخدم. لن يتلقى بعد الآن إلا رسالة الرفض."),
-    "unblocked": ("ok", "رُفع الحظر."),
-}
 
 e = html.escape
 
 # الإعداد الذي عويِرت عليه MIN_RELEVANCE الافتراضية (scripts/calibrate.py)
 CALIBRATED_FOR = "voyage-4-nano@1024"
+# سبب الحظر يُخزَّن رمزاً ويُعرض بلغة اللوحة. القيمة العربية القديمة مقبولة.
+BLOCK_REASON = "dashboard"
+
+OUTCOMES = {
+    "answered": "ok", "tool_list": "ok", "refused_gate": "warn",
+    "refused_model": "muted", "error": "bad",
+}
+CHANNELS = ("telegram", "whatsapp", "messenger")
+
+# ───────────────────────────────────────────────────── النصوص / Strings
+# كل نص في اللوحة: (العربية، الإنجليزية). المفاتيح ثابتة، فلا يُعرض في
+# الصفحة نص يأتي من الرابط.
+TEXT: dict[str, tuple[str, str]] = {
+    "dashboard": ("لوحة التحكم", "Dashboard"),
+    "other_lang": ("English", "العربية"),
+    "nav_home": ("نظرة عامة", "Overview"),
+    "nav_messages": ("الأسئلة", "Questions"),
+    "nav_try": ("جرّب بيان", "Try Bayan"),
+    "nav_settings": ("الإعدادات", "Settings"),
+    "nav_blocked": ("المحظورون", "Blocked"),
+    "logout": ("خروج", "Log out"),
+    "out_answered": ("أُجيب", "Answered"),
+    "out_tool_list": ("قائمة أدوات", "Tool list"),
+    "out_refused_gate": ("رفضته البوابة", "Refused by the gate"),
+    "out_refused_model": ("رفضه النموذج", "Refused by the model"),
+    "out_error": ("خطأ", "Error"),
+    "ch_telegram": ("تيليغرام", "Telegram"),
+    "ch_whatsapp": ("واتساب", "WhatsApp"),
+    "ch_messenger": ("ماسنجر", "Messenger"),
+    "type_tool": ("أداة", "Tool"),
+    "type_tool_removed": ("أداة مُزالة", "Removed tool"),
+    "type_investigation": ("تحقيق", "Investigation"),
+    "flash_reindex": ("بدأت الفهرسة، وتستغرق دقائق. حدّث الصفحة بعدها لترى النتيجة.",
+                      "Indexing has started and takes a few minutes. Refresh the page "
+                      "afterwards to see the result."),
+    "flash_busy": ("فهرسة جارية الآن، وستتبعها دورة أخرى تشمل آخر تعديل.",
+                   "Indexing is already running. Another run will follow to include the "
+                   "latest change."),
+    "flash_saved": ("حُفظت الإعدادات.", "Settings saved."),
+    "flash_blocked": ("حُظر المستخدم. لن يتلقى بعد الآن إلا رسالة الرفض.",
+                      "User blocked. From now on they only get the refusal message."),
+    "flash_unblocked": ("رُفع الحظر.", "Block removed."),
+    "off_title": ("اللوحة غير مفعّلة", "Dashboard disabled"),
+    "off_body": ("اللوحة معطّلة لأن ADMIN_PASSWORD أو SESSION_SECRET غير مضبوط في ملف "
+                 "⁦.env⁩، أو أقصر من الحد الأدنى. كلمة المرور 12 حرفاً على "
+                 "الأقل، والسرّ 32 حرفاً على الأقل.",
+                 "The dashboard is off because ADMIN_PASSWORD or SESSION_SECRET is not "
+                 "set in .env, or is too short. The password needs at least 12 "
+                 "characters and the secret at least 32."),
+    "off_gen": ("لتوليد سرّ:", "To generate a secret:"),
+    "origin_denied": ("مصدر الطلب غير مسموح", "Request origin not allowed"),
+    "too_large": ("الطلب أكبر من المسموح", "Request too large"),
+    "login_title": ("الدخول إلى اللوحة", "Log in to the dashboard"),
+    "login_bad": ("كلمة المرور غير صحيحة.", "Wrong password."),
+    "login_slow": ("محاولات كثيرة. انتظر ربع ساعة ثم أعد المحاولة.",
+                   "Too many attempts. Wait a quarter of an hour, then try again."),
+    "password": ("كلمة المرور", "Password"),
+    "login_btn": ("دخول", "Log in"),
+    "a_paused": ("بيان متوقف الآن.", "Bayan is paused."),
+    "a_paused_d": ("كل سؤال يُجاب برسالة الإيقاف. أعِد تشغيله من الإعدادات.",
+                   "Every question gets the pause message. Turn it back on in Settings."),
+    "a_empty": ("قاعدة المعرفة فارغة.", "The knowledge base is empty."),
+    "a_empty_d": ("بيان يرفض كل سؤال. شغّل الفهرسة من أسفل هذه الصفحة.",
+                  "Bayan refuses every question. Run indexing from the bottom of this page."),
+    "a_novec": ("البحث الدلالي معطّل.", "Semantic search is off."),
+    "a_novec_d": ("{note}. يرفض بيان الآن كل سؤال مصاغ بكلمات غير كلمات الموقع، "
+                  "ومنها أسئلة مشروعة كثيرة.",
+                  "{note}. Bayan now refuses any question worded differently from the "
+                  "site, including many legitimate ones."),
+    "a_thr": ("العتبة على قيمتها الابتدائية {v}.", "The threshold is at its initial value, {v}."),
+    "a_thr_d": ("هذه القيمة معايَرة لـ {cal} لا لـ {cur}. شغّل scripts/calibrate.py "
+                "واضبط العتبة من الإعدادات.",
+                "This value was calibrated for {cal}, not {cur}. Run scripts/calibrate.py "
+                "and set the threshold in Settings."),
+    "a_failed": ("فشلت آخر فهرسة ({when}).", "The last indexing run failed ({when})."),
+    "a_failed_d": ("الفهرس السابق ما زال يعمل. التفاصيل في أسفل الصفحة.",
+                   "The previous index is still in use. Details at the bottom of the page."),
+    "vec_on": ("تعمل", "On"),
+    "vec_off": ("معطّلة", "Off"),
+    "c_chunks": ("مقاطع قاعدة المعرفة", "Knowledge base passages"),
+    "c_chunks_d": ("التحقيقات: {i}، الأدوات: {t}، الأدوات المُزالة: {r}.",
+                   "Investigations: {i}, tools: {t}, removed tools: {r}."),
+    "c_tools": ("أدوات الدليل", "Guide tools"),
+    "c_tools_d": ("الحسّاسة: {s}، المُزالة: {r}.", "Sensitive: {s}, removed: {r}."),
+    "c_vec": ("المتجهات ({p})", "Vectors ({p})"),
+    "c_vec_d": ("مقاطع لها متجهات: {n} من {t}.", "Passages with vectors: {n} of {t}."),
+    "c_thr": ("عتبة البوابة", "Gate threshold"),
+    "thr_dash": ("مضبوطة من اللوحة.", "Set from the dashboard."),
+    "thr_init": ("قيمة ابتدائية لم تُعدَّل من اللوحة.",
+                 "Initial value, not changed from the dashboard."),
+    "provider_local": ("على الخادم", "on the server"),
+    "provider_voyage": ("عبر Voyage", "via Voyage"),
+    "week": ("آخر 7 أيام", "Last 7 days"),
+    "week_n": ("عدد الأسئلة: {n}.", "Questions: {n}."),
+    "th_outcome": ("النتيجة", "Outcome"),
+    "th_count": ("العدد", "Count"),
+    "th_share": ("النسبة", "Share"),
+    "th_channel": ("القناة", "Channel"),
+    "th_questions": ("الأسئلة", "Questions"),
+    "th_users": ("المستخدمون", "Users"),
+    "none_yet": ("لا أسئلة بعد.", "No questions yet."),
+    "run_took": ("، والمدة بالثواني: {s}", ", taking {s} seconds"),
+    "run_running": ("جارية الآن", "running now"),
+    "run_ok": ("نجحت", "succeeded"),
+    "run_failed": ("فشلت", "failed"),
+    "run_line": ("بدأت {when}{took}. الحالة: {state}.", "Started {when}{took}. Status: {state}."),
+    "run_none": ("لم تُشغَّل أي فهرسة بعد.", "No indexing has run yet."),
+    "indexing": ("الفهرسة", "Indexing"),
+    "reindex_btn": ("أعد الفهرسة الآن", "Reindex now"),
+    "reindex_help": ("تسحب آخر نسخة من مستودع الموقع، وتشغّل المُستخرِج، وتولّد المتجهات، "
+                     "وتستغرق بضع دقائق. الفهرس الحالي يبقى يعمل حتى تكتمل.",
+                     "Pulls the latest site repository, runs the extractor and builds the "
+                     "vectors, which takes a few minutes. The current index stays in use "
+                     "until it finishes."),
+    "help_refused_gate": ("أسئلة رفضتها البوابة قبل استدعاء النموذج. رتّبها حسب الثقة: إن "
+                          "وجدت بين الأعلى ثقةً أسئلة مشروعة عن الأدوات أو التحقيقات، "
+                          "فالعتبة أعلى مما ينبغي.",
+                          "Questions the gate refused before calling the model. Sort them by "
+                          "confidence: if the highest-scoring ones include legitimate "
+                          "questions about tools or investigations, the threshold is too high."),
+    "help_refused_model": ("أسئلة تجاوزت البوابة ثم رفضها النموذج. كثرتها تعني أن العتبة "
+                           "أدنى مما ينبغي، وكل واحد منها استدعاء مدفوع للنموذج.",
+                           "Questions that passed the gate and were then refused by the "
+                           "model. Many of them mean the threshold is too low, and each one "
+                           "is a paid model call."),
+    "help_error": ("أسئلة فشل فيها استدعاء النموذج. راجع سجلّ الخادم.",
+                   "Questions where the model call failed. Check the server log."),
+    "q_title": ("أسئلة الجمهور", "Questions from the public"),
+    "all": ("الكل", "All"),
+    "all_channels": ("كل القنوات", "All channels"),
+    "newest": ("الأحدث أولاً", "Newest first"),
+    "highest": ("الأعلى ثقةً أولاً", "Highest confidence first"),
+    "reply": ("ردّ بيان", "Bayan's reply"),
+    "conf": ("الثقة {c}", "Confidence {c}"),
+    "fp_title": ("بصمة المستخدم", "User fingerprint"),
+    "user": ("المستخدم {fp}", "User {fp}"),
+    "block_btn": ("احظر", "Block"),
+    "none_here": ("لا أسئلة هنا.", "No questions here."),
+    "older": ("أقدم", "Older"),
+    "blocked_help": ("المحظور يتلقى رسالة الرفض على كل سؤال، ولا يُستدعى النموذج لأجله.",
+                     "A blocked user gets the refusal message for every question, and the "
+                     "model is never called for them."),
+    "th_user": ("المستخدم", "User"),
+    "th_reason": ("السبب", "Reason"),
+    "th_since": ("منذ", "Since"),
+    "unblock_btn": ("ارفع الحظر", "Unblock"),
+    "nobody": ("لا أحد محظور.", "Nobody is blocked."),
+    "reason_dashboard": ("حُظر من اللوحة", "Blocked from the dashboard"),
+    "question": ("السؤال", "Question"),
+    "ask_btn": ("اسأل بيان", "Ask Bayan"),
+    "try_note": ("التجربة لا تُسجَّل في سجل الأسئلة. السؤال الذي يتجاوز البوابة يستدعي "
+                 "النموذج فعلاً.",
+                 "Tries are not saved to the question log. A question that passes the "
+                 "gate does call the model."),
+    "nothing": ("لا شيء", "None"),
+    "cat_shown": ("{c}، والأدوات المعروضة منه: {n}", "{c}, tools shown: {n}"),
+    "mode_vec": ("متجهات ونص", "vectors and text"),
+    "mode_text": ("نص فقط", "text only"),
+    "thr_v": ("العتبة {t}", "Threshold {t}"),
+    "search_mode": ("البحث: {m}", "Search: {m}"),
+    "answer_lang": ("لغة الإجابة: {l}", "Answer language: {l}"),
+    "lang_ar": ("العربية", "Arabic"),
+    "lang_en": ("الإنجليزية", "English"),
+    "th_name_match": ("أدوات مطابقة بالاسم", "Tools matched by name"),
+    "th_cat_match": ("تصنيف مطابق", "Matched category"),
+    "passages": ("المقاطع المسترجعة", "Retrieved passages"),
+    "th_type": ("النوع", "Type"),
+    "th_title": ("العنوان", "Title"),
+    "th_link": ("الرابط", "Link"),
+    "no_passages": ("لا مقاطع.", "No passages."),
+    "st_ok": ("مضبوطة.", "Configured."),
+    "st_missing": ("ينقصها {need}.", "Missing {need}."),
+    "need_tg": ("TELEGRAM_BOT_TOKEN و TELEGRAM_WEBHOOK_SECRET",
+                "TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_SECRET"),
+    "need_wa": ("مفاتيح Meta وواتساب", "the Meta and WhatsApp keys"),
+    "need_ms": ("مفاتيح Meta و MESSENGER_PAGE_TOKEN", "the Meta keys and MESSENGER_PAGE_TOKEN"),
+    "err_threshold": ("العتبة رقم بين 0.05 و 0.90.",
+                      "The threshold is a number between 0.05 and 0.90."),
+    "err_limit": ("الحدّ اليومي عدد صحيح بين 0 و 1000.",
+                  "The daily limit is a whole number between 0 and 1000."),
+    "f_answer_model": ("نموذج الإجابة", "Answer model"),
+    "f_embed_model": ("نموذج المتجهات", "Embedding model"),
+    "f_dim": ("أبعاد المتجه", "Vector dimensions"),
+    "f_top_k": ("المقاطع لكل سؤال", "Passages per question"),
+    "f_max_tools": ("أقصى عدد أدوات في القائمة", "Most tools in one list"),
+    "f_rate": ("أقصى رسائل المستخدم الواحد", "Most messages per user"),
+    "f_window": ("خلال (ثانية)", "Within (seconds)"),
+    "f_history": ("الأسئلة السابقة التي يتذكرها", "Previous questions remembered"),
+    "f_sources": ("عرض المصادر", "Show sources"),
+    "yes": ("نعم", "Yes"),
+    "no": ("لا", "No"),
+    "s_thr": ("عتبة البوابة", "Gate threshold"),
+    "s_thr_help": ("السؤال الذي تقلّ ثقته عن العتبة يُرفض قبل استدعاء النموذج. رفعها يقلّل "
+                   "الإجابات الخاطئة ويزيد رفض الأسئلة المشروعة، وخفضها يفعل العكس. القيمة "
+                   "الابتدائية في ⁦.env⁩ هي {v}.",
+                   "A question whose confidence is below the threshold is refused before the "
+                   "model is called. Raising it means fewer wrong answers and more "
+                   "legitimate questions refused; lowering it does the opposite. The "
+                   "initial value in .env is {v}."),
+    "s_limit": ("حدّ الأسئلة لكل مستخدم في 24 ساعة", "Questions per user in 24 hours"),
+    "s_limit_help": ("يُحسب لكل مستخدم في كل قناة على آخر 24 ساعة. من يبلغه يتلقى رسالة "
+                     "تخبره متى يسأل مجدداً، ولا يُستدعى النموذج. 0 يعني بلا حدّ. القيمة "
+                     "الابتدائية في ⁦.env⁩ هي {v}.",
+                     "Counted per user in each channel over the last 24 hours. Anyone who "
+                     "reaches it gets a message saying when they can ask again, and the "
+                     "model is not called. 0 means no limit. The initial value in .env "
+                     "is {v}."),
+    "s_pause": ("أوقف بيان مؤقتاً", "Pause Bayan"),
+    "s_pause_help": ("حين يتوقف بيان يُجاب كل سؤال بهذه الرسالة: «{m}»",
+                     "While Bayan is paused, every question gets this message: “{m}”"),
+    "save": ("احفظ", "Save"),
+    "reset_thr": ("أعِد العتبة إلى قيمة ⁦.env⁩", "Reset the threshold to the .env value"),
+    "channels": ("القنوات", "Channels"),
+    "env_settings": ("إعدادات من ⁦.env⁩", "Settings from .env"),
+    "env_help": ("تتغيّر بتعديل ملف ⁦.env⁩ على الخادم ثم إعادة تشغيله.",
+                 "Changed by editing .env on the server and restarting."),
+}
+FLASH_KIND = {"reindex": "ok", "busy": "warn", "saved": "ok", "blocked": "ok",
+              "unblocked": "ok"}
+
+
+def tr(lang: str):
+    """دالة ترجمة للغة الطلب: T("key", v=...)."""
+    i = 1 if lang == "en" else 0
+
+    def T(key: str, **kw) -> str:
+        text = TEXT[key][i]
+        return text.format(**kw) if kw else text
+
+    return T
+
+
+def req_lang(request: Request) -> str:
+    """?lang= يتقدّم على الكوكي، والافتراضي العربية."""
+    q = request.query_params.get("lang")
+    if q in ("ar", "en"):
+        return q
+    return "en" if request.cookies.get(LANG_COOKIE) == "en" else "ar"
 
 
 # ─────────────────────────────────────────────────────── الدخول
@@ -80,13 +304,12 @@ def is_admin(request: Request) -> bool:
 def _gate(request: Request) -> Response | None:
     """None إن كان الطلب من مسؤول، وإلا الرد المناسب."""
     if not configured():
+        T = tr(req_lang(request))
         return page(
-            "اللوحة غير مفعّلة",
-            '<div class="card"><p>اللوحة معطّلة لأن ADMIN_PASSWORD أو '
-            "SESSION_SECRET غير مضبوط في ملف ⁦.env⁩، أو أقصر من الحد الأدنى. "
-            "كلمة المرور 12 حرفاً على الأقل، والسرّ 32 حرفاً على الأقل.</p>"
-            "<p>لتوليد سرّ: <code>python -c \"import secrets;"
-            "print(secrets.token_urlsafe(48))\"</code></p></div>",
+            request, T("off_title"),
+            f'<div class="card"><p>{T("off_body")}</p><p>{T("off_gen")} '
+            "<code>python -c \"import secrets;print(secrets.token_urlsafe(48))\"</code>"
+            "</p></div>",
             nav=False, status=503,
         )
     if not is_admin(request):
@@ -101,6 +324,12 @@ def _same_origin(request: Request) -> bool:
     return urlsplit(origin).netloc == request.headers.get("host", "")
 
 
+def _plain(key: str, status: int) -> Response:
+    """رد نصي قصير باللغتين، لطلبات لا صفحة لها."""
+    ar, en = TEXT[key]
+    return Response(f"{ar} / {en}", status_code=status)
+
+
 async def _form(request: Request) -> dict[str, str] | None:
     if int(request.headers.get("content-length") or 0) > MAX_FORM_BYTES:
         return None
@@ -113,10 +342,10 @@ async def _post_gate(request: Request) -> tuple[Response | None, dict]:
     if denied:
         return denied, {}
     if not _same_origin(request):
-        return Response("مصدر الطلب غير مسموح", status_code=403), {}
+        return _plain("origin_denied", 403), {}
     form = await _form(request)
     if form is None:
-        return Response("الطلب أكبر من المسموح", status_code=413), {}
+        return _plain("too_large", 413), {}
     return None, form
 
 
@@ -154,15 +383,17 @@ CSS = """
 body{margin:0;background:var(--bg);color:var(--ink);line-height:1.7;
 font-family:"SF Arabic","Noto Sans Arabic","Segoe UI","Geeza Pro",Tahoma,sans-serif;
 font-size:15px}
+html[lang=en] body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 a{color:var(--accent)}
 header{background:var(--panel);border-bottom:1px solid var(--line)}
 .bar{max-width:1100px;margin:auto;padding:10px 16px;display:flex;flex-wrap:wrap;
 align-items:center;gap:6px 18px}
 .brand{font-weight:700;font-size:17px;margin-inline-end:auto}
 .brand small{color:var(--muted);font-weight:400}
-nav{display:flex;flex-wrap:wrap;gap:4px}
+nav{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
 nav a{padding:4px 10px;border-radius:6px;text-decoration:none;color:var(--ink)}
 nav a.on{background:var(--accent);color:var(--accent-ink)}
+nav a.lang{border:1px solid var(--line)}
 nav form{display:inline}
 main{max-width:1100px;margin:auto;padding:20px 16px 60px}
 h1{font-size:22px;margin:0 0 14px}
@@ -221,11 +452,11 @@ th{color:var(--muted);font-weight:600}
 """
 
 NAV = [
-    ("/admin", "نظرة عامة", "home"),
-    ("/admin/messages", "الأسئلة", "messages"),
-    ("/admin/try", "جرّب بيان", "try"),
-    ("/admin/settings", "الإعدادات", "settings"),
-    ("/admin/blocked", "المحظورون", "blocked"),
+    ("/admin", "nav_home", "home"),
+    ("/admin/messages", "nav_messages", "messages"),
+    ("/admin/try", "nav_try", "try"),
+    ("/admin/settings", "nav_settings", "settings"),
+    ("/admin/blocked", "nav_blocked", "blocked"),
 ]
 
 HEADERS = {
@@ -240,45 +471,73 @@ HEADERS = {
 }
 
 
-def page(title: str, body: str, active: str = "", nav: bool = True,
+def _lang_link(request: Request, other: str) -> str:
+    """رابط الصفحة نفسها باللغة الأخرى، مع بقية معاملاتها."""
+    params = {k: v for k, v in request.query_params.items() if k not in ("lang", "msg")}
+    params["lang"] = other
+    return f"{request.url.path}?{urlencode(params)}"
+
+
+def page(request: Request, title: str, body: str, active: str = "", nav: bool = True,
          status: int = 200, flash: str = "") -> HTMLResponse:
+    lang = req_lang(request)
+    T = tr(lang)
+    other = "ar" if lang == "en" else "en"
     links = ""
     if nav:
         links = "".join(
-            f'<a href="{href}" class="{"on" if key == active else ""}">{label}</a>'
+            f'<a href="{href}" class="{"on" if key == active else ""}">{T(label)}</a>'
             for href, label, key in NAV
         )
+    links += (f'<a class="lang" href="{e(_lang_link(request, other))}" '
+              f'lang="{other}">{T("other_lang")}</a>')
+    if nav:
         links += ('<form method="post" action="/admin/logout">'
-                  '<button class="ghost" type="submit">خروج</button></form>')
+                  f'<button class="ghost" type="submit">{T("logout")}</button></form>')
     note = ""
-    if flash in FLASH:
-        kind, text = FLASH[flash]
-        note = f'<div class="alert {kind}">{e(text)}</div>'
+    if flash in FLASH_KIND:
+        note = f'<div class="alert {FLASH_KIND[flash]}">{e(T("flash_" + flash))}</div>'
+    name = config.BOT_NAME_EN if lang == "en" else config.BOT_NAME
     doc = f"""<!doctype html>
-<html lang="ar" dir="rtl"><head><meta charset="utf-8">
+<html lang="{lang}" dir="{'ltr' if lang == 'en' else 'rtl'}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow">
-<title>{e(title)} · {e(config.BOT_NAME)}</title><style>{CSS}</style></head>
-<body><header><div class="bar"><div class="brand">{e(config.BOT_NAME)}
-<small>لوحة التحكم</small></div><nav>{links}</nav></div></header>
+<title>{e(title)} · {e(name)}</title><style>{CSS}</style></head>
+<body><header><div class="bar"><div class="brand">{e(name)}
+<small>{T("dashboard")}</small></div><nav>{links}</nav></div></header>
 <main><h1>{e(title)}</h1>{note}{body}</main></body></html>"""
-    return HTMLResponse(doc, status_code=status, headers=HEADERS)
+    resp = HTMLResponse(doc, status_code=status, headers=HEADERS)
+    if request.query_params.get("lang") in ("ar", "en"):
+        resp.set_cookie(LANG_COOKIE, lang, max_age=365 * 86400, httponly=True,
+                        samesite="strict", path="/admin",
+                        secure=config.PUBLIC_URL.startswith("https://"))
+    return resp
 
 
 def when(ts: float | None) -> str:
     if not ts:
         return "—"
     # عزل اتجاهي: بدونه يقلب السطر العربي ترتيب التاريخ والساعة
-    return "\u2066" + time.strftime("%Y-%m-%d %H:%M", time.gmtime(ts)) + " UTC\u2069"
+    return "⁦" + time.strftime("%Y-%m-%d %H:%M", time.gmtime(ts)) + " UTC⁩"
 
 
-def badge(outcome: str | None) -> str:
-    label, kind = OUTCOMES.get(outcome or "", (outcome or "؟", "muted"))
+def badge(outcome: str | None, T) -> str:
+    kind = OUTCOMES.get(outcome or "", "muted")
+    label = T(f"out_{outcome}") if outcome in OUTCOMES else (outcome or "?")
     return f'<span class="badge {kind}">{e(label)}</span>'
+
+
+def channel_name(channel: str, T) -> str:
+    return T(f"ch_{channel}") if channel in CHANNELS else channel
 
 
 def pct(n: int, total: int) -> str:
     return f"{round(100 * n / total)}%" if total else "0%"
+
+
+def _provider_label(T) -> str:
+    where = T("provider_local") if config.EMBED_PROVIDER == "local" else T("provider_voyage")
+    return f"{config.EMBED_MODEL} {where}"
 
 
 # ─────────────────────────────────────────────────── الدخول والخروج
@@ -288,17 +547,15 @@ async def login_form(request: Request, error: str = ""):
         return _gate(request)
     if is_admin(request):
         return RedirectResponse("/admin", status_code=303)
-    msg = {
-        "bad": "كلمة المرور غير صحيحة.",
-        "slow": "محاولات كثيرة. انتظر ربع ساعة ثم أعد المحاولة.",
-    }.get(error, "")
+    T = tr(req_lang(request))
+    msg = {"bad": T("login_bad"), "slow": T("login_slow")}.get(error, "")
     body = f"""<div class="card" style="max-width:420px">
 {f'<div class="alert bad">{e(msg)}</div>' if msg else ''}
 <form method="post" action="/admin/login">
-<label for="pw">كلمة المرور</label>
+<label for="pw">{T("password")}</label>
 <input id="pw" name="password" type="password" autocomplete="current-password" required autofocus>
-<p><button type="submit">دخول</button></p></form></div>"""
-    return page("الدخول إلى اللوحة", body, nav=False)
+<p><button type="submit">{T("login_btn")}</button></p></form></div>"""
+    return page(request, T("login_title"), body, nav=False)
 
 
 @router.post("/admin/login")
@@ -306,7 +563,7 @@ async def login(request: Request):
     if not configured():
         return _gate(request)
     if not _same_origin(request):
-        return Response("مصدر الطلب غير مسموح", status_code=403)
+        return _plain("origin_denied", 403)
     ip = request.client.host if request.client else "?"
     if not store.throttle("admin-login", ip, 5, 900):
         return _back("/admin/login", error="slow")
@@ -332,30 +589,21 @@ async def logout():
 
 
 # ─────────────────────────────────────────────────────── نظرة عامة
-def _alerts(counts: dict, emb: int, status: dict, last: dict | None) -> str:
+def _alerts(T, lang: str, counts: dict, emb: int, status: dict, last: dict | None) -> str:
     out = []
     if brain.paused():
-        out.append(("bad", "بيان متوقف الآن.",
-                    "كل سؤال يُجاب برسالة الإيقاف. أعِد تشغيله من الإعدادات."))
+        out.append(("bad", T("a_paused"), T("a_paused_d")))
     if counts["_chunks"] == 0:
-        out.append(("bad", "قاعدة المعرفة فارغة.",
-                    "بيان يرفض كل سؤال. شغّل الفهرسة من أسفل هذه الصفحة."))
-    if status["vector_note"]:
-        out.append((
-            "bad", "البحث الدلالي معطّل.",
-            f"{status['vector_note']}. يرفض بيان الآن كل سؤال مصاغ بكلمات غير "
-            "كلمات الموقع، ومنها أسئلة مشروعة كثيرة.",
-        ))
+        out.append(("bad", T("a_empty"), T("a_empty_d")))
+    note = status["vector_note_en"] if lang == "en" else status["vector_note"]
+    if note:
+        out.append(("bad", T("a_novec"), T("a_novec_d", note=note)))
     elif (emb and store.setting("min_relevance", "") == ""
           and embed.model_id() != CALIBRATED_FOR):
-        out.append((
-            "warn", f"العتبة على قيمتها الابتدائية {config.MIN_RELEVANCE:.2f}.",
-            f"هذه القيمة معايَرة لـ {CALIBRATED_FOR} لا لـ {embed.model_id()}. "
-            "شغّل scripts/calibrate.py واضبط العتبة من الإعدادات.",
-        ))
+        out.append(("warn", T("a_thr", v=f"{config.MIN_RELEVANCE:.2f}"),
+                    T("a_thr_d", cal=CALIBRATED_FOR, cur=embed.model_id())))
     if last and last.get("finished") and not last.get("ok"):
-        out.append(("warn", f"فشلت آخر فهرسة ({when(last['started'])}).",
-                    "الفهرس السابق ما زال يعمل. التفاصيل في أسفل الصفحة."))
+        out.append(("warn", T("a_failed", when=when(last["started"])), T("a_failed_d")))
     return "".join(
         f'<div class="alert {k}"><strong>{e(t)}</strong>{e(d)}</div>'
         for k, t, d in out
@@ -366,6 +614,8 @@ def _alerts(counts: dict, emb: int, status: dict, last: dict | None) -> str:
 async def overview(request: Request, msg: str = ""):
     if denied := _gate(request):
         return denied
+    lang = req_lang(request)
+    T = tr(lang)
     retrieve.ensure_fresh()
     counts = store.counts()
     emb = store.embedded_count()
@@ -377,63 +627,59 @@ async def overview(request: Request, msg: str = ""):
     total = sum(outcomes.values())
     thr = brain.threshold()
 
-    vec_ok = "تعمل" if status["vectors"] else "معطّلة"
+    vec_ok = T("vec_on") if status["vectors"] else T("vec_off")
+    thr_src = T("thr_dash") if store.setting("min_relevance", "") else T("thr_init")
     cards = f"""<div class="grid">
-<div class="card stat"><span>مقاطع قاعدة المعرفة</span><b>{counts['_chunks']}</b>
-<span>التحقيقات: {counts.get('investigation', 0)}، الأدوات: {counts.get('tool', 0)}،
-الأدوات المُزالة: {counts.get('tool_removed', 0)}.</span></div>
-<div class="card stat"><span>أدوات الدليل</span><b>{counts['_tools']}</b>
-<span>الحسّاسة: {counts['_tools_sensitive']}، المُزالة: {counts['_tools_removed']}.</span></div>
-<div class="card stat"><span>المتجهات ({e(_provider_label())})</span><b>{vec_ok}</b>
-<span>مقاطع لها متجهات: {emb} من {counts['_chunks']}.</span></div>
-<div class="card stat"><span>عتبة البوابة</span><b>{thr:.2f}</b>
-<span>{'مضبوطة من اللوحة.' if store.setting('min_relevance', '') else 'قيمة ابتدائية لم تُعدَّل من اللوحة.'}</span></div>
+<div class="card stat"><span>{T("c_chunks")}</span><b>{counts['_chunks']}</b>
+<span>{T("c_chunks_d", i=counts.get('investigation', 0), t=counts.get('tool', 0),
+          r=counts.get('tool_removed', 0))}</span></div>
+<div class="card stat"><span>{T("c_tools")}</span><b>{counts['_tools']}</b>
+<span>{T("c_tools_d", s=counts['_tools_sensitive'], r=counts['_tools_removed'])}</span></div>
+<div class="card stat"><span>{e(T("c_vec", p=_provider_label(T)))}</span><b>{vec_ok}</b>
+<span>{T("c_vec_d", n=emb, t=counts['_chunks'])}</span></div>
+<div class="card stat"><span>{T("c_thr")}</span><b>{thr:.2f}</b>
+<span>{thr_src}</span></div>
 </div>"""
 
     rows = ""
-    for key, (label, kind) in OUTCOMES.items():
+    for key in OUTCOMES:
         n = outcomes.get(key, 0)
         rows += (
-            f'<tr><td><a href="/admin/messages?outcome={key}">{badge(key)}</a></td>'
+            f'<tr><td><a href="/admin/messages?outcome={key}">{badge(key, T)}</a></td>'
             f"<td>{n}</td><td>{pct(n, total)}</td>"
             f'<td style="width:40%"><div class="bar-chart"><i style="width:{pct(n, total)}">'
             f"</i></div></td></tr>"
         )
     ch_rows = "".join(
-        f"<tr><td>{e(CHANNELS.get(c, c))}</td><td>{v['questions']}</td>"
+        f"<tr><td>{e(channel_name(c, T))}</td><td>{v['questions']}</td>"
         f"<td>{v['users']}</td></tr>"
         for c, v in sorted(channels.items())
-    ) or '<tr><td colspan="3" class="muted">لا أسئلة بعد.</td></tr>'
-    activity = f"""<h2>آخر 7 أيام</h2><p class="help">عدد الأسئلة: {total}.</p>
+    ) or f'<tr><td colspan="3" class="muted">{T("none_yet")}</td></tr>'
+    activity = f"""<h2>{T("week")}</h2><p class="help">{T("week_n", n=total)}</p>
 <div class="grid"><div class="card"><table>
-<tr><th>النتيجة</th><th>العدد</th><th>النسبة</th><th></th></tr>{rows}</table></div>
-<div class="card"><table><tr><th>القناة</th><th>الأسئلة</th><th>المستخدمون</th></tr>
-{ch_rows}</table></div></div>"""
+<tr><th>{T("th_outcome")}</th><th>{T("th_count")}</th><th>{T("th_share")}</th><th></th></tr>
+{rows}</table></div>
+<div class="card"><table><tr><th>{T("th_channel")}</th><th>{T("th_questions")}</th>
+<th>{T("th_users")}</th></tr>{ch_rows}</table></div></div>"""
 
     if last:
-        took = (f"، والمدة بالثواني: {round(last['finished'] - last['started'])}"
+        took = (T("run_took", s=round(last["finished"] - last["started"]))
                 if last.get("finished") else "")
-        state = ("جارية الآن" if not last.get("finished")
-                 else "نجحت" if last.get("ok") else "فشلت")
-        run_html = (f"<p>بدأت {when(last['started'])}{took}. الحالة: "
-                    f"<strong>{state}</strong>.</p>"
+        state = (T("run_running") if not last.get("finished")
+                 else T("run_ok") if last.get("ok") else T("run_failed"))
+        run_html = (f'<p>{T("run_line", when=when(last["started"]), took=took, state=f"<strong>{state}</strong>")}</p>'
                     f'<pre class="log">{e(last.get("detail") or "")}</pre>')
     else:
-        run_html = '<p class="muted">لم تُشغَّل أي فهرسة بعد.</p>'
+        run_html = f'<p class="muted">{T("run_none")}</p>'
     busy = ingest.running()
-    reindex = f"""<h2>الفهرسة</h2><div class="card">{run_html}
+    reindex = f"""<h2>{T("indexing")}</h2><div class="card">{run_html}
 <form method="post" action="/admin/reindex-now" class="row">
-<button type="submit" {'disabled' if busy else ''}>أعد الفهرسة الآن</button>
-<span class="muted">تسحب آخر نسخة من مستودع الموقع، وتشغّل المُستخرِج، وتولّد
-المتجهات، وتستغرق بضع دقائق. الفهرس الحالي يبقى يعمل حتى تكتمل.</span></form></div>"""
+<button type="submit" {'disabled' if busy else ''}>{T("reindex_btn")}</button>
+<span class="muted">{T("reindex_help")}</span></form></div>"""
 
-    alerts = _alerts(counts, emb, status, last)
-    return page("نظرة عامة", alerts + cards + activity + reindex, "home", flash=msg)
-
-
-def _provider_label() -> str:
-    where = "على الخادم" if config.EMBED_PROVIDER == "local" else "عبر Voyage"
-    return f"{config.EMBED_MODEL} {where}"
+    alerts = _alerts(T, lang, counts, emb, status, last)
+    return page(request, T("nav_home"), alerts + cards + activity + reindex, "home",
+                flash=msg)
 
 
 @router.post("/admin/reindex-now")
@@ -446,25 +692,12 @@ async def reindex_now(request: Request):
 
 
 # ─────────────────────────────────────────────────────── الأسئلة
-HELP = {
-    "refused_gate": (
-        "أسئلة رفضتها البوابة قبل استدعاء النموذج. رتّبها حسب الثقة: إن وجدت "
-        "بين الأعلى ثقةً أسئلة مشروعة عن الأدوات أو التحقيقات، فالعتبة أعلى "
-        "مما ينبغي."
-    ),
-    "refused_model": (
-        "أسئلة تجاوزت البوابة ثم رفضها النموذج. كثرتها تعني أن العتبة أدنى مما "
-        "ينبغي، وكل واحد منها استدعاء مدفوع للنموذج."
-    ),
-    "error": "أسئلة فشل فيها استدعاء النموذج. راجع سجلّ الخادم.",
-}
-
-
 @router.get("/admin/messages")
 async def messages(request: Request, outcome: str = "", channel: str = "",
                    before: int = 0, sort: str = "", msg: str = ""):
     if denied := _gate(request):
         return denied
+    T = tr(req_lang(request))
     outcome = outcome if outcome in OUTCOMES else ""
     channel = channel if channel in CHANNELS else ""
     by_conf = sort == "confidence"
@@ -477,25 +710,28 @@ async def messages(request: Request, outcome: str = "", channel: str = "",
         query = urlencode({k: v for k, v in params.items() if v})
         return "/admin/messages" + (f"?{query}" if query else "")
 
-    tabs = f'<a href="{link(outcome="")}" class="{"on" if not outcome else ""}">الكل</a>'
+    tabs = f'<a href="{link(outcome="")}" class="{"on" if not outcome else ""}">{T("all")}</a>'
     tabs += "".join(
-        f'<a href="{link(outcome=k)}" class="{"on" if k == outcome else ""}">{e(v[0])}</a>'
-        for k, v in OUTCOMES.items()
+        f'<a href="{link(outcome=k)}" class="{"on" if k == outcome else ""}">'
+        f'{e(T("out_" + k))}</a>'
+        for k in OUTCOMES
     )
-    ch_tabs = f'<a href="{link(channel="")}" class="{"on" if not channel else ""}">كل القنوات</a>'
+    ch_tabs = (f'<a href="{link(channel="")}" class="{"on" if not channel else ""}">'
+               f'{T("all_channels")}</a>')
     ch_tabs += "".join(
-        f'<a href="{link(channel=k)}" class="{"on" if k == channel else ""}">{e(v)}</a>'
-        for k, v in CHANNELS.items()
+        f'<a href="{link(channel=k)}" class="{"on" if k == channel else ""}">'
+        f'{e(channel_name(k, T))}</a>'
+        for k in CHANNELS
     )
     sort_tab = (
-        f'<a href="{link(sort="")}" class="{"" if by_conf else "on"}">الأحدث أولاً</a>'
+        f'<a href="{link(sort="")}" class="{"" if by_conf else "on"}">{T("newest")}</a>'
         f'<a href="{link(sort="confidence")}" class="{"on" if by_conf else ""}">'
-        "الأعلى ثقةً أولاً</a>"
+        f'{T("highest")}</a>'
     )
     head = (f'<div class="tabs">{tabs}</div><div class="tabs">{ch_tabs}</div>'
             f'<div class="tabs">{sort_tab}</div>')
-    if outcome in HELP:
-        head += f'<p class="help">{e(HELP[outcome])}</p>'
+    if outcome in ("refused_gate", "refused_model", "error"):
+        head += f'<p class="help">{e(T("help_" + outcome))}</p>'
 
     here = link(before=str(before) if before and not by_conf else "")
     cards = []
@@ -504,23 +740,25 @@ async def messages(request: Request, outcome: str = "", channel: str = "",
         sources = "".join(
             f'<li><a href="{e(s)}" rel="noreferrer">{e(s)}</a></li>' for s in m["sources"]
         )
-        reply = (f'<details><summary>ردّ بيان</summary><div class="reply">{e(m["reply"])}</div>'
+        reply = (f'<details><summary>{T("reply")}</summary>'
+                 f'<div class="reply">{e(m["reply"])}</div>'
                  f'{f"<ul>{sources}</ul>" if sources else ""}</details>'
                  if m.get("reply") else "")
         conf = f"{m['confidence']:.2f}" if m["confidence"] is not None else "—"
         cards.append(f"""<div class="card">
-<div class="meta">{badge(m['outcome'])}<span>الثقة {conf}</span>
-<span>{e(CHANNELS.get(m['channel'], m['channel']))}</span>
-<span title="بصمة المستخدم">المستخدم {fp}</span><span>{when(m['ts'])}</span>
+<div class="meta">{badge(m['outcome'], T)}<span>{T("conf", c=conf)}</span>
+<span>{e(channel_name(m['channel'], T))}</span>
+<span title="{T("fp_title")}">{T("user", fp=fp)}</span><span>{when(m['ts'])}</span>
 <form method="post" action="/admin/block">
 <input type="hidden" name="msg_id" value="{m['id']}">
 <input type="hidden" name="next" value="{e(here)}">
-<button class="danger small" type="submit">احظر</button></form></div>
+<button class="danger small" type="submit">{T("block_btn")}</button></form></div>
 <div class="q">{e(m['content'])}</div>{reply}</div>""")
-    body = head + ("".join(cards) or '<div class="card muted">لا أسئلة هنا.</div>')
+    body = head + ("".join(cards) or f'<div class="card muted">{T("none_here")}</div>')
     if items and not by_conf and len(items) == 50:
-        body += f'<p><a class="btn" href="{e(link(before=str(items[-1]["id"])))}">أقدم</a></p>'
-    return page("أسئلة الجمهور", body, "messages", flash=msg)
+        body += (f'<p><a class="btn" href="{e(link(before=str(items[-1]["id"])))}">'
+                 f'{T("older")}</a></p>')
+    return page(request, T("q_title"), body, "messages", flash=msg)
 
 
 @router.post("/admin/block")
@@ -532,7 +770,7 @@ async def block(request: Request):
     owner = store.message_owner(int(form.get("msg_id") or 0)) \
         if (form.get("msg_id") or "").isdigit() else None
     if owner:
-        store.block(*owner, "حُظر من اللوحة")
+        store.block(*owner, BLOCK_REASON)
     sep = "&" if "?" in nxt else "?"
     return RedirectResponse(f"{nxt}{sep}msg=blocked", status_code=303)
 
@@ -542,21 +780,25 @@ async def block(request: Request):
 async def blocked(request: Request, msg: str = ""):
     if denied := _gate(request):
         return denied
+    T = tr(req_lang(request))
+
+    def reason(r: str | None) -> str:
+        return T("reason_dashboard") if r in (BLOCK_REASON, "حُظر من اللوحة") else (r or "")
+
     rows = "".join(
         f"""<tr><td>{fingerprint(b['channel'], b['user_id'])}</td>
-<td>{e(CHANNELS.get(b['channel'], b['channel']))}</td><td>{e(b['reason'] or '')}</td>
+<td>{e(channel_name(b['channel'], T))}</td><td>{e(reason(b['reason']))}</td>
 <td>{when(b['ts'])}</td><td><form method="post" action="/admin/unblock">
 <input type="hidden" name="channel" value="{e(b['channel'])}">
 <input type="hidden" name="fp" value="{fingerprint(b['channel'], b['user_id'])}">
-<button class="ghost" type="submit">ارفع الحظر</button></form></td></tr>"""
+<button class="ghost" type="submit">{T("unblock_btn")}</button></form></td></tr>"""
         for b in store.blocked_list()
     )
-    body = ('<p class="help">المحظور يتلقى رسالة الرفض على كل سؤال، ولا يُستدعى '
-            "النموذج لأجله.</p>")
-    body += (f'<div class="card"><table><tr><th>المستخدم</th><th>القناة</th>'
-             f"<th>السبب</th><th>منذ</th><th></th></tr>{rows}</table></div>"
-             if rows else '<div class="card muted">لا أحد محظور.</div>')
-    return page("المحظورون", body, "blocked", flash=msg)
+    body = f'<p class="help">{T("blocked_help")}</p>'
+    body += (f'<div class="card"><table><tr><th>{T("th_user")}</th><th>{T("th_channel")}</th>'
+             f'<th>{T("th_reason")}</th><th>{T("th_since")}</th><th></th></tr>{rows}</table></div>'
+             if rows else f'<div class="card muted">{T("nobody")}</div>')
+    return page(request, T("nav_blocked"), body, "blocked", flash=msg)
 
 
 @router.post("/admin/unblock")
@@ -573,20 +815,20 @@ async def unblock(request: Request):
 
 
 # ─────────────────────────────────────────────────────── التجربة
-def _try_form(q: str = "") -> str:
+def _try_form(T, q: str = "") -> str:
     return f"""<div class="card"><form method="post" action="/admin/try">
-<label for="q">السؤال</label>
+<label for="q">{T("question")}</label>
 <textarea id="q" name="q" rows="3" maxlength="{config.MAX_QUESTION_CHARS}" required>{e(q)}</textarea>
-<p class="row"><button type="submit">اسأل بيان</button>
-<span class="muted">التجربة لا تُسجَّل في سجل الأسئلة. السؤال الذي يتجاوز البوابة
-يستدعي النموذج فعلاً.</span></p></form></div>"""
+<p class="row"><button type="submit">{T("ask_btn")}</button>
+<span class="muted">{T("try_note")}</span></p></form></div>"""
 
 
 @router.get("/admin/try")
 async def try_form(request: Request):
     if denied := _gate(request):
         return denied
-    return page("جرّب بيان", _try_form(), "try")
+    T = tr(req_lang(request))
+    return page(request, T("nav_try"), _try_form(T), "try")
 
 
 @router.post("/admin/try")
@@ -594,50 +836,61 @@ async def try_ask(request: Request):
     denied, form = await _post_gate(request)
     if denied:
         return denied
+    lang = req_lang(request)
+    T = tr(lang)
     q = (form.get("q") or "").strip()[: config.MAX_QUESTION_CHARS]
     if not q:
-        return page("جرّب بيان", _try_form(), "try")
+        return page(request, T("nav_try"), _try_form(T), "try")
     res = await asyncio.to_thread(brain.answer, q, "admin", "console")
     r = res["retrieval"] or {"tools": [], "category": None, "category_tools": [],
                              "passages": [], "used_vectors": False}
     thr = brain.threshold()
-    tools = "، ".join(e(t["name"]) for t in r["tools"]) or "لا شيء"
+    sep = ", " if lang == "en" else "، "
+    tools = sep.join(e(t["name"]) for t in r["tools"]) or T("nothing")
     cat = r["category"]
-    cat_html = (f"{e(cat['category_ar'])}، والأدوات المعروضة منه: "
-                f"{len(r['category_tools'])}" if cat else "لا شيء")
+    cat_name = (cat.get("category_en") if lang == "en" else None) or cat["category_ar"] \
+        if cat else ""
+    cat_html = (e(T("cat_shown", c=cat_name, n=len(r["category_tools"])))
+                if cat else T("nothing"))
     passages = "".join(
-        f'<tr><td>{e(TYPES.get(p["type"], p["type"]))}</td><td class="wrap">{e(p["title"] or "")}</td>'
+        f'<tr><td>{e(T("type_" + p["type"]) if ("type_" + p["type"]) in TEXT else p["type"])}</td>'
+        f'<td class="wrap">{e(p["title"] or "")}</td>'
         f'<td class="wrap"><a href="{e(p["url"])}" rel="noreferrer">{e(p["url"])}</a></td></tr>'
         for p in r["passages"]
     )
-    mode = "متجهات ونص" if r.get("used_vectors") else "نص فقط"
-    body = _try_form(q) + f"""<div class="card">
-<div class="meta">{badge(res['outcome'])}<span>الثقة {res['confidence']:.3f}</span>
-<span>العتبة {thr:.2f}</span><span>البحث: {mode}</span></div>
-<div class="reply">{e(res['text'])}</div></div>
+    mode = T("mode_vec") if r.get("used_vectors") else T("mode_text")
+    answer_lang = T("lang_en") if res.get("lang") == "en" else T("lang_ar")
+    table = (f'<table><tr><th>{T("th_type")}</th><th>{T("th_title")}</th>'
+             f'<th>{T("th_link")}</th></tr>{passages}</table>'
+             if passages else f'<p class="muted">{T("no_passages")}</p>')
+    body = _try_form(T, q) + f"""<div class="card">
+<div class="meta">{badge(res['outcome'], T)}<span>{T("conf", c=f"{res['confidence']:.3f}")}</span>
+<span>{T("thr_v", t=f"{thr:.2f}")}</span><span>{T("search_mode", m=mode)}</span>
+<span>{T("answer_lang", l=answer_lang)}</span></div>
+<div class="reply" dir="auto">{e(res['text'])}</div></div>
 <div class="card"><table>
-<tr><th>أدوات مطابقة بالاسم</th><td>{tools}</td></tr>
-<tr><th>تصنيف مطابق</th><td>{cat_html}</td></tr></table></div>
-<h2>المقاطع المسترجعة</h2>
-<div class="card">{f'<table><tr><th>النوع</th><th>العنوان</th><th>الرابط</th></tr>{passages}</table>' if passages else '<p class="muted">لا مقاطع.</p>'}</div>"""
-    return page("جرّب بيان", body, "try")
+<tr><th>{T("th_name_match")}</th><td>{tools}</td></tr>
+<tr><th>{T("th_cat_match")}</th><td>{cat_html}</td></tr></table></div>
+<h2>{T("passages")}</h2>
+<div class="card">{table}</div>"""
+    return page(request, T("nav_try"), body, "try")
 
 
 # ─────────────────────────────────────────────────────── الإعدادات
-def _channel_state() -> str:
+def _channel_state(T) -> str:
     def row(name: str, ok: bool, need: str) -> str:
-        state = ('<span class="state ok">مضبوطة.</span>' if ok
-                 else f'<span class="state muted">ينقصها {e(need)}.</span>')
+        state = (f'<span class="state ok">{T("st_ok")}</span>' if ok
+                 else f'<span class="state muted">{e(T("st_missing", need=need))}</span>')
         return f'<tr><td>{e(name)}</td><td class="wrap">{state}</td></tr>'
 
     meta = bool(config.META_APP_SECRET and config.META_VERIFY_TOKEN)
     return (
-        row("تيليغرام", bool(config.TELEGRAM_BOT_TOKEN and config.TELEGRAM_WEBHOOK_SECRET),
-            "TELEGRAM_BOT_TOKEN و TELEGRAM_WEBHOOK_SECRET")
-        + row("واتساب", meta and bool(config.WHATSAPP_TOKEN and config.WHATSAPP_PHONE_NUMBER_ID),
-              "مفاتيح Meta وواتساب")
-        + row("ماسنجر", meta and bool(config.MESSENGER_PAGE_TOKEN),
-              "مفاتيح Meta و MESSENGER_PAGE_TOKEN")
+        row(T("ch_telegram"),
+            bool(config.TELEGRAM_BOT_TOKEN and config.TELEGRAM_WEBHOOK_SECRET), T("need_tg"))
+        + row(T("ch_whatsapp"),
+              meta and bool(config.WHATSAPP_TOKEN and config.WHATSAPP_PHONE_NUMBER_ID),
+              T("need_wa"))
+        + row(T("ch_messenger"), meta and bool(config.MESSENGER_PAGE_TOKEN), T("need_ms"))
     )
 
 
@@ -645,48 +898,45 @@ def _channel_state() -> str:
 async def settings(request: Request, msg: str = "", error: str = ""):
     if denied := _gate(request):
         return denied
+    lang = req_lang(request)
+    T = tr(lang)
     thr = brain.threshold()
     paused = brain.paused()
-    err = {
-        "threshold": '<div class="alert bad">العتبة رقم بين 0.05 و 0.90.</div>',
-        "limit": '<div class="alert bad">الحدّ اليومي عدد صحيح بين 0 و 1000.</div>',
-    }.get(error, "")
+    err = {"threshold": "err_threshold", "limit": "err_limit"}.get(error)
+    err_html = f'<div class="alert bad">{T(err)}</div>' if err else ""
     fixed = [
-        ("نموذج الإجابة", config.ANSWER_MODEL),
-        ("نموذج المتجهات", _provider_label()),
-        ("أبعاد المتجه", config.EMBED_DIM),
-        ("المقاطع لكل سؤال", config.TOP_K),
-        ("أقصى عدد أدوات في القائمة", config.MAX_TOOLS_LISTED),
-        ("أقصى رسائل المستخدم الواحد", config.RATE_LIMIT_MESSAGES),
-        ("خلال (ثانية)", config.RATE_LIMIT_WINDOW),
-        ("الأسئلة السابقة التي يتذكرها", config.HISTORY_TURNS),
-        ("عرض المصادر", "نعم" if config.SHOW_SOURCES else "لا"),
+        (T("f_answer_model"), config.ANSWER_MODEL),
+        (T("f_embed_model"), _provider_label(T)),
+        (T("f_dim"), config.EMBED_DIM),
+        (T("f_top_k"), config.TOP_K),
+        (T("f_max_tools"), config.MAX_TOOLS_LISTED),
+        (T("f_rate"), config.RATE_LIMIT_MESSAGES),
+        (T("f_window"), config.RATE_LIMIT_WINDOW),
+        (T("f_history"), config.HISTORY_TURNS),
+        (T("f_sources"), T("yes") if config.SHOW_SOURCES else T("no")),
     ]
     fixed_rows = "".join(f"<tr><th>{e(k)}</th><td>{e(str(v))}</td></tr>" for k, v in fixed)
-    body = f"""{err}<div class="card"><form method="post" action="/admin/settings">
-<label for="t">عتبة البوابة</label>
-<p class="help">السؤال الذي تقلّ ثقته عن العتبة يُرفض قبل استدعاء النموذج. رفعها
-يقلّل الإجابات الخاطئة ويزيد رفض الأسئلة المشروعة، وخفضها يفعل العكس. القيمة
-الابتدائية في ⁦.env⁩ هي {config.MIN_RELEVANCE:.2f}.</p>
+    paused_msg = config.PAUSED_MESSAGE_EN if lang == "en" else config.PAUSED_MESSAGE
+    body = f"""{err_html}<div class="card"><form method="post" action="/admin/settings">
+<label for="t">{T("s_thr")}</label>
+<p class="help">{T("s_thr_help", v=f"{config.MIN_RELEVANCE:.2f}")}</p>
 <input id="t" name="threshold" type="number" step="0.01" min="0.05" max="0.9"
 value="{thr:.2f}" style="max-width:140px">
-<label for="dl">حدّ الأسئلة لكل مستخدم في 24 ساعة</label>
-<p class="help">يُحسب لكل مستخدم في كل قناة على آخر 24 ساعة. من يبلغه يتلقى رسالة
-تخبره متى يسأل مجدداً، ولا يُستدعى النموذج. 0 يعني بلا حدّ. القيمة الابتدائية
-في ⁦.env⁩ هي {config.DAILY_LIMIT}.</p>
+<label for="dl">{T("s_limit")}</label>
+<p class="help">{T("s_limit_help", v=config.DAILY_LIMIT)}</p>
 <input id="dl" name="daily_limit" type="number" step="1" min="0" max="1000"
 value="{brain.daily_limit()}" style="max-width:140px">
 <label><input type="checkbox" name="paused" value="1" {'checked' if paused else ''}>
-أوقف بيان مؤقتاً</label>
-<p class="help">حين يتوقف بيان يُجاب كل سؤال بهذه الرسالة: «{e(config.PAUSED_MESSAGE)}»</p>
-<p class="row"><button type="submit">احفظ</button>
-<button class="ghost" type="submit" name="reset" value="1">أعِد العتبة إلى قيمة ⁦.env⁩</button></p>
+{T("s_pause")}</label>
+<p class="help">{e(T("s_pause_help", m=paused_msg))}</p>
+<p class="row"><button type="submit">{T("save")}</button>
+<button class="ghost" type="submit" name="reset" value="1">{T("reset_thr")}</button></p>
 </form></div>
-<h2>القنوات</h2><div class="card"><table>{_channel_state()}</table></div>
-<h2>إعدادات من ⁦.env⁩</h2>
-<p class="help">تتغيّر بتعديل ملف ⁦.env⁩ على الخادم ثم إعادة تشغيله.</p>
+<h2>{T("channels")}</h2><div class="card"><table>{_channel_state(T)}</table></div>
+<h2>{T("env_settings")}</h2>
+<p class="help">{T("env_help")}</p>
 <div class="card"><table>{fixed_rows}</table></div>"""
-    return page("الإعدادات", body, "settings", flash=msg)
+    return page(request, T("nav_settings"), body, "settings", flash=msg)
 
 
 @router.post("/admin/settings")

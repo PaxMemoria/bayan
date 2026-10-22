@@ -40,6 +40,7 @@ class _State:
         self.matrix = np.zeros((0, config.EMBED_DIM), dtype=np.float32)
         self.ids: list[int] = []
         self.vector_note = ""
+        self.vector_note_en = ""
         self.categories: list[dict] = []
         self.tool_names: list[tuple[str, str]] = []  # (norm_name, name)
         self.idf: dict[str, float] = {}
@@ -70,12 +71,18 @@ def warm() -> None:
         reason = embed.unavailable_reason()
         if reason:
             s.vector_note = reason
+            s.vector_note_en = embed.unavailable_reason("en")
         elif not ids:
             s.vector_note = "الفهرس بلا متجهات، أعد الفهرسة"
+            s.vector_note_en = "The index has no vectors; reindex"
         elif built_with != embed.model_id() or matrix.shape[1] != config.EMBED_DIM:
             s.vector_note = (
                 f"الفهرس مبني بـ {built_with or 'إعداد سابق'} والإعداد الحالي "
                 f"{embed.model_id()}، أعد الفهرسة"
+            )
+            s.vector_note_en = (
+                f"The index was built with {built_with or 'an earlier setting'} and "
+                f"the current setting is {embed.model_id()}; reindex"
             )
         else:
             s.matrix, s.ids = matrix, ids
@@ -114,7 +121,8 @@ def ensure_fresh() -> None:
 
 
 def status() -> dict:
-    return {"vectors": len(_S.ids), "vector_note": _S.vector_note}
+    return {"vectors": len(_S.ids), "vector_note": _S.vector_note,
+            "vector_note_en": _S.vector_note_en}
 
 
 def link_rules() -> tuple[list[str], set[str]]:

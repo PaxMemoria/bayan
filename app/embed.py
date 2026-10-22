@@ -24,14 +24,21 @@ class EmbedError(RuntimeError):
     """فشل توليد المتجهات."""
 
 
-def unavailable_reason() -> str:
+def unavailable_reason(lang: str = "ar") -> str:
     """لماذا لا تتوفر المتجهات، أو نص فارغ إن كانت متوفرة."""
+    en = lang == "en"
     if config.EMBED_PROVIDER == "local":
         if config.EMBED_MODEL != "voyage-4-nano":
+            if en:
+                return f"The local provider only runs voyage-4-nano, not {config.EMBED_MODEL}"
             return f"المزوّد المحلي يشغّل voyage-4-nano وحده، لا {config.EMBED_MODEL}"
-        return nano.missing(config.LOCAL_MODEL_DIR)
+        return nano.missing(config.LOCAL_MODEL_DIR, lang)
     if config.EMBED_PROVIDER == "voyage":
-        return "" if config.VOYAGE_API_KEY else "VOYAGE_API_KEY غير مضبوط"
+        if config.VOYAGE_API_KEY:
+            return ""
+        return "VOYAGE_API_KEY is not set" if en else "VOYAGE_API_KEY غير مضبوط"
+    if en:
+        return f"Unknown EMBED_PROVIDER value: {config.EMBED_PROVIDER}"
     return f"قيمة EMBED_PROVIDER غير معروفة: {config.EMBED_PROVIDER}"
 
 

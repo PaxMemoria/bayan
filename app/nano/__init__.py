@@ -33,18 +33,25 @@ _lock = threading.Lock()
 _loaded: tuple | None = None  # (tokenizer, model, path)
 
 
-def missing(path: Path) -> str:
+def missing(path: Path, lang: str = "ar") -> str:
     """سبب عدم توفّر النموذج، أو نص فارغ إن كان جاهزاً."""
     import importlib.util
 
+    en = lang == "en"
     if importlib.util.find_spec("torch") is None:
-        return "مكتبة torch غير مثبّتة"
+        return "torch is not installed" if en else "مكتبة torch غير مثبّتة"
     absent = [f for f in FILES if not (path / f).exists()]
     if absent:
+        if en:
+            return (f"The local model is missing from {path} (no {absent[0]}). "
+                    "Run scripts/fetch_model.py")
         return (f"النموذج المحلي غير موجود في {path} (ينقصه {absent[0]}). "
                 "شغّل scripts/fetch_model.py")
     rev = (path / "REVISION").read_text().strip() if (path / "REVISION").exists() else ""
     if rev != REVISION:
+        if en:
+            return (f"The model in {path} is not from the pinned revision. "
+                    "Run scripts/fetch_model.py")
         return f"النموذج في {path} ليس من المراجعة المثبّتة. شغّل scripts/fetch_model.py"
     return ""
 
