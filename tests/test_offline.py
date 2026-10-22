@@ -60,9 +60,12 @@ CHUNKS = [
     {"id": "tool-removed:0", "type": "tool_removed", "title": "Discord Multi-Tool",
      "url": "https://paxmemoria.org/osint-tools",
      "text": "الأداة: Discord Multi-Tool\nأُزيلت.\nنطاقها السابق (لا يُفتح): github.com/AstraaDev"},
-    {"id": "inv:x:0", "type": "investigation", "title": "تحقيق السيول",
-     "url": "https://paxmemoria.org/investigations/x",
+    {"id": "inv:x:0", "type": "investigation", "lang": "ar", "title": "تحقيق السيول",
+     "url": "https://paxmemoria.org/investigations/x", "meta": {"slug": "x"},
      "text": "كشفت صور الأقمار الصناعية حجم السيول في محافظة الحديدة اليمنية."},
+    {"id": "inv:x-en:0", "type": "investigation", "lang": "en", "title": "Floods investigation",
+     "url": "https://paxmemoria.org/investigations/x-en", "meta": {"slug": "x-en"},
+     "text": "Satellite images revealed the scale of the floods in Yemen's Hodeidah governorate."},
 ]
 pathlib.Path(os.environ["TOOLS_PATH"]).write_text(json.dumps(TOOLS, ensure_ascii=False))
 pathlib.Path(os.environ["KNOWLEDGE_PATH"]).write_text(
@@ -324,6 +327,53 @@ r = client.post("/admin/settings", data={"threshold": "0.30", "daily_limit": "ab
 check("حدّ يومي غير صالح يُرفض من اللوحة", "error=limit" in r.headers["location"])
 client.post("/admin/settings", data={"threshold": "0.30", "daily_limit": "10"})
 check("الحدّ اليومي يُحفظ من اللوحة", brain.daily_limit() == 10)
+
+# ── ٥ج. اللغتان ──────────────────────────────────────────────────
+print("\n── اللغتان ──")
+from app import i18n  # noqa: E402
+
+check("سؤال عربي فيه اسم أداة إنجليزي طويل يبقى عربياً",
+      i18n.detect("ما هي أداة Google Earth Pro؟") == "ar")
+check("سؤال بالإنجليزية يُكشف إنجليزياً", i18n.detect("How do I track a flight?") == "en")
+check("أرقام ورموز وحدها تُجاب بالعربية", i18n.detect("123 ؟!") == "ar")
+check("سؤال إنجليزي خارج النطاق يُرفض بالإنجليزية",
+      brain.handle("What is the capital of France?", "telegram", "u-en")
+      == config.OUT_OF_SCOPE_MESSAGE_EN)
+check("/help باللغتين، و«مساعدة» بالعربية وحدها",
+      config.BOT_NAME_EN in brain.handle("/help", "telegram", "u-en")
+      and config.BOT_NAME_EN not in brain.handle("مساعدة", "telegram", "u-en"))
+check("الترحيب باللغتين", "Hello" in config.WELCOME_MESSAGE and "أهلاً" in config.WELCOME_MESSAGE)
+store.set_setting("daily_limit", "1")
+brain.handle("Is there a tool for photos?", "telegram", "u-en-limit")
+check("رسالة الحدّ اليومي بلغة السائل",
+      "You have reached the limit of 1" in brain.handle("And for videos?", "telegram", "u-en-limit"))
+store.set_setting("daily_limit", "10")
+sens_t = {"name": "X", "category_en": "Search", "summary_en": "s", "sensitive": 1,
+          "caution": None, "link": "https://bad.example", "verification": "trained", "removed": 0}
+rec = brain.tool_record(sens_t, "en")
+check("سجلّ الأداة الحسّاسة بالإنجليزية: التحذير ومنع الرابط",
+      "Mandatory warning" in rec and "direct link is forbidden" in rec
+      and "bad.example" not in rec, rec)
+check("درجة التحقق بالإنجليزية ليست حكم أمان",
+      "not reviewed live" in rec and "safe" not in rec.lower().replace("unsafe", "")
+      and "verified" not in rec.lower(), rec)
+rm_t = {"name": "Y", "removed": 1, "removal_date": "2026-10-11", "domain": "evil.example",
+        "removal_reason_ar": "سبب"}
+rec = brain.tool_record(rm_t, "en")
+check("سجلّ الأداة المُزالة بالإنجليزية", "removed from the guide on 2026-10-11" in rec
+      and "forbidden" in rec and "evil.example" not in rec, rec)
+twin_ar = {"type": "investigation", "meta": {"slug": "x", "lang": "ar"}}
+twin_en = {"type": "investigation", "meta": {"slug": "x-en", "lang": "en"}}
+only_ar = {"type": "investigation", "meta": {"slug": "no-english", "lang": "ar"}}
+retrieve.warm()
+check("لسؤال إنجليزي: النسخة الإنجليزية من التحقيق لا العربية",
+      retrieve._in_language(twin_en, "en", retrieve._S)
+      and not retrieve._in_language(twin_ar, "en", retrieve._S))
+check("تحقيق بلا نسخة إنجليزية يبقى متاحاً لسؤال إنجليزي",
+      retrieve._in_language(only_ar, "en", retrieve._S))
+check("لسؤال عربي: النسخة العربية لا الإنجليزية",
+      retrieve._in_language(twin_ar, "ar", retrieve._S)
+      and not retrieve._in_language(twin_en, "ar", retrieve._S))
 
 # ── ٦. الفهرسة في الخلفية ────────────────────────────────────────
 print("\n── الفهرسة في الخلفية ──")

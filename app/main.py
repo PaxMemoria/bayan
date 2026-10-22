@@ -8,7 +8,7 @@ import threading
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 
-from . import brain, config, dashboard, embed, ingest, retrieve, store
+from . import brain, config, dashboard, embed, i18n, ingest, retrieve, store
 from .channels import messenger, telegram, whatsapp
 
 logging.basicConfig(
@@ -61,7 +61,7 @@ async def _reply(channel: str, user_id: str, text: str, sender) -> None:
         reply = await asyncio.to_thread(brain.handle, text, channel, user_id)
     except Exception:
         log.exception("فشل في معالجة رسالة من %s", channel)
-        reply = config.ERROR_MESSAGE
+        reply = i18n.msg("error", i18n.detect(text))
     try:
         await sender(user_id, reply)
     except Exception:

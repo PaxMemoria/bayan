@@ -13,7 +13,7 @@ import time
 
 from anthropic import Anthropic
 
-from . import config, retrieve, store
+from . import config, i18n, retrieve, store
 
 log = logging.getLogger("brain")
 _client: Anthropic | None = None
@@ -25,14 +25,25 @@ VERIFICATION_AR = {
     "indirect": "روجِعت بدليل غير مباشر فقط (تعذّر فتح صفحتها، واعتُمد على نتائج البحث)",
     "trained": "لم تُراجَع حيّاً في آخر تدقيق، وهي مُدرجة للمراجعة ذات الأولوية",
 }
+# الصياغة الإنجليزية نفسها: درجة دليل، لا حكم أمان
+VERIFICATION_EN = {
+    "direct": "reviewed with direct evidence (its official page was checked)",
+    "indirect": "reviewed with indirect evidence only (its page could not be "
+                "opened, so search results were used)",
+    "trained": "not reviewed live in the latest audit, and listed for priority review",
+}
 
 SYSTEM_PROMPT = f"""أنت «{config.BOT_NAME}»، المساعد الآلي لمنظمة {config.ORG_NAME}.
 نطاقك: {config.SCOPE_DESCRIPTION}.
 
 ## القاعدة المطلقة
 تجيب **فقط** مما ورد داخل <المصادر>. معرفتك العامة ممنوعة تماماً — ولا حتى
-لشرح مصطلح أو إكمال معلومة ناقصة أو إضافة سياق. تجيب بالعربية دائماً،
-مهما كانت لغة السؤال.
+لشرح مصطلح أو إكمال معلومة ناقصة أو إضافة سياق.
+
+## اللغة
+تجيب باللغة المحددة في <لغة_الإجابة>: العربية أو الإنجليزية، ولو كانت
+المصادر بلغة أخرى. حين تترجم من المصادر تنقل المعنى بأمانة، وكل القواعد
+أدناه تسري في اللغتين.
 
 ## متى ترفض
 اكتب `{OUT_OF_SCOPE_TAG}` وحدها دون أي نص آخر إذا:
@@ -44,8 +55,9 @@ SYSTEM_PROMPT = f"""أنت «{config.BOT_NAME}»، المساعد الآلي ل�
 
 ## قواعد الأدوات — إلزامية
 ١. **درجة التحقق ليست حكم أمان.** هي درجة دليل من تدقيق OTVS الذي تجريه
-   {config.ORG_NAME}. لا تقل أبداً إن أداة «موثّقة» أو «آمنة» أو «معتمدة».
-   انقل العبارة كما وردت في المصدر ولا تُعِد صياغتها إلى حكم.
+   {config.ORG_NAME}. لا تقل أبداً إن أداة «موثّقة» أو «آمنة» أو «معتمدة»،
+   ولا verified أو safe أو approved أو trusted بالإنجليزية. انقل العبارة
+   كما وردت في المصدر ولا تُعِد صياغتها إلى حكم.
 ٢. **الأدوات الحسّاسة أو ذات التحذير**: يجب أن تذكر التحذير في إجابتك،
    ولا تعطي رابطها المباشر. أحِل إلى صفحة الدليل ليرى السائل التحذير
    في سياقه.
@@ -61,8 +73,9 @@ SYSTEM_PROMPT = f"""أنت «{config.BOT_NAME}»، المساعد الآلي ل�
 - إن سُئلت عمّا لم يفصل فيه التحقيق، قل إنه لم يفصل فيه.
 
 ## الأسلوب
-عربية فصحى مبسطة، من جملتين إلى ست، أو نقاط قصيرة للقوائم. لا تقل
-«حسب المصادر» ولا «ورد في النص» — تكلّم طبيعياً. لا تخترع روابط.
+بالعربية: فصحى مبسطة. بالإنجليزية: لغة واضحة بسيطة. من جملتين إلى ست، أو
+نقاط قصيرة للقوائم. لا تقل «حسب المصادر» ولا «ورد في النص»، ولا
+"according to the sources" بالإنجليزية: تكلّم طبيعياً. لا تخترع روابط.
 """
 
 
@@ -76,7 +89,13 @@ def client() -> Anthropic:
 
 
 # ──────────────────────────────────────────── بناء المصادر
-def tool_record(t: dict) -> str:
+def tool_record(t: dict, lang: str = "ar") -> str:
+    """سجلّ الأداة كما يراه النموذج، بلغة الإجابة.
+
+    القواعد التحريرية مكتوبة في السجلّ نفسه، فلا يحتاج النموذج أن يستنتجها.
+    """
+    if lang == "en":
+        return _tool_record_en(t)
     lines = [f"الاسم: {t['name']}"]
     if t.get("category_ar"):
         lines.append(f"التصنيف: {t['category_ar']}")
@@ -112,15 +131,52 @@ def tool_record(t: dict) -> str:
     return "\n".join(lines)
 
 
-def build_context(result: dict) -> str:
+def _tool_record_en(t: dict) -> str:
+    lines = [f"Name: {t['name']}"]
+    if t.get("category_en") or t.get("category_ar"):
+        lines.append(f"Category: {t.get('category_en') or t['category_ar']}")
+    if t.get("summary_en"):
+        lines.append(f"Description: {t['summary_en']}")
+    elif t.get("summary_ar"):
+        lines.append(f"Description (in Arabic): {t['summary_ar']}")
+
+    if t.get("removed"):
+        when = f" on {t['removal_date']}" if t.get("removal_date") else ""
+        lines.append(f"Status: removed from the guide{when} and no longer recommended.")
+        if t.get("removal_type_ar"):
+            lines.append(f"Removal type (in Arabic): {t['removal_type_ar']}")
+        if t.get("removal_reason_ar"):
+            lines.append(f"Reason for removal (in Arabic): {t['removal_reason_ar']}")
+        lines.append("Link: giving any link or domain for this tool is forbidden.")
+        if t.get("replacement"):
+            lines.append(f"Replacement: {t['replacement']}")
+    else:
+        if t.get("caution"):
+            lines.append(f"Mandatory warning, must be passed on: {t['caution']}")
+        elif t.get("sensitive"):
+            lines.append("Mandatory warning, must be passed on: a sensitive tool, "
+                         "open it with care.")
+        if t.get("sensitive"):
+            lines.append(
+                "Link: giving the direct link is forbidden. Refer to "
+                f"{config.SITE_URL}/osint-tools"
+            )
+        elif t.get("link"):
+            lines.append(f"Link: {t['link']}")
+        if t.get("verification") in VERIFICATION_EN:
+            lines.append(f"Verification grade: {VERIFICATION_EN[t['verification']]}")
+    return "\n".join(lines)
+
+
+def build_context(result: dict, lang: str = "ar") -> str:
     parts: list[str] = []
 
     for t in result["tools"]:
-        parts.append(f"<أداة>\n{tool_record(t)}\n</أداة>")
+        parts.append(f"<أداة>\n{tool_record(t, lang)}\n</أداة>")
 
     if result["category_tools"]:
         cat = result["category"]
-        body = "\n\n".join(tool_record(t) for t in result["category_tools"])
+        body = "\n\n".join(tool_record(t, lang) for t in result["category_tools"])
         parts.append(
             f"<قائمة_أدوات تصنيف=\"{cat['category_ar']}\" "
             f"العدد=\"{len(result['category_tools'])}\">\n{body}\n</قائمة_أدوات>"
@@ -205,19 +261,7 @@ def daily_limit() -> int:
         return config.DAILY_LIMIT
 
 
-def _hours_ar(seconds: float) -> str:
-    """المدة بالساعات مقرّبة إلى الأعلى، كي لا يعود السائل قبل موعده."""
-    if seconds < 3600:
-        return "أقل من ساعة"
-    hours = int(-(-seconds // 3600))
-    if hours == 1:
-        return "ساعة"
-    if hours == 2:
-        return "ساعتين"
-    return f"{hours} ساعات" if hours <= 10 else f"{hours} ساعة"
-
-
-def daily_refusal(channel: str, user_id: str) -> str | None:
+def daily_refusal(channel: str, user_id: str, lang: str = "ar") -> str | None:
     """رسالة الحدّ اليومي إن بلغه المستخدم، وإلا None.
 
     العدّ على 24 ساعة متتالية لا على يوم تقويمي، فلا يتجدّد الحدّ كله عند
@@ -232,36 +276,36 @@ def daily_refusal(channel: str, user_id: str) -> str | None:
         return None
     # يُتاح سؤال جديد حين يخرج أقدم الأسئلة المحسوبة من نافذة الـ24 ساعة
     wait = asked[len(asked) - limit] + 86400 - now
-    return (
-        f"بلغت أسئلتك في آخر 24 ساعة الحدّ المسموح، وهو {limit}.\n"
-        f"يمكنك أن تسأل مجدداً بعد {_hours_ar(wait)}.\n"
-        f"دليل الأدوات والتحقيقات متاحان دائماً على {config.SITE_URL}"
-    )
+    return i18n.msg("daily", lang, limit=limit, wait=i18n.hours(wait, lang),
+                    site=config.SITE_URL)
 
 
 # ──────────────────────────────────────────────────── الإجابة
 def answer(question: str, channel: str, user_id: str) -> dict:
     question = question.strip()[: config.MAX_QUESTION_CHARS]
+    lang = i18n.detect(question)
+    refuse = i18n.msg("out_of_scope", lang)
     if not question:
-        return {"text": config.OUT_OF_SCOPE_MESSAGE, "outcome": "refused_gate",
-                "confidence": 0.0, "sources": [], "retrieval": None}
+        return {"text": refuse, "outcome": "refused_gate", "confidence": 0.0,
+                "sources": [], "retrieval": None, "lang": lang}
 
-    result = retrieve.search(question)
+    result = retrieve.search(question, lang)
     confidence = result["confidence"]
 
     def done(text: str, outcome: str, sources: list[str] | None = None) -> dict:
         return {"text": text, "outcome": outcome, "confidence": confidence,
-                "sources": sources or [], "retrieval": result}
+                "sources": sources or [], "retrieval": result, "lang": lang}
 
     # ── الطبقة ١ ───────────────────────────────────────────────
     if not result["has_any"] or confidence < threshold():
         log.info("رفض بالبوابة | ثقة=%.3f | %s", confidence, question[:60])
-        return done(config.OUT_OF_SCOPE_MESSAGE, "refused_gate")
+        return done(refuse, "refused_gate")
 
     # ── الطبقة ٢ ───────────────────────────────────────────────
     history = store.history(channel, user_id, config.HISTORY_TURNS)
     user_block = (
-        f"<المصادر>\n{build_context(result)}\n</المصادر>\n\n"
+        f"<المصادر>\n{build_context(result, lang)}\n</المصادر>\n\n"
+        f"<لغة_الإجابة>{'English' if lang == 'en' else 'العربية'}</لغة_الإجابة>\n\n"
         f"<سؤال_المستخدم>\n{question}\n</سؤال_المستخدم>\n\n"
         f"أجب من المصادر أعلاه فقط، ملتزماً بقواعد الأدوات والتحقيقات، "
         f"أو اكتب {OUT_OF_SCOPE_TAG}."
@@ -276,16 +320,16 @@ def answer(question: str, channel: str, user_id: str) -> dict:
         )
     except Exception:
         log.exception("فشل استدعاء النموذج")
-        return done(config.ERROR_MESSAGE, "error")
+        return done(i18n.msg("error", lang), "error")
 
     text = "".join(b.text for b in resp.content if b.type == "text").strip()
 
     # ── الطبقة ٣ ───────────────────────────────────────────────
     if not text or "OUT_OF_SCOPE" in text:
-        return done(config.OUT_OF_SCOPE_MESSAGE, "refused_model")
+        return done(refuse, "refused_model")
     text = re.sub(r"\[?OUT_OF_SCOPE\]?", "", text).strip()
     if len(text) < 10:
-        return done(config.OUT_OF_SCOPE_MESSAGE, "refused_model")
+        return done(refuse, "refused_model")
 
     # ── الطبقة ٤ ───────────────────────────────────────────────
     text, stripped = strip_forbidden(text)
@@ -301,7 +345,7 @@ def answer(question: str, channel: str, user_id: str) -> dict:
 
     out = text
     if config.SHOW_SOURCES and sources:
-        out += "\n\n🔗 المصدر:\n" + "\n".join(sources)
+        out += f"\n\n{i18n.msg('sources', lang)}\n" + "\n".join(sources)
 
     outcome = "tool_list" if result["category_tools"] else "answered"
     return done(out, outcome, sources)
@@ -309,29 +353,34 @@ def answer(question: str, channel: str, user_id: str) -> dict:
 
 def handle(question: str, channel: str, user_id: str) -> str:
     """نقطة الدخول الموحّدة لكل القنوات."""
+    lang = i18n.detect(question)
     if store.is_blocked(channel, user_id):
-        return config.OUT_OF_SCOPE_MESSAGE
+        return i18n.msg("out_of_scope", lang)
     if not store.rate_ok(channel, user_id):
-        return "أرسلت رسائل كثيرة خلال وقت قصير. انتظر دقيقة ثم أعد المحاولة."
+        return i18n.msg("rate", lang)
     if paused():
-        return config.PAUSED_MESSAGE
+        return i18n.msg("paused", lang)
 
+    # الأوامر بلا لغة، فتُجاب باللغتين، إلا ما كُتب بالعربية
     cmd = question.strip().lower()
     if cmd in ("/start", "start", "بدء", "ابدأ"):
         store.clear_history(channel, user_id)
         return config.WELCOME_MESSAGE
-    if cmd in ("/reset", "/clear", "جديد", "مسح"):
+    if cmd in ("/reset", "/clear", "reset", "جديد", "مسح"):
         store.clear_history(channel, user_id)
-        return "تم بدء محادثة جديدة. اكتب سؤالك."
-    if cmd in ("/help", "مساعدة", "/about"):
-        return (
-            f"{config.BOT_NAME} — مساعد {config.ORG_NAME}\n\n"
-            f"أجيب عن: {config.SCOPE_DESCRIPTION}.\n"
-            "اكتب سؤالك مباشرة.\n/reset لبدء محادثة جديدة."
-        )
+        ar, en = "تم بدء محادثة جديدة. اكتب سؤالك.", "New conversation started. Ask your question."
+        return ar if lang == "ar" and not cmd.startswith("/") else f"{ar}\n{en}"
+    if cmd in ("/help", "help", "مساعدة", "/about"):
+        ar = (f"{config.BOT_NAME}، مساعد {config.ORG_NAME}.\n"
+              f"أجيب عن {config.SCOPE_DESCRIPTION}.\n"
+              "اكتب سؤالك مباشرة، و /reset لبدء محادثة جديدة.")
+        en = (f"{config.BOT_NAME_EN}, {config.ORG_NAME_EN}'s assistant.\n"
+              f"I answer questions about {config.SCOPE_DESCRIPTION_EN}.\n"
+              "Just type your question, and /reset starts a new conversation.")
+        return ar if cmd == "مساعدة" else f"{ar}\n\n{en}"
 
     # بعد الأوامر: /start و /help لا تُحسب من الحدّ ولا يمنعها
-    if (refusal := daily_refusal(channel, user_id)) is not None:
+    if (refusal := daily_refusal(channel, user_id, lang)) is not None:
         return refusal
 
     res = answer(question, channel, user_id)

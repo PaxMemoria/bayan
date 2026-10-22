@@ -68,12 +68,20 @@ LEXICAL_THRESHOLD = float(os.getenv("LEXICAL_THRESHOLD", "0.60"))
 MAX_TOOLS_LISTED = int(os.getenv("MAX_TOOLS_LISTED", "12"))
 
 # ───────────────────────────────── الهوية
+# بيان يجيب بلغة السائل: العربية أو الإنجليزية (app/i18n.py). لكل رسالة
+# ثابتة نسختان، والترحيب يجمعهما لأن من يضغط «ابدأ» لم يكتب شيئاً بعد.
 BOT_NAME = os.getenv("BOT_NAME", "بيان")
+BOT_NAME_EN = os.getenv("BOT_NAME_EN", "Bayan")
 ORG_NAME = os.getenv("ORG_NAME", "باكس ميموريا")
+ORG_NAME_EN = os.getenv("ORG_NAME_EN", "Pax Memoria")
 SITE_URL = os.getenv("SITE_URL", "https://paxmemoria.org")
 SCOPE_DESCRIPTION = os.getenv(
     "SCOPE_DESCRIPTION",
     f"دليل أدوات المصادر المفتوحة والتحقيقات المنشورة في {ORG_NAME}",
+)
+SCOPE_DESCRIPTION_EN = os.getenv(
+    "SCOPE_DESCRIPTION_EN",
+    f"{ORG_NAME_EN}'s open-source tools guide and published investigations",
 )
 OUT_OF_SCOPE_MESSAGE = os.getenv(
     "OUT_OF_SCOPE_MESSAGE",
@@ -82,21 +90,43 @@ OUT_OF_SCOPE_MESSAGE = os.getenv(
     f"والتحقيقات المنشورة في {ORG_NAME} فقط.\n"
     "جرّب سؤالاً عن أداة أو تصنيف أدوات، أو عن أحد تحقيقاتنا.",
 )
-WELCOME_MESSAGE = os.getenv(
-    "WELCOME_MESSAGE",
+OUT_OF_SCOPE_MESSAGE_EN = os.getenv(
+    "OUT_OF_SCOPE_MESSAGE_EN",
+    "Sorry, your question is outside what I know.\n"
+    f"I'm {BOT_NAME_EN}, and I only answer questions about {ORG_NAME_EN}'s "
+    "open-source tools guide and its published investigations.\n"
+    "Try asking about a tool, a category of tools, or one of our investigations.",
+)
+WELCOME_MESSAGE_AR = (
     f"أهلاً بك 👋\n\nأنا {BOT_NAME}، مساعد {ORG_NAME}.\n"
-    "أجيب عن سؤالين فقط:\n"
-    "• أدوات المصادر المفتوحة في دليلنا — ما هي، ولأي غرض، وتحذيراتها\n"
-    "• تحقيقاتنا المنشورة — ماذا وثّقت وكيف\n\n"
-    "اكتب سؤالك مباشرة.",
+    "أجيب عن موضوعين فقط:\n"
+    "• أدوات المصادر المفتوحة في دليلنا: ما هي، ولأي غرض، وتحذيراتها\n"
+    "• تحقيقاتنا المنشورة: ماذا وثّقت وكيف\n\n"
+    "اكتب سؤالك مباشرة، بالعربية أو بالإنجليزية."
+)
+WELCOME_MESSAGE_EN = (
+    f"Hello 👋\n\nI'm {BOT_NAME_EN}, {ORG_NAME_EN}'s assistant.\n"
+    "I answer questions on two topics only:\n"
+    "• The open-source tools in our guide: what they are, what they are for, "
+    "and their warnings\n"
+    "• Our published investigations: what they documented and how\n\n"
+    "Just type your question, in Arabic or English."
+)
+WELCOME_MESSAGE = os.getenv(
+    "WELCOME_MESSAGE", f"{WELCOME_MESSAGE_AR}\n\n{WELCOME_MESSAGE_EN}"
 )
 PAUSED_MESSAGE = os.getenv(
     "PAUSED_MESSAGE",
     f"{BOT_NAME} متوقف مؤقتاً.\n"
     f"دليل الأدوات والتحقيقات متاحان على {SITE_URL}",
 )
+PAUSED_MESSAGE_EN = os.getenv(
+    "PAUSED_MESSAGE_EN",
+    f"{BOT_NAME_EN} is paused for now.\n"
+    f"The tools guide and the investigations are available at {SITE_URL}",
+)
 ERROR_MESSAGE = "حدث خلل مؤقت. حاول بعد قليل من فضلك."
-# بيان يعمل بالعربية. الأسئلة بلغات أخرى تُجاب بالعربية.
+ERROR_MESSAGE_EN = "Something went wrong for a moment. Please try again shortly."
 SHOW_SOURCES = os.getenv("SHOW_SOURCES", "true").lower() == "true"
 
 # ───────────────────────────────── القنوات

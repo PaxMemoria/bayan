@@ -120,7 +120,8 @@ def index(chunks: list[dict], tools: list[dict], log: list[str]) -> None:
             "url": c["url"],
             "text": c["text"],
             "norm_text": normalize_ar(c["text"]),
-            "meta": c.get("meta", {}),
+            # لغة المقطع في meta، ليختار الاسترجاع نسخة التحقيق بلغة السائل
+            "meta": {**c.get("meta", {}), "lang": c.get("lang", "ar")},
         }
         for c in chunks
     ]

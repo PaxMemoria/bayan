@@ -5,6 +5,7 @@
 ستة مقاطع متفرقة. وسؤال «كيف أتحقق من تاريخ صورة؟» سؤال معنى، فيذهب
 للمسار الدلالي. المساران يعملان معاً ويتغذّى النموذج من ناتجهما.
 """
+import json
 import logging
 import math
 import re
@@ -13,7 +14,7 @@ from collections import Counter
 
 import numpy as np
 
-from . import config, embed, store
+from . import config, embed, i18n, store
 from .arabic import fts_query, normalize_ar, tokens, weighted_overlap
 
 log = logging.getLogger("retrieve")
@@ -43,6 +44,7 @@ class _State:
         self.tool_names: list[tuple[str, str]] = []  # (norm_name, name)
         self.idf: dict[str, float] = {}
         self.idf_unseen = 1.0
+        self.inv_slugs: set[str] = set()  # كل التحقيقات بلغتيها
         self.banned: list[str] = []
         self.allowed: set[str] = set()
 
@@ -89,6 +91,11 @@ def warm() -> None:
             ]
             texts = [r["norm_text"] for r in
                      conn.execute("SELECT norm_text FROM chunks").fetchall()]
+            s.inv_slugs = {
+                json.loads(r["meta"]).get("slug", "") for r in conn.execute(
+                    "SELECT DISTINCT meta FROM chunks WHERE type='investigation'"
+                ).fetchall()
+            }
         s.idf = _build_idf(texts)
         # كلمة لا ترد في أي مقطع أندر من أندر كلمة موجودة: log(n)
         s.idf_unseen = math.log(max(len(texts), 2))
@@ -202,7 +209,23 @@ def _vector(question: str, limit: int, s: _State) -> tuple[list[int], dict[int, 
     return [s.ids[i] for i in top], {s.ids[i]: float(sims[i]) for i in top}
 
 
-def semantic(question: str) -> tuple[list[dict], float, bool]:
+def _in_language(p: dict, lang: str, s: _State) -> bool:
+    """تحقيق له نسخة بلغة السؤال لا يُعرض بلغته الأخرى.
+
+    كي لا يأخذ التحقيق نفسه خانتين من المقاطع الستة، بالعربية وبالإنجليزية.
+    slug النسخة الإنجليزية هو slug العربية مع "-en".
+    """
+    if p["type"] != "investigation":
+        return True
+    plang = p["meta"].get("lang", "ar")
+    if plang == lang:
+        return True
+    slug = p["meta"].get("slug", "")
+    twin = f"{slug}-en" if plang == "ar" else slug.removesuffix("-en")
+    return twin not in s.inv_slugs
+
+
+def semantic(question: str, lang: str = "ar") -> tuple[list[dict], float, bool]:
     """-> (مقاطع، ثقة، هل استُعملت المتجهات)"""
     s = _S
     lex = _fts(question, config.CANDIDATES)
@@ -215,9 +238,10 @@ def semantic(question: str) -> tuple[list[dict], float, bool]:
     if not scores:
         return [], 0.0, bool(sims)
 
-    ordered = sorted(scores, key=scores.get, reverse=True)[: config.TOP_K]
+    ordered = sorted(scores, key=scores.get, reverse=True)[: config.CANDIDATES]
     rows = store.get_chunks(ordered)
-    passages = [rows[cid] for cid in ordered if cid in rows]
+    passages = [rows[cid] for cid in ordered
+                if cid in rows and _in_language(rows[cid], lang, s)][: config.TOP_K]
     if not passages:
         return [], 0.0, bool(sims)
 
@@ -232,11 +256,12 @@ def semantic(question: str) -> tuple[list[dict], float, bool]:
 
 
 # ───────────────────────────────────── الواجهة الموحّدة
-def search(question: str) -> dict:
+def search(question: str, lang: str | None = None) -> dict:
     """يُرجع ناتج المسارين ودرجة ثقة واحدة."""
     ensure_fresh()
+    lang = lang or i18n.detect(question)
     struct = structured(question)
-    passages, confidence, used_vectors = semantic(question)
+    passages, confidence, used_vectors = semantic(question, lang)
 
     if struct["tools"] or struct["category_tools"]:
         confidence = max(confidence, STRUCTURED_CONFIDENCE)
