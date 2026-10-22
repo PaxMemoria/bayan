@@ -6,7 +6,7 @@ import logging
 import threading
 
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 
 from . import brain, config, dashboard, embed, ingest, retrieve, store
 from .channels import messenger, telegram, whatsapp
@@ -30,6 +30,12 @@ async def startup() -> None:
     log.info("بيان جاهز — %d مقطع في قاعدة المعرفة", n)
     if n == 0:
         log.warning("قاعدة المعرفة فارغة! شغّل: python -m app.ingest")
+
+
+@app.get("/", include_in_schema=False)
+async def root():
+    """لا صفحة لبيان على الويب: الزائر يُحال إلى موقع المنظمة."""
+    return RedirectResponse(config.SITE_URL, status_code=302)
 
 
 @app.get("/healthz")

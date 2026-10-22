@@ -21,9 +21,13 @@ def sync_repo(log: list[str]) -> None:
     """سحب أو تحديث نسخة القراءة من مستودع الموقع."""
     repo = config.SITE_REPO
     if (repo / ".git").exists():
+        branch = config.SITE_BRANCH
         cmds = [
-            ["git", "-C", str(repo), "fetch", "--depth", "1", "origin", config.SITE_BRANCH],
-            ["git", "-C", str(repo), "reset", "--hard", f"origin/{config.SITE_BRANCH}"],
+            # المرجع صريح: نسخة --depth 1 --branch تتبع فرعها الأول وحده، فلا
+            # يحدّث «fetch origin main» المرجع origin/main إن تغيّر SITE_BRANCH.
+            ["git", "-C", str(repo), "fetch", "--depth", "1", "origin",
+             f"+refs/heads/{branch}:refs/remotes/origin/{branch}"],
+            ["git", "-C", str(repo), "reset", "--hard", f"origin/{branch}"],
         ]
     else:
         repo.parent.mkdir(parents=True, exist_ok=True)

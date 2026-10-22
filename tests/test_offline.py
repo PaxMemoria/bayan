@@ -400,6 +400,35 @@ console.log('done');
 else:
     print("  (node غير مثبّت هنا: يُختبر في صورة Docker)")
 
+# ── ٧ب. سحب مستودع الموقع وتبديل الفرع ───────────────────────────
+print("\n── سحب المستودع ──")
+import subprocess  # noqa: E402
+
+upstream = TMP / "upstream"
+git = lambda *a, cwd=upstream: subprocess.run(  # noqa: E731
+    ["git", *a], cwd=cwd, check=True, capture_output=True, text=True).stdout.strip()
+upstream.mkdir()
+git("init", "-q", "-b", "main")
+git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "main 1")
+git("checkout", "-q", "-b", "feature")
+git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "feature 1")
+git("checkout", "-q", "main")
+git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "main 2")
+old = (config.SITE_REPO, config.SITE_REPO_URL, config.SITE_BRANCH)
+config.SITE_REPO, config.SITE_REPO_URL = TMP / "clone", upstream.as_uri()
+config.SITE_BRANCH = "feature"
+ingest.sync_repo([])
+check("النسخة الأولى من فرع مؤقت", git("log", "-1", "--format=%s", cwd=config.SITE_REPO) == "feature 1")
+config.SITE_BRANCH = "main"
+ingest.sync_repo([])
+check("التبديل إلى main بعد نسخة من فرع آخر يعمل",
+      git("log", "-1", "--format=%s", cwd=config.SITE_REPO) == "main 2")
+config.SITE_REPO, config.SITE_REPO_URL, config.SITE_BRANCH = old
+
+r = client.get("/", follow_redirects=False)
+check("العنوان الجذر يحيل إلى موقع المنظمة",
+      r.status_code == 302 and r.headers["location"] == config.SITE_URL)
+
 # ── ٨. تيليغرام ──────────────────────────────────────────────────
 print("\n── تيليغرام ──")
 upd = {"update_id": 1, "message": {"chat": {"id": 5}, "text": "مرحبا"}}
