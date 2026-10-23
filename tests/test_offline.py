@@ -724,10 +724,28 @@ import asyncio  # noqa: E402
 from app.channels import fmt  # noqa: E402
 from app.channels import telegram as tg  # noqa: E402
 
+R, L = fmt.RLM, fmt.LRM
 md = "### أدوات\n- **FlightAware**: <تتبّع> & __رحلات__"
 check("تيليغرام: عريض حقيقي، والرموز مهرّبة",
-      fmt.to_telegram_html(md) == "<b>أدوات</b>\n- <b>FlightAware</b>: &lt;تتبّع&gt; &amp; <b>رحلات</b>",
+      fmt.to_telegram_html(md)
+      == f"{R}<b>أدوات</b>\n\n{R}<b>FlightAware</b>\n{R}&lt;تتبّع&gt; &amp; <b>رحلات</b>",
       fmt.to_telegram_html(md))
+ar = ("هذه أدوات الدليل لتتبّع الرحلات الجوية:\n"
+      "- **رصد الحرائق:** تظهر النار كبقع برتقالية.\n"
+      "- **FlightAware**: يتتبّع الرحلات الجوية حول العالم.\n"
+      "**مفرق ماوية** منطقة في الحوبان.\n\n🔗 المصدر:\nhttps://paxmemoria.org/x/")
+check("العنوان الفرعي في سطر مستقل وتحته التفاصيل، وكل سطر عربي من اليمين",
+      fmt.to_whatsapp(ar) == (
+          f"{R}هذه أدوات الدليل لتتبّع الرحلات الجوية:\n\n"
+          f"{R}*رصد الحرائق*\n{R}تظهر النار كبقع برتقالية.\n\n"
+          f"{R}*FlightAware*\n{R}يتتبّع الرحلات الجوية حول العالم.\n"
+          f"{R}*مفرق ماوية* منطقة في الحوبان.\n\n{R}🔗 المصدر:\n"
+          f"{R}https://paxmemoria.org/x/{L}"), fmt.to_whatsapp(ar))
+check("بند مرقّم يبقى رقمه في عنوانه",
+      fmt.to_plain("Steps:\n1. **Check the date:** compare it.")
+      == "Steps:\n\n1. Check the date\ncompare it.", fmt.to_plain("Steps:\n1. **Check the date:** compare it."))
+check("الرسالة الإنجليزية تبقى من اليسار بلا علامات",
+      R not in fmt.to_plain("Use **FlightAware**: it tracks flights. المصدر"))
 check("واتساب: نجمة واحدة", fmt.to_whatsapp("**FlightAware** و**Flightradar24**")
       == "*FlightAware* و*Flightradar24*")
 check("ماسنجر: بلا تنسيق", fmt.to_plain("### عنوان\n**FlightAware**") == "عنوان\nFlightAware")
@@ -747,13 +765,13 @@ real_async = httpx.AsyncClient
 tg.httpx.AsyncClient = lambda **kw: real_async(transport=httpx.MockTransport(tg_api), **kw)
 asyncio.run(tg.send("5", "**مرحبا**"))
 check("تيليغرام يُرسل بوضع HTML", tg_calls[-1].get("parse_mode") == "HTML"
-      and tg_calls[-1]["text"] == "<b>مرحبا</b>", tg_calls[-1])
+      and tg_calls[-1]["text"] == f"{R}<b>مرحبا</b>", tg_calls[-1])
 asyncio.run(tg.send("5", "**رفض** هنا"))
 check("رفض التنسيق يعيد الرسالة نصاً عادياً",
-      "parse_mode" not in tg_calls[-1] and tg_calls[-1]["text"] == "رفض هنا", tg_calls[-1])
+      "parse_mode" not in tg_calls[-1] and tg_calls[-1]["text"] == f"{R}رفض هنا", tg_calls[-1])
 asyncio.run(wa.sender("966500000001")("SA.123", "**مرحبا**"))
 check("واتساب يردّ على الرقم في to", tg_calls[-1].get("to") == "966500000001"
-      and "recipient" not in tg_calls[-1] and tg_calls[-1]["text"]["body"] == "*مرحبا*",
+      and "recipient" not in tg_calls[-1] and tg_calls[-1]["text"]["body"] == f"{R}*مرحبا*",
       tg_calls[-1])
 asyncio.run(wa.sender("SA.456")("SA.456", "نص"))
 check("واتساب يردّ على الـBSUID في recipient", tg_calls[-1].get("recipient") == "SA.456"
