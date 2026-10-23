@@ -205,7 +205,12 @@ TELEGRAM_WEBHOOK_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
 
 META_APP_SECRET = os.getenv("META_APP_SECRET", "")
 META_VERIFY_TOKEN = os.getenv("META_VERIFY_TOKEN", "")
-META_GRAPH_VERSION = os.getenv("META_GRAPH_VERSION", "v21.0")
+# تطبيق Meta يستدعي الإصدارات التي صدرت بعد إنشائه فقط، فتطبيق جديد يرفض
+# إصداراً قديماً. طابِقه مع الإصدار في صفحة API Setup في لوحة Meta.
+# A Meta app can only call versions released after it was created, so a new
+# app rejects an old one. Match it to the version on the API Setup page in
+# Meta's dashboard.
+META_GRAPH_VERSION = os.getenv("META_GRAPH_VERSION", "v25.0")
 
 WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN", "")
 WHATSAPP_PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "")
