@@ -525,6 +525,22 @@ def finish_run(run_id: int, ok: bool, chunks: int, tools: int, detail: str) -> N
         )
 
 
+def close_interrupted_runs() -> int:
+    """عند الإقلاع: كل دورة فهرسة لم تنتهِ قطعتها إعادة تشغيل، فتُغلق فاشلة
+    بدل أن تبقى «جارية» إلى الأبد. الفهرس السابق لم يُمسّ. تعيد عددها.
+    At startup: every indexing run that never finished was cut off by a
+    restart, so it is closed as failed instead of staying "running" forever.
+    The previous index was not touched. Returns how many."""
+    with db() as conn:
+        return conn.execute(
+            "UPDATE ingest_runs SET finished=?, ok=0, detail=TRIM(COALESCE(detail, '') "
+            "|| ' انقطعت بإعادة تشغيل الخادم، والفهرس السابق بقي يعمل. / Interrupted "
+            "by a server restart; the previous index stayed in use.') "
+            "WHERE finished IS NULL",
+            (time.time(),),
+        ).rowcount
+
+
 def last_run() -> dict | None:
     with db() as conn:
         row = conn.execute(

@@ -27,6 +27,11 @@ app.include_router(dashboard.router)
 @app.on_event("startup")
 async def startup() -> None:
     store.init()
+    # الخادم يبدأ للتوّ، فلا فهرسة جارية: ما بقي مفتوحاً قطعته إعادة التشغيل
+    # The server is just starting, so no indexing is running: whatever was
+    # left open was cut off by the restart
+    if n := store.close_interrupted_runs():
+        log.warning("أُغلقت %d دورة فهرسة قطعتها إعادة التشغيل", n)
     retrieve.warm()
     # تحميل النموذج المحلي يستغرق ثوانيَ، فيجري في الخلفية والخادم يستقبل
     # Loading the local model takes seconds, so it runs in the background

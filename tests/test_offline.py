@@ -354,6 +354,11 @@ with store.db() as conn:
     left = conn.execute("SELECT COUNT(*) FROM ratings WHERE message_id=?", (rid,)).fetchone()[0]
 check("التقييم يُحذف مع رسالته", left == 0)
 
+run_id = store.start_run()
+check("عند الإقلاع تُغلق دورة فهرسة قطعتها إعادة التشغيل",
+      store.close_interrupted_runs() == 1 and store.last_run()["id"] == run_id
+      and store.last_run()["ok"] == 0 and "Interrupted" in store.last_run()["detail"])
+
 r = client.get(f"/admin/corrections/new?from={msg_id}")
 check("نموذج التصحيح يُملأ بالسؤال الأصلي ويعرض ردّ بيان للرجوع إليه",
       r.status_code == 200 and "ما أدوات Hunchly" in r.text and "رد &lt;b&gt;تجريبي" in r.text)
