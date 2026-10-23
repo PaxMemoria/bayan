@@ -4,8 +4,9 @@
 
 A bot that answers the public's questions about Pax Memoria's **open-source
 tools guide** and its **published investigations**, and goes no further than
-those two. It runs on Telegram, WhatsApp and Facebook Messenger with the same
-brain and the same knowledge base.
+those two. It answers in the asker's language, Arabic or English, and runs on
+Telegram, WhatsApp and Facebook Messenger with the same brain and the same
+knowledge base.
 
 ---
 
@@ -164,6 +165,40 @@ prompt:
 - **Investigations**: no attribution of responsibility or intent except in the
   investigation's own wording, no estimating of numbers, and no generalizing
   from one incident to a pattern.
+- **Replacements**: a tool is called a replacement for a removed tool only if
+  it is in the removed tool's Replacement field. Other tools in the same
+  category are described as other tools, not replacements.
+- **Sources**: every source the model receives is numbered, and the model ends
+  its answer with a hidden line naming the numbers it relied on, so the asker
+  sees only those links. Without this, an answer about tracking flights cited
+  two unrelated investigations.
+- **The same rules in English**: "verified", "safe", "approved" and "trusted"
+  are as forbidden as their Arabic counterparts.
+
+---
+
+## The two languages and the answer model
+
+- **Language detection** (`app/i18n.py`): two or more Arabic letters make a
+  question Arabic; otherwise Latin letters make it English, and any other
+  language is answered in Arabic. Tool names are mostly in Latin letters, so
+  «ما هي أداة Google Earth Pro؟» stays Arabic.
+- **Investigations in both languages**: the extractor exports 20 Arabic and
+  13 English investigations. An investigation that has a version in the
+  asker's language is not also retrieved in the other language, so one story
+  does not take two of the six passage slots.
+- **Fixed messages** (refusal, daily limit, pause, error) exist in both
+  languages; the welcome and `/help` carry both at once, since a command has
+  no language.
+- **The answer model**: `ANSWER_MODEL`, with thinking depth `ANSWER_EFFORT`
+  (default `medium`, because the editorial rules are strict). No
+  `temperature`: the API removed it on 21 October 2026, and thinking tokens
+  count against `MAX_OUTPUT_TOKENS` (4000). A safety-classifier decline is
+  treated as a model refusal, and `ANSWER_FALLBACK=default` reruns cyber and
+  frontier_llm declines on a fallback model so a legitimate question about a
+  security tool is not refused by mistake. The SDK version is pinned in
+  `requirements.txt`: an unpinned update is what broke every answer in the
+  first deployment.
 
 ---
 
@@ -205,7 +240,8 @@ docker compose exec bayan python tests/test_offline.py  # with no keys and no ne
 
 ## Dashboard
 
-At `PUBLIC_URL/admin`, in Arabic and without JavaScript. It is enabled when
+At `PUBLIC_URL/admin`, in Arabic and English (a link in the top bar switches
+language, and the choice is kept in a cookie), without JavaScript. It is enabled when
 `.env` sets `ADMIN_PASSWORD` (at least 12 characters) and `SESSION_SECRET` (at
 least 32 characters, `python -c "import secrets;print(secrets.token_urlsafe(48))"`).
 
