@@ -1,13 +1,13 @@
 # فحص الصياغة والاختبارات بلا شبكة عند كل دفع وكل طلب دمج.
 #
 # اختبارات بيان سكربتات تُشغَّل مباشرة لا اختبارات pytest. test_offline.py
-# لا يحتاج مفتاحاً ولا شبكة ولا النموذج المحلي، و test_bayan.py يحتاج الفهرس
+# لا يحتاج مفتاحاً ولا شبكة ولا ملفات النموذج، و test_bayan.py يحتاج الفهرس
 # الحقيقي على الخادم فلا يُشغَّل هنا. بايثون 3.12 كما في الحاوية.
 #
 # Syntax check and the offline tests on every push and pull request.
 #
 # Bayan's tests are scripts run directly, not pytest tests. test_offline.py
-# needs no key, no network and no local model; test_bayan.py needs the real
+# needs no key, no network and no model files; test_bayan.py needs the real
 # index on the server, so it does not run here. Python 3.12, as in the
 # container.
 
@@ -32,12 +32,16 @@ jobs:
       with:
         python-version: "3.12"
     - name: Install dependencies
-      # torch يُترك: الاختبارات بلا شبكة لا تحمّل النموذج المحلي
-      # torch is left out: the offline tests never load the local model
+      # torch للمعالج وحده كما في الحاوية: الإصدار الافتراضي يجرّ مكتبات CUDA
+      # بعدة GB. الاختبارات تتحقق من وجوده ولا تحمّل النموذج.
+      # CPU-only torch, as in the container: the default build pulls in
+      # several GB of CUDA libraries. The tests check that it is installed
+      # but never load the model.
       run: |
         python -m pip install --upgrade pip
-        grep -v '^torch' requirements.txt > "$RUNNER_TEMP/requirements.txt"
-        pip install flake8 -r "$RUNNER_TEMP/requirements.txt"
+        pip install --index-url https://download.pytorch.org/whl/cpu \
+          "$(grep '^torch==' requirements.txt)"
+        pip install flake8 -r requirements.txt
     - name: Syntax errors and undefined names
       run: flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
     - name: Offline tests
