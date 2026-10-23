@@ -1,7 +1,17 @@
-# This workflow will install Python dependencies, run tests and lint with a single version of Python
-# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-python
+# فحص الصياغة والاختبارات بلا شبكة عند كل دفع وكل طلب دمج.
+#
+# اختبارات بيان سكربتات تُشغَّل مباشرة لا اختبارات pytest. test_offline.py
+# لا يحتاج مفتاحاً ولا شبكة ولا النموذج المحلي، و test_bayan.py يحتاج الفهرس
+# الحقيقي على الخادم فلا يُشغَّل هنا. بايثون 3.12 كما في الحاوية.
+#
+# Syntax check and the offline tests on every push and pull request.
+#
+# Bayan's tests are scripts run directly, not pytest tests. test_offline.py
+# needs no key, no network and no local model; test_bayan.py needs the real
+# index on the server, so it does not run here. Python 3.12, as in the
+# container.
 
-name: Python application
+name: Offline tests
 
 on:
   push:
@@ -13,27 +23,22 @@ permissions:
   contents: read
 
 jobs:
-  build:
-
+  test:
     runs-on: ubuntu-latest
-
     steps:
     - uses: actions/checkout@v4
-    - name: Set up Python 3.10
-      uses: actions/setup-python@v3
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
       with:
-        python-version: "3.10"
+        python-version: "3.12"
     - name: Install dependencies
+      # torch يُترك: الاختبارات بلا شبكة لا تحمّل النموذج المحلي
+      # torch is left out: the offline tests never load the local model
       run: |
         python -m pip install --upgrade pip
-        pip install flake8 pytest
-        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-    - name: Lint with flake8
-      run: |
-        # stop the build if there are Python syntax errors or undefined names
-        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-        # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
-        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
-    - name: Test with pytest
-      run: |
-        pytest
+        grep -v '^torch' requirements.txt > "$RUNNER_TEMP/requirements.txt"
+        pip install flake8 -r "$RUNNER_TEMP/requirements.txt"
+    - name: Syntax errors and undefined names
+      run: flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+    - name: Offline tests
+      run: python tests/test_offline.py
