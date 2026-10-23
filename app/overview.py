@@ -53,6 +53,15 @@ def _when(text: str | None) -> date:
         return date.min
 
 
+def _dek(title: str | None, text: str) -> str:
+    """ملخص التحقيق كما نُشر، من رأس مقطعه الأول («العنوان — الملخص»).
+    The investigation's standfirst as published, from the head of its first
+    passage ("Title — standfirst")."""
+    head = (text or "").split("\n", 1)[0]
+    prefix = f"{title} — "
+    return head[len(prefix):].strip()[:400] if title and head.startswith(prefix) else ""
+
+
 def _n(n: int, few: str, many: str) -> str:
     """العدد ومعدوده: «5 أدوات» من 3 إلى 10، و«598 أداة» و«54 تصنيفاً» فيما عداها.
     A number and its counted noun, with the Arabic plural for 3 to 10 and the
@@ -67,18 +76,18 @@ def build() -> str:
             "SUM(removed=1) removed FROM tools"
         ).fetchone()
         rows = conn.execute(
-            "SELECT title, url, meta FROM chunks WHERE type='investigation'"
+            "SELECT title, url, meta, text FROM chunks WHERE type='investigation'"
         ).fetchall()
     cats = store.categories()
     if not (n and n["avail"]):
         return ""
 
     stories: dict[str, dict] = {}
-    for r in rows:
+    for r in sorted(rows, key=lambda r: json.loads(r["meta"]).get("position", 0)):
         m = json.loads(r["meta"])
         stories.setdefault(m.get("slug", ""), {
             "title": r["title"], "url": r["url"], "date": m.get("date"),
-            "author": m.get("author"),
+            "author": m.get("author"), "dek": _dek(r["title"], r["text"]),
         })
     lines = []
     bases = sorted({s.removesuffix("-en") for s in stories if s},
@@ -95,6 +104,8 @@ def build() -> str:
         line += f" | {main['url']}"
         if ar and en:
             line += f" | بالإنجليزية: {en['title']} | {en['url']}"
+        if main["dek"]:
+            line += f"\n  ملخصه: {main['dek']}"
         lines.append(line)
 
     site = config.SITE_URL

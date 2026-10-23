@@ -73,7 +73,8 @@ CHUNKS = [
      "text": "الأداة: Discord Multi-Tool\nأُزيلت.\nنطاقها السابق (لا يُفتح): github.com/AstraaDev"},
     {"id": "inv:x:0", "type": "investigation", "lang": "ar", "title": "تحقيق السيول",
      "url": "https://paxmemoria.org/investigations/x", "meta": {"slug": "x"},
-     "text": "كشفت صور الأقمار الصناعية حجم السيول في محافظة الحديدة اليمنية."},
+     "text": "تحقيق السيول — صور الأقمار الصناعية تكشف حجم الكارثة.\n\n"
+             "كشفت صور الأقمار الصناعية حجم السيول في محافظة الحديدة اليمنية."},
     {"id": "inv:x-en:0", "type": "investigation", "lang": "en", "title": "Floods investigation",
      "url": "https://paxmemoria.org/investigations/x-en", "meta": {"slug": "x-en"},
      "text": "Satellite images revealed the scale of the floods in Yemen's Hodeidah governorate."},
@@ -581,6 +582,7 @@ check("النظرة العامة تعدّ الأدوات المتاحة والم
       "في الدليل 3 أدوات متاحة" in view and "أُزيلت منه 2 أداة" in view
       and "- محركات البحث (Search): 2" in view, view)
 check("قائمة التحقيقات فيها رابط كل تحقيق", "https://paxmemoria.org/investigations/x" in view, view)
+check("وملخص كل تحقيق كما نُشر", "ملخصه: صور الأقمار الصناعية تكشف حجم الكارثة." in view, view)
 check("تاريخ النشر يُقرأ بالعربية والإنجليزية للترتيب",
       overview._when("نُشر في 15 تشرين الأول/أكتوبر 2025").isoformat() == "2025-10-15"
       and overview._when("Published August 9, 2026").isoformat() == "2026-08-09"
