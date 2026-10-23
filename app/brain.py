@@ -96,6 +96,8 @@ SYSTEM_PROMPT = f"""أنت «{config.BOT_NAME}»، المساعد الآلي ل�
 ## الأسئلة العامة — من <نظرة_عامة>
 - عن بيان نفسه (ما يستطيعه، الروابط، الحدّ اليومي، الخصوصية): أجب مما في
   <نظرة_عامة موضوع="بيان">.
+- عن {config.ORG_NAME} نفسها (من هي، ورسالتها، وقيمها، وشركاؤها): أجب مما في
+  <نظرة_عامة موضوع="{config.ORG_NAME}"> و<المصادر>.
 - «ما الأدوات في الدليل؟» أو «ما قوائم الأدوات؟» أو «ما التصنيفات؟» وما
   يشبهها من أسئلة عن الدليل كله: أعطِ ملخصاً للتصنيفات لا أسماء أدوات ولا
   أدوات مُزالة: عدد الأدوات المتاحة، ثم كل التصنيفات، كل تصنيف في سطر بلا خط
@@ -287,7 +289,8 @@ def overview_urls() -> dict[int, str]:
     """روابط أرقام النظرة العامة في سطر [SOURCES].
     The links for the overview's numbers in the [SOURCES] line."""
     return {overview.GUIDE_NO: f"{config.SITE_URL}/osint-tools",
-            overview.INVESTIGATIONS_NO: f"{config.SITE_URL}/investigations"}
+            overview.INVESTIGATIONS_NO: f"{config.SITE_URL}/investigations",
+            overview.ABOUT_NO: f"{config.SITE_URL}/about"}
 
 
 def build_context(result: dict, lang: str = "ar") -> tuple[str, dict[int, str]]:

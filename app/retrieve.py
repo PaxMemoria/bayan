@@ -41,6 +41,9 @@ LIST_INTENT = re.compile(
 # Fixed confidence for a structured match: the match here is certain, not
 # an estimate
 STRUCTURED_CONFIDENCE = 0.95
+# أنواع المقاطع التي لها نسختان بلغتين (slug الإنجليزية = العربية + "-en")
+# Passage types that come in two language versions (English slug = Arabic + "-en")
+TWIN_TYPES = ("investigation", "about")
 
 
 class _State:
@@ -126,7 +129,7 @@ def warm() -> None:
                      conn.execute("SELECT norm_text FROM chunks").fetchall()]
             s.inv_slugs = {
                 json.loads(r["meta"]).get("slug", "") for r in conn.execute(
-                    "SELECT DISTINCT meta FROM chunks WHERE type='investigation'"
+                    "SELECT DISTINCT meta FROM chunks WHERE type IN ('investigation', 'about')"
                 ).fetchall()
             }
         s.idf = _build_idf(texts)
@@ -287,7 +290,7 @@ def _in_language(p: dict, lang: str, s: _State) -> bool:
     slots, once in Arabic and once in English. The slug of the English
     version is the Arabic slug plus "-en".
     """
-    if p["type"] != "investigation":
+    if p["type"] not in TWIN_TYPES:
         return True
     plang = p["meta"].get("lang", "ar")
     if plang == lang:

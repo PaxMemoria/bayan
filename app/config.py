@@ -136,11 +136,11 @@ ORG_NAME_EN = os.getenv("ORG_NAME_EN", "Pax Memoria")
 SITE_URL = os.getenv("SITE_URL", "https://paxmemoria.org")
 SCOPE_DESCRIPTION = os.getenv(
     "SCOPE_DESCRIPTION",
-    f"دليل أدوات المصادر المفتوحة والتحقيقات المنشورة في {ORG_NAME}",
+    f"دليل أدوات المصادر المفتوحة والتحقيقات المنشورة في {ORG_NAME}، والتعريف بـ{ORG_NAME} نفسها",
 )
 SCOPE_DESCRIPTION_EN = os.getenv(
     "SCOPE_DESCRIPTION_EN",
-    f"{ORG_NAME_EN}'s open-source tools guide and published investigations",
+    f"{ORG_NAME_EN}'s open-source tools guide and published investigations, and {ORG_NAME_EN} itself",
 )
 OUT_OF_SCOPE_MESSAGE = os.getenv(
     "OUT_OF_SCOPE_MESSAGE",

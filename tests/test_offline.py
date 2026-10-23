@@ -78,6 +78,9 @@ CHUNKS = [
     {"id": "inv:x-en:0", "type": "investigation", "lang": "en", "title": "Floods investigation",
      "url": "https://paxmemoria.org/investigations/x-en", "meta": {"slug": "x-en"},
      "text": "Satellite images revealed the scale of the floods in Yemen's Hodeidah governorate."},
+    {"id": "about:ar:0", "type": "about", "lang": "ar", "title": "عن Pax Memoria",
+     "url": "https://paxmemoria.org/about", "meta": {"slug": "about", "position": 0},
+     "text": "عن Pax Memoria\nالقسم: من نحن\n\nPax Memoria منظمة دولية غير ربحية مسجلة في السويد."},
 ]
 pathlib.Path(os.environ["TOOLS_PATH"]).write_text(json.dumps(TOOLS, ensure_ascii=False))
 pathlib.Path(os.environ["KNOWLEDGE_PATH"]).write_text(
@@ -583,6 +586,9 @@ check("النظرة العامة تعدّ الأدوات المتاحة والم
       and "- محركات البحث (Search): 2" in view, view)
 check("قائمة التحقيقات فيها رابط كل تحقيق", "https://paxmemoria.org/investigations/x" in view, view)
 check("وملخص كل تحقيق كما نُشر", "ملخصه: صور الأقمار الصناعية تكشف حجم الكارثة." in view, view)
+check("وفقرة «من نحن» من صفحة الموقع بلا رأس مقطعها",
+      'موضوع="باكس ميموريا"' in view and "منظمة دولية غير ربحية مسجلة في السويد." in view
+      and "القسم: من نحن" not in view, view[:400])
 check("تاريخ النشر يُقرأ بالعربية والإنجليزية للترتيب",
       overview._when("نُشر في 15 تشرين الأول/أكتوبر 2025").isoformat() == "2025-10-15"
       and overview._when("Published August 9, 2026").isoformat() == "2026-08-09"
@@ -597,6 +603,11 @@ reply.update(content=[{"type": "text", "text": "أحدث تحقيقاتنا عن
 res = brain.answer("ما حجم السيول في محافظة الحديدة اليمنية؟", "admin", "console")
 check("الاستناد إلى قائمة التحقيقات يعطي صفحة التحقيقات مصدراً",
       res["sources"] == [f"{config.SITE_URL}/investigations"], res["sources"])
+reply.update(content=[{"type": "text", "text": "منظمة غير ربحية.\n[SOURCES: 200]"}],
+             stop_reason="end_turn")
+res = brain.answer("ما حجم السيول في محافظة الحديدة اليمنية؟", "admin", "console")
+check("الاستناد إلى «من نحن» يعطي صفحة «من نحن» مصدراً",
+      res["sources"] == [f"{config.SITE_URL}/about"], res["sources"])
 
 # ── التصحيحات المعتمدة في الاسترجاع / Approved corrections in retrieval ──
 # المتجهات المزيّفة كيس كلمات: صياغة تشارك معظم الكلمات قريبة، وغيرها بعيدة

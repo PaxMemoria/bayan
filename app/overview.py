@@ -1,11 +1,11 @@
-"""نظرة عامة على الدليل والتحقيقات، تُبنى من الفهرس عند كل تحميل له.
+"""نظرة عامة على المنظمة والدليل والتحقيقات، تُبنى من الفهرس عند كل تحميل له.
 
 البحث يعطي النموذج مقاطع قليلة، فلا يرى منها الدليل كله: كم أداة فيه، وما
 تصنيفاته، وما أحدث التحقيقات. هذه النظرة تجيب عن تلك الأسئلة العامة، وتُرسل
 في تعليمات النظام المخزّنة مؤقتاً، فلا تزيد كلفة كل سؤال إلا قليلاً.
 
-An overview of the guide and the investigations, built from the index every
-time it is loaded.
+An overview of the organization, the guide and the investigations, built
+from the index every time it is loaded.
 
 Search gives the model a few passages, so it never sees the guide as a
 whole: how many tools it holds, its categories, the latest investigations.
@@ -21,7 +21,7 @@ from . import config, store
 # رقما النظرة العامة في سطر [SOURCES]، بعيدان عن أرقام المصادر المسترجعة
 # The overview's numbers in the [SOURCES] line, far from the retrieved
 # sources' numbers
-GUIDE_NO, INVESTIGATIONS_NO = 0, 100
+GUIDE_NO, INVESTIGATIONS_NO, ABOUT_NO = 0, 100, 200
 
 _MONTHS = {
     "يناير": 1, "كانون الثاني": 1, "فبراير": 2, "شباط": 2, "مارس": 3, "آذار": 3,
@@ -62,6 +62,18 @@ def _dek(title: str | None, text: str) -> str:
     return head[len(prefix):].strip()[:400] if title and head.startswith(prefix) else ""
 
 
+def _who(rows) -> str:
+    """فقرة «من نحن» العربية كما في صفحة الموقع: نصّ أول مقاطعها دون رأسه.
+    The Arabic "who we are" paragraph as on the site's page: the text of its
+    first passage without its head."""
+    first = [r for r in rows if json.loads(r["meta"]).get("slug") == "about"
+             and json.loads(r["meta"]).get("position", 0) == 0]
+    if not first:
+        return ""
+    parts = first[0]["text"].split("\n\n", 1)
+    return parts[-1].strip()[:1500]
+
+
 def _n(n: int, few: str, many: str) -> str:
     """العدد ومعدوده: «5 أدوات» من 3 إلى 10، و«598 أداة» و«54 تصنيفاً» فيما عداها.
     A number and its counted noun, with the Arabic plural for 3 to 10 and the
@@ -77,6 +89,9 @@ def build() -> str:
         ).fetchone()
         rows = conn.execute(
             "SELECT title, url, meta, text FROM chunks WHERE type='investigation'"
+        ).fetchall()
+        about = conn.execute(
+            "SELECT text, meta FROM chunks WHERE type='about'"
         ).fetchall()
     cats = store.categories()
     if not (n and n["avail"]):
@@ -112,7 +127,10 @@ def build() -> str:
     cat_lines = "\n".join(
         f"  - {c['category_ar']} ({c['category_en']}): {c['n']}" for c in cats
     )
-    return f"""<نظرة_عامة رقم="{GUIDE_NO}" موضوع="الدليل">
+    who = _who(about)
+    org = (f'<نظرة_عامة رقم="{ABOUT_NO}" موضوع="{config.ORG_NAME}">\n'
+           f"- صفحة «من نحن»: {site}/about\n{who}\n</نظرة_عامة>\n\n" if who else "")
+    return org + f"""<نظرة_عامة رقم="{GUIDE_NO}" موضوع="الدليل">
 - صفحة الدليل: {site}/osint-tools، وفيها خانة بحث بالاسم أو الوصف.
 - في الدليل {_n(n['avail'], 'أدوات', 'أداة')} متاحة في {_n(len(cats), 'تصنيفات', 'تصنيفاً')}، منها {_n(n['sens'] or 0, 'أدوات', 'أداة')} حسّاسة تُفتح بحذر. وأُزيلت منه {_n(n['removed'] or 0, 'أدوات', 'أداة')} لم تعد موصى بها.
 - يصف الدليل كل أداة كما كانت في آخر تدقيق، ولا يذكر سعر كل أداة. الأسعار وشروط الاستخدام قد تتغيّر، والمرجع فيها صفحة الأداة نفسها وسياسة المنصة التي تعمل عليها.

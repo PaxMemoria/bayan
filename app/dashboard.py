@@ -84,6 +84,7 @@ TEXT: dict[str, tuple[str, str]] = {
     "type_tool": ("أداة", "Tool"),
     "type_tool_removed": ("أداة مُزالة", "Removed tool"),
     "type_investigation": ("تحقيق", "Investigation"),
+    "type_about": ("من نحن", "About"),
     "flash_reindex": ("بدأت الفهرسة، وتستغرق دقائق. حدّث الصفحة بعدها لترى النتيجة.",
                       "Indexing has started and takes a few minutes. Refresh the page "
                       "afterwards to see the result."),
