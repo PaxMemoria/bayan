@@ -25,7 +25,7 @@ from collections import Counter
 
 import numpy as np
 
-from . import config, embed, i18n, store
+from . import config, embed, i18n, overview, store
 from .arabic import fts_query, normalize_ar, tokens, weighted_overlap
 
 log = logging.getLogger("retrieve")
@@ -69,6 +69,7 @@ class _State:
         self.inv_slugs: set[str] = set()  # كل التحقيقات بلغتيها
         self.banned: list[str] = []
         self.allowed: set[str] = set()
+        self.overview = ""
 
 
 _S = _State()
@@ -137,6 +138,7 @@ def warm() -> None:
         s.banned = sorted({norm_link(b) for b in banned if norm_link(b)},
                           key=len, reverse=True)
         s.allowed = {norm_link(a) for a in allowed}
+        s.overview = overview.build()
         _S = s
 
 
@@ -155,6 +157,14 @@ def status() -> dict:
 
 def link_rules() -> tuple[list[str], set[str]]:
     return _S.banned, _S.allowed
+
+
+def guide_overview() -> str:
+    """النظرة العامة على الدليل والتحقيقات (overview.py)، كما بُنيت من الفهرس
+    الحالي.
+    The overview of the guide and the investigations (overview.py), as built
+    from the current index."""
+    return _S.overview
 
 
 def _build_idf(texts: list[str]) -> dict[str, float]:

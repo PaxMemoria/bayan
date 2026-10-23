@@ -27,7 +27,7 @@ import time
 
 from anthropic import Anthropic
 
-from . import config, i18n, retrieve, store
+from . import config, i18n, overview, retrieve, store
 from .arabic import normalize_ar
 
 log = logging.getLogger("brain")
@@ -53,7 +53,7 @@ SYSTEM_PROMPT = f"""أنت «{config.BOT_NAME}»، المساعد الآلي ل�
 نطاقك: {config.SCOPE_DESCRIPTION}.
 
 ## القاعدة المطلقة
-تجيب **فقط** مما ورد داخل <المصادر>. معرفتك العامة ممنوعة تماماً — ولا حتى
+تجيب **فقط** مما ورد داخل <المصادر> و<نظرة_عامة>. معرفتك العامة ممنوعة تماماً — ولا حتى
 لشرح مصطلح أو إكمال معلومة ناقصة أو إضافة سياق.
 
 ## اللغة
@@ -75,19 +75,41 @@ SYSTEM_PROMPT = f"""أنت «{config.BOT_NAME}»، المساعد الآلي ل�
    ولا verified أو safe أو approved أو trusted بالإنجليزية. انقل العبارة
    كما وردت في المصدر ولا تُعِد صياغتها إلى حكم.
 ٢. **الأدوات الحسّاسة أو ذات التحذير**: يجب أن تذكر التحذير في إجابتك،
-   ولا تعطي رابطها المباشر. أحِل إلى صفحة الدليل ليرى السائل التحذير
-   في سياقه.
+   ولا تعطي رابطها المباشر. أحِل إلى صفحة الدليل وانصح السائل بالبحث
+   فيها عن اسم الأداة، ليرى التحذير في سياقه.
 ٣. **الأدوات المُزالة**: قل بوضوح إنها أُزيلت ومتى ولماذا، ولا تعطِ رابطاً
    ولا نطاقاً قابلاً للفتح. اذكر البديل إن ورد في حقل «البديل» (Replacement)
    في سجلّها. لا تسمِّ أي أداة أخرى بديلاً، ولو كانت من التصنيف نفسه: إن
    ذكرتها فقل إنها أدوات أخرى في التصنيف نفسه.
 ٤. عند عرض قائمة أدوات، اذكر لكل أداة اسمها وسطراً واحداً عمّا تفعله.
    لا تُطِل.
+٥. **إذا طلب السائل رابط أداة**: انصحه أولاً بأن يفتحها من دليل الأدوات
+   {config.SITE_URL}/osint-tools ويبحث عن اسمها في خانة البحث، ليرى وصفها
+   ودرجة التحقق منها وأي تحذير عليها قبل أن يفتحها. ثم أعطه رابطها المباشر
+   إن ورد في سجلّها. الأداة الحسّاسة تبقى بلا رابط مباشر (القاعدة ٢)،
+   والمُزالة بلا رابط (القاعدة ٣).
+٦. **إذا سُئلت هل أداة مجانية، أو هل كل الأدوات مجانية**: انقل ما يرد في
+   وصف كل أداة أمامك، وإن لم يذكر وصفها السعر فقل إن الدليل لا يذكره. لا
+   تحكم على أدوات الدليل كلها. وانصح بمراجعة صفحة الأداة وسياسة المنصة التي
+   تعمل عليها لمعرفة السعر وشروط الاستخدام، لأنها قد تتغيّر.
+
+## الأسئلة العامة — من <نظرة_عامة>
+- عن بيان نفسه (ما يستطيعه، الروابط، الحدّ اليومي، الخصوصية): أجب مما في
+  <نظرة_عامة موضوع="بيان">.
+- «ما الأدوات في الدليل؟» أو «ما قوائم الأدوات؟» أو «ما التصنيفات؟» وما
+  يشبهها من أسئلة عن الدليل كله: أعطِ ملخصاً للتصنيفات لا أسماء أدوات ولا
+  أدوات مُزالة: عدد الأدوات المتاحة، ثم كل التصنيفات، كل تصنيف في سطر بلا خط
+  عريض بهذا الشكل: «- اسم التصنيف: عدد أدواته». واختم بأن الأداة تُعرف
+  بالبحث عن اسمها أو وصفها في صفحة الدليل.
+- «ما تحقيقاتكم؟» أو «ما أحدثها؟»: من قائمة التحقيقات، بعنوان كل تحقيق وتاريخه.
+- لا تعمّم من الأدوات القليلة في <المصادر> على الدليل كله، ولا تقل «كل
+  الأدوات» عن أدوات لم ترها.
 
 ## المصادر التي اعتمدت عليها
 كل مصدر في <المصادر> يحمل رقماً. اختم كل إجابة بسطر أخير وحده بهذا الشكل
 بالضبط: [SOURCES: 1, 3] تذكر فيه أرقام المصادر التي اعتمدت عليها فعلاً في
-إجابتك، ولا شيء غيرها. السائل لا يرى هذا السطر. لا تكتبه مع `[OUT_OF_SCOPE]`.
+إجابتك، ولا شيء غيرها. وإن اعتمدت على <نظرة_عامة> فاذكر رقمها. السائل لا
+يرى هذا السطر. لا تكتبه مع `[OUT_OF_SCOPE]`.
 
 ## قواعد التحقيقات — إلزامية
 تتناول تحقيقاتنا وقائع قتل وقصف. التزم بالمنشور حرفياً في المعنى:
@@ -153,7 +175,7 @@ def tool_record(t: dict, lang: str = "ar") -> str:
         if t.get("sensitive"):
             lines.append(
                 f"الرابط: ممنوع إعطاء الرابط المباشر. أحِل إلى "
-                f"{config.SITE_URL}/osint-tools"
+                f"{config.SITE_URL}/osint-tools والبحث فيها عن اسم الأداة"
             )
         elif t.get("link"):
             lines.append(f"الرابط: {t['link']}")
@@ -190,7 +212,7 @@ def _tool_record_en(t: dict) -> str:
         if t.get("sensitive"):
             lines.append(
                 "Link: giving the direct link is forbidden. Refer to "
-                f"{config.SITE_URL}/osint-tools"
+                f"{config.SITE_URL}/osint-tools and searching it for the tool's name"
             )
         elif t.get("link"):
             lines.append(f"Link: {t['link']}")
@@ -212,6 +234,50 @@ def _worded_grade(text: str, lang: str) -> str:
             return f"Verification grade in the OTVS audit: {VERIFICATION_EN[m.group(1)]}"
         return f"درجة التحقق في تدقيق OTVS: {VERIFICATION_AR[m.group(1)]}"
     return _RAW_GRADE.sub(sub, text)
+
+
+def guide_overview() -> str:
+    """ما يعرفه بيان عن نفسه، ثم النظرة العامة على الدليل والتحقيقات.
+
+    تُرسل كتلةً ثانية في تعليمات النظام المخزّنة مؤقتاً، فتتغيّر فقط حين
+    يتغيّر الفهرس أو الحدّ اليومي.
+
+    What Bayan knows about itself, then the overview of the guide and the
+    investigations.
+
+    It is sent as a second block of the cached system instructions, so it
+    changes only when the index or the daily limit changes.
+    """
+    view = retrieve.guide_overview()
+    if not view:
+        return ""
+    site, limit = config.SITE_URL, daily_limit()
+    lines = [
+        f"- بيان مساعد آلي من {config.ORG_NAME}، يجيب عن أدوات دليل المصادر "
+        "المفتوحة وعن التحقيقات المنشورة، بالعربية أو بالإنجليزية بحسب لغة "
+        "السؤال، ويذكر مصدر كل إجابة.",
+        "- الروابط: يعطي بيان الرابط المباشر لأي أداة عادية في الدليل حين "
+        f"يُطلب، وينصح بفتحها من صفحة الدليل {site}/osint-tools والبحث عن "
+        "اسمها فيها، ليرى السائل وصفها ودرجة التحقق منها وأي تحذير عليها. "
+        "الأداة الحسّاسة لا يُعطى رابطها المباشر بل يُحال إلى صفحة الدليل، "
+        "والأداة المُزالة لا رابط لها.",
+        "- لا يفحص بيان الصور أو الروابط أو الملفات، ويقرأ النص وحده.",
+    ]
+    if limit > 0:
+        lines.append(f"- يتيح بيان {limit} أسئلة لكل مستخدم في كل 24 ساعة.")
+    lines.append(f"- تُحذف المحادثات بعد {config.MESSAGE_RETENTION_DAYS} يوماً.")
+    if config.PUBLIC_URL:
+        lines.append(f"- سياسة الخصوصية: {config.PUBLIC_URL}/privacy")
+    about = "\n".join(lines)
+    return (f'<نظرة_عامة رقم="{overview.GUIDE_NO}" موضوع="بيان">\n{about}\n'
+            f"</نظرة_عامة>\n\n{view}")
+
+
+def overview_urls() -> dict[int, str]:
+    """روابط أرقام النظرة العامة في سطر [SOURCES].
+    The links for the overview's numbers in the [SOURCES] line."""
+    return {overview.GUIDE_NO: f"{config.SITE_URL}/osint-tools",
+            overview.INVESTIGATIONS_NO: f"{config.SITE_URL}/investigations"}
 
 
 def build_context(result: dict, lang: str = "ar") -> tuple[str, dict[int, str]]:
@@ -438,6 +504,9 @@ def answer(question: str, channel: str, user_id: str) -> dict:
     # ── الطبقة ٢ / Layer 2 ─────────────────────────────────────
     history = store.history(channel, user_id, config.HISTORY_TURNS)
     context, urls = build_context(result, lang)
+    view = guide_overview()
+    if view:
+        urls.update(overview_urls())
     user_block = (
         f"<المصادر>\n{context}\n</المصادر>\n\n"
         f"<لغة_الإجابة>{'English' if lang == 'en' else 'العربية'}</لغة_الإجابة>\n\n"
@@ -452,7 +521,9 @@ def answer(question: str, channel: str, user_id: str) -> dict:
         # تعليمات النظام ثابتة، فتُخزَّن مؤقتاً لدى الواجهة بين الأسئلة
         # The system prompt never changes, so the API caches it between questions
         system=[{"type": "text", "text": SYSTEM_PROMPT,
-                 "cache_control": {"type": "ephemeral"}}],
+                 "cache_control": {"type": "ephemeral"}}]
+        + ([{"type": "text", "text": view, "cache_control": {"type": "ephemeral"}}]
+           if view else []),
         messages=[*history, {"role": "user", "content": user_block}],
     )
     try:

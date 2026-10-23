@@ -512,6 +512,32 @@ check("المصادر هي ما ذكره النموذج فقط، والرقم غ
       res["sources"] == ["https://paxmemoria.org/investigations/x"], res["sources"])
 check("سطر [SOURCES] لا يصل إلى السائل", "SOURCES" not in res["text"], res["text"])
 
+# ── النظرة العامة على الدليل / The guide overview ──
+from app import overview  # noqa: E402
+req = json.loads(sent[-1].content)
+view = req["system"][1]["text"] if len(req["system"]) > 1 else ""
+check("النظرة العامة كتلة ثانية مخزّنة مؤقتاً في تعليمات النظام",
+      req["system"][1].get("cache_control") == {"type": "ephemeral"}
+      and 'موضوع="بيان"' in view and 'موضوع="الدليل"' in view, view[:300])
+check("النظرة العامة تعدّ الأدوات المتاحة والمُزالة وتسرد التصنيفات بأعدادها",
+      "في الدليل 3 أدوات متاحة" in view and "أُزيلت منه 2 أداة" in view
+      and "- محركات البحث (Search): 2" in view, view)
+check("قائمة التحقيقات فيها رابط كل تحقيق", "https://paxmemoria.org/investigations/x" in view, view)
+check("تاريخ النشر يُقرأ بالعربية والإنجليزية للترتيب",
+      overview._when("نُشر في 15 تشرين الأول/أكتوبر 2025").isoformat() == "2025-10-15"
+      and overview._when("Published August 9, 2026").isoformat() == "2026-08-09"
+      and overview._when("بلا تاريخ").year == 1)
+reply.update(content=[{"type": "text", "text": "في الدليل 3 أدوات.\n[SOURCES: 0]"}],
+             stop_reason="end_turn")
+res = brain.answer("ما حجم السيول في محافظة الحديدة اليمنية؟", "admin", "console")
+check("الاستناد إلى النظرة العامة يعطي صفحة الدليل مصدراً",
+      res["sources"] == [f"{config.SITE_URL}/osint-tools"], res["sources"])
+reply.update(content=[{"type": "text", "text": "أحدث تحقيقاتنا عن السيول.\n[SOURCES: 100]"}],
+             stop_reason="end_turn")
+res = brain.answer("ما حجم السيول في محافظة الحديدة اليمنية؟", "admin", "console")
+check("الاستناد إلى قائمة التحقيقات يعطي صفحة التحقيقات مصدراً",
+      res["sources"] == [f"{config.SITE_URL}/investigations"], res["sources"])
+
 ctx, urls = brain.build_context(
     {"tools": [], "category": None, "category_tools": [],
      "passages": [{"type": "tool", "url": "u", "meta": {},
