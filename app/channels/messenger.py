@@ -1,4 +1,7 @@
-"""فيسبوك ماسنجر — Messenger Platform."""
+"""فيسبوك ماسنجر — Messenger Platform.
+
+Facebook Messenger: Messenger Platform.
+"""
 import logging
 
 import httpx

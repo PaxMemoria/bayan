@@ -9,6 +9,21 @@
 أي كود من الشبكة، والخادم يعمل دون اتصال بـ Hugging Face.
 
 torch و transformers يُستوردان عند أول استعمال فقط.
+
+voyage-4-nano on Bayan's own server: questions from the public do not
+leave the server.
+
+The model has open weights (Apache 2.0) and shares one vector space with
+the rest of the voyage-4 family, so the site's public texts could later
+be indexed with a larger model through the service while the question
+vectors stay local.
+
+The code in modeling.py is copied from the pinned revision below, and
+the weights are downloaded at the same revision and checked against
+their hash (scripts/fetch_model.py). No code from the network is run,
+and the server works without a connection to Hugging Face.
+
+torch and transformers are imported only on first use.
 """
 import threading
 from pathlib import Path
@@ -27,6 +42,9 @@ PROMPTS = {
 MAX_TOKENS = 2048
 # دفعة صغيرة تُبقي ذروة الذاكرة أثناء الفهرسة منخفضة، وتترك الأسئلة الحيّة
 # تمرّ بين دفعة وأخرى بدل أن تنتظر الفهرسة كلها.
+# A small batch keeps peak memory low during indexing, and lets live
+# questions through between batches instead of waiting for the whole
+# indexing run.
 BATCH = 8
 
 _lock = threading.Lock()
@@ -34,7 +52,8 @@ _loaded: tuple | None = None  # (tokenizer, model, path)
 
 
 def missing(path: Path, lang: str = "ar") -> str:
-    """سبب عدم توفّر النموذج، أو نص فارغ إن كان جاهزاً."""
+    """سبب عدم توفّر النموذج، أو نص فارغ إن كان جاهزاً.
+    Why the model is unavailable, or an empty string if it is ready."""
     import importlib.util
 
     en = lang == "en"
@@ -82,6 +101,11 @@ def encode(texts: list[str], input_type: str, dim: int, path: Path,
     """متجه لكل نص بالترتيب نفسه، مقصوص إلى dim ومطبَّع.
 
     النموذج مدرَّب بأسلوب Matryoshka، فأوائل أبعاده متجه صالح بذاته.
+
+    One vector per text, in the same order, truncated to dim and normalized.
+
+    The model is trained Matryoshka-style, so its first dimensions are a
+    valid vector on their own.
     """
     import torch
 

@@ -1,8 +1,5 @@
 """لوحة تحكم بيان — بالعربية والإنجليزية، بلا JavaScript، خلف كلمة مرور.
 
-Bayan's dashboard, in Arabic and English, with no JavaScript, behind a
-password.
-
 تعرض حالة الفهرس والمتجهات، وأسئلة الجمهور ونتيجة كل منها، وتجربة بيان
 دون قناة، والعتبة والحدّ اليومي وزر الإيقاف، والمحظورين. اللغة تُختار
 برابط في الشريط (?lang=en أو ?lang=ar) وتُحفظ في كوكي.
@@ -10,6 +7,20 @@ password.
 الخصوصية: معرّف واتساب هو رقم الهاتف، فلا تعرض اللوحة أي معرّف. كل
 مستخدم يظهر ببصمة مشتقّة بـ SESSION_SECRET لا تُعكس إلى رقمه، والحظر
 يُنفَّذ برقم الرسالة لا بالمعرّف.
+
+Bayan's dashboard, in Arabic and English, with no JavaScript, behind a
+password.
+
+It shows the state of the index and the vectors, the public's questions
+and the outcome of each, a way to try Bayan without a channel, the
+threshold, the daily limit and the pause button, and the blocked users.
+The language is chosen with a link in the bar (?lang=en or ?lang=ar) and
+kept in a cookie.
+
+Privacy: a WhatsApp ID is the phone number, so the dashboard shows no
+IDs. Each user appears as a fingerprint derived with SESSION_SECRET that
+cannot be reversed to their number, and blocking is done by message
+number, not by ID.
 """
 import asyncio
 import hashlib
@@ -33,8 +44,11 @@ MAX_FORM_BYTES = 16_384
 e = html.escape
 
 # الإعداد الذي عويِرت عليه MIN_RELEVANCE الافتراضية (scripts/calibrate.py)
+# The setting the default MIN_RELEVANCE was calibrated for (scripts/calibrate.py)
 CALIBRATED_FOR = "voyage-4-nano@1024"
 # سبب الحظر يُخزَّن رمزاً ويُعرض بلغة اللوحة. القيمة العربية القديمة مقبولة.
+# The block reason is stored as a code and shown in the dashboard's
+# language. The old Arabic value is still accepted.
 BLOCK_REASON = "dashboard"
 
 OUTCOMES = {
@@ -46,6 +60,8 @@ CHANNELS = ("telegram", "whatsapp", "messenger")
 # ───────────────────────────────────────────────────── النصوص / Strings
 # كل نص في اللوحة: (العربية، الإنجليزية). المفاتيح ثابتة، فلا يُعرض في
 # الصفحة نص يأتي من الرابط.
+# Every dashboard string: (Arabic, English). The keys are fixed, so no text
+# that comes from the URL is shown on the page.
 TEXT: dict[str, tuple[str, str]] = {
     "dashboard": ("لوحة التحكم", "Dashboard"),
     "other_lang": ("English", "العربية"),
@@ -256,7 +272,8 @@ FLASH_KIND = {"reindex": "ok", "busy": "warn", "saved": "ok", "blocked": "ok",
 
 
 def tr(lang: str):
-    """دالة ترجمة للغة الطلب: T("key", v=...)."""
+    """دالة ترجمة للغة الطلب: T("key", v=...).
+    A translation function for the request's language: T("key", v=...)."""
     i = 1 if lang == "en" else 0
 
     def T(key: str, **kw) -> str:
@@ -267,20 +284,23 @@ def tr(lang: str):
 
 
 def req_lang(request: Request) -> str:
-    """?lang= يتقدّم على الكوكي، والافتراضي العربية."""
+    """?lang= يتقدّم على الكوكي، والافتراضي العربية.
+    ?lang= takes precedence over the cookie, and the default is Arabic."""
     q = request.query_params.get("lang")
     if q in ("ar", "en"):
         return q
     return "en" if request.cookies.get(LANG_COOKIE) == "en" else "ar"
 
 
-# ─────────────────────────────────────────────────────── الدخول
+# ─────────────────────────────────────────────────────── الدخول / Login
 def configured() -> bool:
     return len(config.ADMIN_PASSWORD) >= 12 and len(config.SESSION_SECRET) >= 32
 
 
 def _sign(value: str) -> str:
     # بصمة كلمة المرور داخل التوقيع: تغييرها يُخرج كل الجلسات القائمة.
+    # The password's hash is part of the signature: changing the password logs
+    # out every existing session.
     pw = hashlib.sha256(config.ADMIN_PASSWORD.encode()).hexdigest()
     return hmac.new(
         config.SESSION_SECRET.encode(), f"{value}:{pw}".encode(), hashlib.sha256
@@ -302,7 +322,8 @@ def is_admin(request: Request) -> bool:
 
 
 def _gate(request: Request) -> Response | None:
-    """None إن كان الطلب من مسؤول، وإلا الرد المناسب."""
+    """None إن كان الطلب من مسؤول، وإلا الرد المناسب.
+    None if the request comes from an admin, otherwise the appropriate response."""
     if not configured():
         T = tr(req_lang(request))
         return page(
@@ -320,12 +341,14 @@ def _gate(request: Request) -> Response | None:
 def _same_origin(request: Request) -> bool:
     origin = request.headers.get("origin") or request.headers.get("referer")
     if not origin or origin == "null":
+        # The SameSite=Strict cookie is enough here
         return True  # الكوكي SameSite=Strict يكفي هنا
     return urlsplit(origin).netloc == request.headers.get("host", "")
 
 
 def _plain(key: str, status: int) -> Response:
-    """رد نصي قصير باللغتين، لطلبات لا صفحة لها."""
+    """رد نصي قصير باللغتين، لطلبات لا صفحة لها.
+    A short plain-text response in both languages, for requests with no page."""
     ar, en = TEXT[key]
     return Response(f"{ar} / {en}", status_code=status)
 
@@ -362,7 +385,12 @@ def _safe_next(value: str) -> str:
 
 def fingerprint(channel: str, user_id: str) -> str:
     """بصمة ثابتة للمستخدم لا تكشف رقمه. مفتاحها سرّ الخادم، فلا تُعكس
-    بتجربة كل أرقام الهواتف كما يُعكس تجزيء غير مفتاحي."""
+    بتجربة كل أرقام الهواتف كما يُعكس تجزيء غير مفتاحي.
+
+    A stable fingerprint for the user that does not reveal their number. It
+    is keyed with the server secret, so it cannot be reversed by trying
+    every phone number, as an unkeyed hash can.
+    """
     digest = hmac.new(
         config.SESSION_SECRET.encode(), f"uid:{channel}:{user_id}".encode(),
         hashlib.sha256,
@@ -370,7 +398,7 @@ def fingerprint(channel: str, user_id: str) -> str:
     return digest[:8]
 
 
-# ─────────────────────────────────────────────────────── القالب
+# ─────────────────────────────────────────────────────── القالب / Template
 CSS = """
 :root{--bg:#f5f4f0;--panel:#fff;--ink:#1c1c1a;--muted:#696962;--line:#e2e0d9;
 --accent:#1d5c57;--accent-ink:#fff;--ok:#2b7149;--ok-bg:#e6f2ea;--warn:#8f5200;
@@ -472,7 +500,8 @@ HEADERS = {
 
 
 def _lang_link(request: Request, other: str) -> str:
-    """رابط الصفحة نفسها باللغة الأخرى، مع بقية معاملاتها."""
+    """رابط الصفحة نفسها باللغة الأخرى، مع بقية معاملاتها.
+    A link to the same page in the other language, keeping its other parameters."""
     params = {k: v for k, v in request.query_params.items() if k not in ("lang", "msg")}
     params["lang"] = other
     return f"{request.url.path}?{urlencode(params)}"
@@ -518,6 +547,8 @@ def when(ts: float | None) -> str:
     if not ts:
         return "—"
     # عزل اتجاهي: بدونه يقلب السطر العربي ترتيب التاريخ والساعة
+    # Directional isolation: without it, an Arabic line reverses the order of
+    # the date and the time
     return "⁦" + time.strftime("%Y-%m-%d %H:%M", time.gmtime(ts)) + " UTC⁩"
 
 
@@ -540,7 +571,7 @@ def _provider_label(T) -> str:
     return f"{config.EMBED_MODEL} {where}"
 
 
-# ─────────────────────────────────────────────────── الدخول والخروج
+# ─────────────────────────────────────────────────── الدخول والخروج / Login and logout
 @router.get("/admin/login")
 async def login_form(request: Request, error: str = ""):
     if not configured():
@@ -588,7 +619,7 @@ async def logout():
     return resp
 
 
-# ─────────────────────────────────────────────────────── نظرة عامة
+# ─────────────────────────────────────────────────────── نظرة عامة / Overview
 def _alerts(T, lang: str, counts: dict, emb: int, status: dict, last: dict | None) -> str:
     out = []
     if brain.paused():
@@ -691,7 +722,7 @@ async def reindex_now(request: Request):
     return _back("/admin", msg="reindex" if state == "started" else "busy")
 
 
-# ─────────────────────────────────────────────────────── الأسئلة
+# ─────────────────────────────────────────────────────── الأسئلة / Questions
 @router.get("/admin/messages")
 async def messages(request: Request, outcome: str = "", channel: str = "",
                    before: int = 0, sort: str = "", msg: str = ""):
@@ -775,7 +806,7 @@ async def block(request: Request):
     return RedirectResponse(f"{nxt}{sep}msg=blocked", status_code=303)
 
 
-# ─────────────────────────────────────────────────────── المحظورون
+# ─────────────────────────────────────────────────────── المحظورون / Blocked
 @router.get("/admin/blocked")
 async def blocked(request: Request, msg: str = ""):
     if denied := _gate(request):
@@ -814,7 +845,7 @@ async def unblock(request: Request):
     return _back("/admin/blocked", msg="unblocked")
 
 
-# ─────────────────────────────────────────────────────── التجربة
+# ─────────────────────────────────────────────────────── التجربة / Try Bayan
 def _try_form(T, q: str = "") -> str:
     return f"""<div class="card"><form method="post" action="/admin/try">
 <label for="q">{T("question")}</label>
@@ -876,7 +907,7 @@ async def try_ask(request: Request):
     return page(request, T("nav_try"), body, "try")
 
 
-# ─────────────────────────────────────────────────────── الإعدادات
+# ─────────────────────────────────────────────────────── الإعدادات / Settings
 def _channel_state(T) -> str:
     def row(name: str, ok: bool, need: str) -> str:
         state = (f'<span class="state ok">{T("st_ok")}</span>' if ok

@@ -2,6 +2,13 @@
 
 تبني فهرساً صغيراً في مجلد مؤقت، وتحاكي Voyage، وتختبر ما يحمي بيان حين
 يُضاف المفتاح أو يتعطّل، ثم أمان اللوحة.
+
+Tests that need neither the site repository nor any key.
+Run: python tests/test_offline.py
+
+They build a small index in a temporary folder, simulate Voyage, and test
+what protects Bayan when the key is added or stops working, then the
+dashboard's security.
 """
 import json
 import os
@@ -73,7 +80,9 @@ pathlib.Path(os.environ["KNOWLEDGE_PATH"]).write_text(
 
 
 def fake_vectors(texts, input_type="document", retries=6):
-    """متجهات حتمية من كلمات النص: تكفي لاختبار المسار لا لجودته."""
+    """متجهات حتمية من كلمات النص: تكفي لاختبار المسار لا لجودته.
+    Deterministic vectors from the words of the text: enough to test the
+    path, not its quality."""
     out = []
     for t in texts:
         v = [0.0] * config.EMBED_DIM
@@ -86,6 +95,7 @@ def fake_vectors(texts, input_type="document", retries=6):
 real_embed = embed.embed
 
 # ── ٠. المزوّد المحلي: ما يمنعه من العمل يُعلَن بسببه ────────────────
+# ── 0. Local provider: whatever stops it working is reported with its reason
 print("── المزوّد المحلي ──")
 from app import nano  # noqa: E402
 
@@ -112,9 +122,11 @@ check("الكود المنقول بلا اتصال بالشبكة",
       and "urllib" not in (pathlib.Path(nano.__file__).parent / "modeling.py").read_text())
 
 # بقية الاختبارات بمزوّد Voyage المحاكى
+# The remaining tests use the simulated Voyage provider
 config.EMBED_PROVIDER, config.EMBED_MODEL = "voyage", "voyage-4"
 
 # ── ١. Voyage: إعادة المحاولة ورسالة حساب بلا وسيلة دفع ─────────────
+# ── 1. Voyage: retries, and the message for an account with no payment method
 print("\n── Voyage ──")
 config.VOYAGE_API_KEY = "test"
 calls = []
@@ -165,9 +177,11 @@ batches = list(embed._batches(["x" * 70_000, "y" * 70_000, "z"]))
 check("الدفعات تُقسَم بعدد الأحرف", [len(b) for b in batches] == [1, 2], [len(b) for b in batches])
 embed.httpx.Client = real_client
 # time.sleep هو دالة الوحدة نفسها: يُعاد كي لا يبقى معطّلاً لبقية الاختبارات
+# time.sleep is the module's own function: restore it so it does not stay
+# disabled for the remaining tests
 embed.time.sleep = real_sleep
 
-# ── ٢. الفهرسة: الفشل لا يمسح الفهرس ──────────────────────────────
+# ── ٢. الفهرسة: الفشل لا يمسح الفهرس / 2. Indexing: a failure does not wipe the index ──
 print("\n── الفهرسة ──")
 config.VOYAGE_API_KEY = ""
 okk, detail = ingest.run(pull=False)
@@ -196,11 +210,13 @@ check("فهرسة بالمتجهات تنجح", okk and store.embedded_count() =
 check("رقم الإصدار تغيّر", store.index_version() != v1)
 
 # الخادم لم يُعِد التحميل بعد، والبحث التالي يلتقط الفهرس الجديد بنفسه
+# The server has not reloaded yet, and the next search picks up the new
+# index by itself
 r = retrieve.search("كيف تبدو السيول في اليمن من الفضاء؟")
 check("البحث يعيد التحميل تلقائياً ويستعمل المتجهات", r["used_vectors"],
       retrieve.status())
 
-# ── ٣. المتجهات: تعطّل Voyage وتغيّر النموذج ──────────────────────
+# ── ٣. المتجهات: تعطّل Voyage وتغيّر النموذج / 3. Vectors: a Voyage outage and a model change ──
 print("\n── المسار الدلالي ──")
 embed.embed = broken
 r = retrieve.search("كيف تبدو السيول في اليمن من الفضاء؟")
@@ -224,16 +240,18 @@ retrieve.warm()
 r = retrieve.search("كيف تبدو السيول في اليمن من الفضاء؟")
 check("IDF محمّل (التداخل موزون بالندرة)", len(retrieve._S.idf) > 0)
 
-# ── ٤. الطبقة ٤ على فهرس الاختبار ─────────────────────────────────
+# ── ٤. الطبقة ٤ على فهرس الاختبار / 4. Layer 4 on the test index ──
 print("\n── مرشّح الروابط ──")
 t, n = brain.strip_forbidden("حمّلها من github.com/AstraaDev/tool أو https://cse.google.com/cse.")
 check("نطاق مُزال ورابط حسّاس يُحذفان", n == 2 and "AstraaDev" not in t and "cse.google" not in t, t)
 t, n = brain.strip_forbidden("ابحث عبر https://cse.google.com/cse?cx=123:abc")
 check("رابط عادي يشترك في البادئة يبقى", n == 0, t)
 
-# ── ٥. اللوحة ────────────────────────────────────────────────────
+# ── ٥. اللوحة / 5. Dashboard ─────────────────────────────────────
 print("\n── اللوحة ──")
 # المتجهات المزيّفة تقرّب أي سؤال من أي مقطع، فتُطفأ هنا ليبقى رفض البوابة حتمياً
+# Fake vectors bring any question close to any passage, so they are turned
+# off here to keep the gate's refusal deterministic
 config.VOYAGE_API_KEY = ""
 retrieve.warm()
 client = TestClient(server.app)
@@ -252,6 +270,7 @@ r = client.post("/admin/login", data={"password": "wrong"}, follow_redirects=Fal
 check("كلمة مرور خاطئة تُرفض", "error=bad" in r.headers.get("location", ""))
 
 # رسالة من الجمهور فيها شيفرة، ومعرّفها رقم هاتف
+# A message from the public that contains code, and whose ID is a phone number
 store.remember("whatsapp", "966500000001", "user", "<script>alert(1)</script> ما أدوات Hunchly؟",
                outcome="refused_gate", confidence=0.21, sources=[])
 store.remember("whatsapp", "966500000001", "assistant", "رد <b>تجريبي</b>")
@@ -318,7 +337,7 @@ codes = [fresh.post("/admin/login", data={"password": "x"}, follow_redirects=Fal
          .headers["location"] for _ in range(6)]
 check("محاولات الدخول محدودة", "error=slow" in codes[-1], codes[-1])
 
-# ── ٥ب. حدّ الأسئلة اليومي ───────────────────────────────────────
+# ── ٥ب. حدّ الأسئلة اليومي / 5b. Daily question limit ────────────
 print("\n── الحدّ اليومي ──")
 store.set_setting("daily_limit", "3")
 replies = [brain.handle(f"ما هي عاصمة بلد رقم {i}؟", "telegram", "u-limit") for i in range(4)]
@@ -341,7 +360,7 @@ check("حدّ يومي غير صالح يُرفض من اللوحة", "error=lim
 client.post("/admin/settings", data={"threshold": "0.30", "daily_limit": "10"})
 check("الحدّ اليومي يُحفظ من اللوحة", brain.daily_limit() == 10)
 
-# ── ٥ج. اللغتان ──────────────────────────────────────────────────
+# ── ٥ج. اللغتان / 5c. The two languages ──────────────────────────
 print("\n── اللغتان ──")
 from app import i18n  # noqa: E402
 
@@ -388,7 +407,7 @@ check("لسؤال عربي: النسخة العربية لا الإنجليزي�
       retrieve._in_language(twin_ar, "ar", retrieve._S)
       and not retrieve._in_language(twin_en, "ar", retrieve._S))
 
-# ── ٦. الفهرسة في الخلفية ────────────────────────────────────────
+# ── ٦. الفهرسة في الخلفية / 6. Background indexing ───────────────
 print("\n── الفهرسة في الخلفية ──")
 import threading  # noqa: E402
 
@@ -431,7 +450,7 @@ for _ in range(50):
     time.sleep(0.05)
 ingest._run = real_run
 
-# ── ٧. عزل مُستخرِج الموقع ───────────────────────────────────────
+# ── ٧. عزل مُستخرِج الموقع / 7. Isolating the site extractor ─────
 print("\n── عزل المُستخرِج ──")
 import shutil  # noqa: E402
 
@@ -439,6 +458,8 @@ if shutil.which("node"):
     site = TMP / "hostile-site"
     (site / "scripts").mkdir(parents=True)
     # مُستخرِج «معادٍ»: يحاول ما قد يحاوله تعديل خبيث في مستودع الموقع
+    # A "hostile" extractor: it tries what a malicious edit in the site
+    # repository might try
     (site / "scripts" / "export-bayan-knowledge.mjs").write_text("""
 import { readFileSync, writeFileSync } from 'node:fs';
 const probe = { key: process.env.ANTHROPIC_API_KEY ?? null };
@@ -463,7 +484,7 @@ console.log('done');
 else:
     print("  (node غير مثبّت هنا: يُختبر في صورة Docker)")
 
-# ── ٧ب. سحب مستودع الموقع وتبديل الفرع ───────────────────────────
+# ── ٧ب. سحب مستودع الموقع وتبديل الفرع / 7b. Pulling the site repository and switching branches ──
 print("\n── سحب المستودع ──")
 import subprocess  # noqa: E402
 
@@ -492,7 +513,7 @@ r = client.get("/", follow_redirects=False)
 check("العنوان الجذر يحيل إلى موقع المنظمة",
       r.status_code == 302 and r.headers["location"] == config.SITE_URL)
 
-# ── ٨. تيليغرام ──────────────────────────────────────────────────
+# ── ٨. تيليغرام / 8. Telegram ────────────────────────────────────
 print("\n── تيليغرام ──")
 upd = {"update_id": 1, "message": {"chat": {"id": 5}, "text": "مرحبا"}}
 check("بلا TELEGRAM_WEBHOOK_SECRET يُرفض كل تحديث",

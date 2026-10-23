@@ -6,6 +6,18 @@
   ٣ — فحص المخرجات: علامة الرفض تُستبدل برسالة موحّدة.
   ٤ — مرشّح الروابط: يحذف حتمياً أي رابط لأداة حسّاسة أو مُزالة، مهما
       فعل النموذج. القواعد التحريرية لا تُترك لطاعة نموذج.
+
+Bayan's brain: it answers from Pax Memoria's knowledge alone, with
+editorial rules enforced in code.
+
+Protection layers:
+  1. Retrieval gate: refuse before calling the model if nothing relevant
+     was retrieved.
+  2. Strict instructions: using general knowledge is forbidden.
+  3. Output check: the refusal marker is replaced with a standard message.
+  4. Link filter: deterministically removes any link to a sensitive or
+     removed tool, whatever the model did. Editorial rules are not left
+     to a model's obedience.
 """
 import logging
 import re
@@ -26,6 +38,7 @@ VERIFICATION_AR = {
     "trained": "لم تُراجَع حيّاً في آخر تدقيق، وهي مُدرجة للمراجعة ذات الأولوية",
 }
 # الصياغة الإنجليزية نفسها: درجة دليل، لا حكم أمان
+# The same wording in English: a grade of evidence, not a safety verdict
 VERIFICATION_EN = {
     "direct": "reviewed with direct evidence (its official page was checked)",
     "indirect": "reviewed with indirect evidence only (its page could not be "
@@ -88,11 +101,16 @@ def client() -> Anthropic:
     return _client
 
 
-# ──────────────────────────────────────────── بناء المصادر
+# ──────────────────────────────────────────── بناء المصادر / Building the sources
 def tool_record(t: dict, lang: str = "ar") -> str:
     """سجلّ الأداة كما يراه النموذج، بلغة الإجابة.
 
     القواعد التحريرية مكتوبة في السجلّ نفسه، فلا يحتاج النموذج أن يستنتجها.
+
+    The tool record as the model sees it, in the answer language.
+
+    The editorial rules are written into the record itself, so the model
+    does not have to infer them.
     """
     if lang == "en":
         return _tool_record_en(t)
@@ -197,9 +215,12 @@ def build_context(result: dict, lang: str = "ar") -> str:
     return "\n\n".join(parts)
 
 
-# ──────────────────────────── الطبقة ٤: مرشّح الروابط الحتمي
+# ────────────── الطبقة ٤: مرشّح الروابط الحتمي / Layer 4: the deterministic link filter
 # رابط أو نطاق كما قد يكتبه النموذج، بمخطط أو بدونه. تيليغرام وواتساب
 # يحوّلان النطاق المجرد إلى رابط قابل للنقر، فـ«github.com/x» رابط فعلاً.
+# A link or domain as the model might write it, with or without a scheme.
+# Telegram and WhatsApp turn a bare domain into a clickable link, so
+# «github.com/x» really is a link.
 _URLISH = re.compile(
     r"(?:[a-z][a-z0-9+.-]*://)?(?:[a-z0-9-]+\.)+[a-z]{2,}(?::\d+)?"
     r"(?:[/?#][^\s<>()\[\]«»\"'،,؛]*)?",
@@ -225,6 +246,14 @@ def strip_forbidden(text: str) -> tuple[str, int]:
     القائمة تشمل كل أدوات الدليل لا ما استُرجع للسؤال وحده: المقاطع
     الدلالية نفسها تحمل نطاقات أدوات مُزالة، والنموذج قد يكرّرها. رابط
     أداة عادية يشترك في بادئة مع رابط ممنوع يُستثنى بالمطابقة التامة.
+
+    Replace every link or domain of a sensitive or removed tool with the
+    guide page.
+
+    The list covers every tool in the guide, not only those retrieved for
+    the question: the semantic passages themselves carry domains of removed
+    tools, and the model may repeat them. A link to an ordinary tool that
+    shares a prefix with a banned link is exempted by exact match.
     """
     banned, allowed = retrieve.link_rules()
     count = 0
@@ -242,7 +271,8 @@ def strip_forbidden(text: str) -> tuple[str, int]:
 
 
 def threshold() -> float:
-    """عتبة البوابة: قيمة اللوحة إن ضُبطت، وإلا MIN_RELEVANCE."""
+    """عتبة البوابة: قيمة اللوحة إن ضُبطت، وإلا MIN_RELEVANCE.
+    The gate threshold: the dashboard value if set, otherwise MIN_RELEVANCE."""
     try:
         return float(store.setting("min_relevance", str(config.MIN_RELEVANCE)))
     except ValueError:
@@ -254,7 +284,8 @@ def paused() -> bool:
 
 
 def daily_limit() -> int:
-    """حدّ الأسئلة اليومي: قيمة اللوحة إن ضُبطت، وإلا DAILY_LIMIT."""
+    """حدّ الأسئلة اليومي: قيمة اللوحة إن ضُبطت، وإلا DAILY_LIMIT.
+    The daily question limit: the dashboard value if set, otherwise DAILY_LIMIT."""
     try:
         return int(store.setting("daily_limit", str(config.DAILY_LIMIT)))
     except ValueError:
@@ -266,6 +297,12 @@ def daily_refusal(channel: str, user_id: str, lang: str = "ar") -> str | None:
 
     العدّ على 24 ساعة متتالية لا على يوم تقويمي، فلا يتجدّد الحدّ كله عند
     منتصف الليل. والرسالة تقول متى يُتاح السؤال التالي.
+
+    The daily limit message if the user has reached the limit, otherwise None.
+
+    The count runs over a rolling 24 hours, not a calendar day, so the whole
+    limit does not reset at midnight. The message says when the next
+    question will be allowed.
     """
     limit = daily_limit()
     if limit <= 0:
@@ -275,12 +312,14 @@ def daily_refusal(channel: str, user_id: str, lang: str = "ar") -> str | None:
     if len(asked) < limit:
         return None
     # يُتاح سؤال جديد حين يخرج أقدم الأسئلة المحسوبة من نافذة الـ24 ساعة
+    # A new question is allowed once the oldest counted question leaves the
+    # 24-hour window
     wait = asked[len(asked) - limit] + 86400 - now
     return i18n.msg("daily", lang, limit=limit, wait=i18n.hours(wait, lang),
                     site=config.SITE_URL)
 
 
-# ──────────────────────────────────────────────────── الإجابة
+# ──────────────────────────────────────────────────── الإجابة / Answering
 def answer(question: str, channel: str, user_id: str) -> dict:
     question = question.strip()[: config.MAX_QUESTION_CHARS]
     lang = i18n.detect(question)
@@ -296,12 +335,12 @@ def answer(question: str, channel: str, user_id: str) -> dict:
         return {"text": text, "outcome": outcome, "confidence": confidence,
                 "sources": sources or [], "retrieval": result, "lang": lang}
 
-    # ── الطبقة ١ ───────────────────────────────────────────────
+    # ── الطبقة ١ / Layer 1 ─────────────────────────────────────
     if not result["has_any"] or confidence < threshold():
         log.info("رفض بالبوابة | ثقة=%.3f | %s", confidence, question[:60])
         return done(refuse, "refused_gate")
 
-    # ── الطبقة ٢ ───────────────────────────────────────────────
+    # ── الطبقة ٢ / Layer 2 ─────────────────────────────────────
     history = store.history(channel, user_id, config.HISTORY_TURNS)
     user_block = (
         f"<المصادر>\n{build_context(result, lang)}\n</المصادر>\n\n"
@@ -324,14 +363,14 @@ def answer(question: str, channel: str, user_id: str) -> dict:
 
     text = "".join(b.text for b in resp.content if b.type == "text").strip()
 
-    # ── الطبقة ٣ ───────────────────────────────────────────────
+    # ── الطبقة ٣ / Layer 3 ─────────────────────────────────────
     if not text or "OUT_OF_SCOPE" in text:
         return done(refuse, "refused_model")
     text = re.sub(r"\[?OUT_OF_SCOPE\]?", "", text).strip()
     if len(text) < 10:
         return done(refuse, "refused_model")
 
-    # ── الطبقة ٤ ───────────────────────────────────────────────
+    # ── الطبقة ٤ / Layer 4 ─────────────────────────────────────
     text, stripped = strip_forbidden(text)
     if stripped:
         log.warning("حُذف %d رابط ممنوع من الإجابة | %s", stripped, question[:60])
@@ -352,7 +391,8 @@ def answer(question: str, channel: str, user_id: str) -> dict:
 
 
 def handle(question: str, channel: str, user_id: str) -> str:
-    """نقطة الدخول الموحّدة لكل القنوات."""
+    """نقطة الدخول الموحّدة لكل القنوات.
+    The single entry point for all channels."""
     lang = i18n.detect(question)
     if store.is_blocked(channel, user_id):
         return i18n.msg("out_of_scope", lang)
@@ -362,6 +402,8 @@ def handle(question: str, channel: str, user_id: str) -> str:
         return i18n.msg("paused", lang)
 
     # الأوامر بلا لغة، فتُجاب باللغتين، إلا ما كُتب بالعربية
+    # Commands have no language, so they are answered in both languages,
+    # except those written in Arabic
     cmd = question.strip().lower()
     if cmd in ("/start", "start", "بدء", "ابدأ"):
         store.clear_history(channel, user_id)
@@ -380,6 +422,8 @@ def handle(question: str, channel: str, user_id: str) -> str:
         return ar if cmd == "مساعدة" else f"{ar}\n\n{en}"
 
     # بعد الأوامر: /start و /help لا تُحسب من الحدّ ولا يمنعها
+    # After the commands: /start and /help do not count toward the limit, and
+    # the limit does not block them
     if (refusal := daily_refusal(channel, user_id, lang)) is not None:
         return refusal
 

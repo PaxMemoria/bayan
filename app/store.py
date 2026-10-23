@@ -1,4 +1,8 @@
-"""طبقة التخزين: SQLite واحدة تحمل المعرفة والأدوات والمحادثات."""
+"""طبقة التخزين: SQLite واحدة تحمل المعرفة والأدوات والمحادثات.
+
+The storage layer: one SQLite database that holds the knowledge, the tools
+and the conversations.
+"""
 import json
 import sqlite3
 import time
@@ -123,7 +127,7 @@ def init() -> None:
         conn.executescript(SCHEMA)
 
 
-# ──────────────────────────────────────────────────── الفهرسة
+# ──────────────────────────────────────────────────── الفهرسة / Indexing
 TOOL_COLS = (
     "name", "norm_name", "category_ar", "category_en", "norm_category",
     "summary_ar", "summary_en", "link", "domain", "verification",
@@ -138,6 +142,13 @@ def replace_index(tools: list[dict], chunks: list[dict], embed_model: str) -> No
     إن فشل أي جزء يبقى الفهرس السابق كما هو: إعادة فهرسة فاشلة لا تترك
     بيان بقاعدة معرفة فارغة. المعرّفات لا يُعاد ترقيمها، فمقطع من فهرس
     قديم ما زال في ذاكرة عملية أخرى لا يشير خطأً إلى مقطع جديد.
+
+    Replace the whole index in a single transaction.
+
+    If any part fails, the previous index stays as it was: a failed reindex
+    does not leave Bayan with an empty knowledge base. IDs are not
+    renumbered, so a passage from an old index that is still in another
+    process's memory does not point by mistake to a new passage.
     """
     marks = ",".join("?" * len(TOOL_COLS))
     with db() as conn:
@@ -166,6 +177,9 @@ def replace_index(tools: list[dict], chunks: list[dict], embed_model: str) -> No
             )
         # كل عملية (الخادم، أو فهرسة من سطر الأوامر) تقارن هذا الرقم بما
         # حمّلته في ذاكرتها، فتعيد التحميل دون إعادة تشغيل.
+        # Every process (the server, or indexing from the command line) compares
+        # this number with what it loaded into memory, so it reloads without a
+        # restart.
         for key, value in (("index_version", repr(time.time())),
                            ("index_embed_model", embed_model)):
             conn.execute(
@@ -240,7 +254,7 @@ def get_chunks(ids: list[int]) -> dict[int, dict]:
     }
 
 
-# ──────────────────────────────────────────── الأدوات: بحث منظّم
+# ──────────────────────────────────────── الأدوات: بحث منظّم / Tools: structured search
 def categories() -> list[dict]:
     with db() as conn:
         rows = conn.execute(
@@ -285,6 +299,12 @@ def link_rules() -> tuple[list[str], list[str]]:
 
     الممنوع: رابط أو نطاق كل أداة حسّاسة أو مُزالة. المسموح: روابط
     الأدوات العادية، ليُستثنى منها ما يشترك في بادئة مع رابط ممنوع.
+
+    (banned links and domains, allowed links) for every tool in the guide.
+
+    Banned: the link or domain of every sensitive or removed tool. Allowed:
+    the links of ordinary tools, so that those sharing a prefix with a
+    banned link can be exempted.
     """
     with db() as conn:
         rows = conn.execute(
@@ -295,7 +315,7 @@ def link_rules() -> tuple[list[str], list[str]]:
     return banned, allowed
 
 
-# ──────────────────────────────────────────────────── المحادثات
+# ──────────────────────────────────────────────────── المحادثات / Conversations
 def history(channel: str, user_id: str, turns: int) -> list[dict]:
     with db() as conn:
         rows = conn.execute(
@@ -329,7 +349,8 @@ def remember(
 
 
 def questions_since(channel: str, user_id: str, since: float) -> list[float]:
-    """أوقات أسئلة المستخدم منذ since، الأقدم أولاً."""
+    """أوقات أسئلة المستخدم منذ since، الأقدم أولاً.
+    Times of the user's questions at or after since, oldest first."""
     with db() as conn:
         rows = conn.execute(
             "SELECT ts FROM messages WHERE channel=? AND user_id=? AND role='user' "
@@ -346,7 +367,7 @@ def clear_history(channel: str, user_id: str) -> None:
         )
 
 
-# ──────────────────────────────────────────────────────── الحدود
+# ──────────────────────────────────────────────────────── الحدود / Limits
 def is_blocked(channel: str, user_id: str) -> bool:
     with db() as conn:
         return conn.execute(
@@ -360,7 +381,8 @@ def rate_ok(channel: str, user_id: str) -> bool:
 
 
 def throttle(channel: str, key: str, limit: int, window: int) -> bool:
-    """يسجّل محاولة ويُرجع False إن تجاوزت limit خلال window ثانية."""
+    """يسجّل محاولة ويُرجع False إن تجاوزت limit خلال window ثانية.
+    Record an attempt and return False if it goes over limit within window seconds."""
     now = time.time()
     with db() as conn:
         conn.execute("DELETE FROM hits WHERE ts < ?", (now - 3600,))
@@ -410,7 +432,7 @@ def first_time(event_id: str) -> bool:
             return False
 
 
-# ────────────────────────────────────────────── سجلّ الفهرسة
+# ────────────────────────────────────────────── سجلّ الفهرسة / Indexing log
 def start_run() -> int:
     with db() as conn:
         return conn.execute(
@@ -435,7 +457,7 @@ def last_run() -> dict | None:
     return dict(row) if row else None
 
 
-# ───────────────────────────────────────────── إعدادات اللوحة
+# ───────────────────────────────────────────── إعدادات اللوحة / Dashboard settings
 def setting(key: str, default: str) -> str:
     with db() as conn:
         row = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
@@ -456,7 +478,7 @@ def clear_setting(key: str) -> None:
         conn.execute("DELETE FROM settings WHERE key=?", (key,))
 
 
-# ──────────────────────────────────────────────── استعلامات اللوحة
+# ──────────────────────────────────────────────── استعلامات اللوحة / Dashboard queries
 def outcome_stats(since: float) -> dict[str, int]:
     with db() as conn:
         rows = conn.execute(
@@ -479,7 +501,8 @@ def channel_stats(since: float) -> dict[str, dict]:
 
 def questions(outcome: str = "", channel: str = "", before: int = 0,
               by_confidence: bool = False, limit: int = 50) -> list[dict]:
-    """أسئلة الجمهور مع ردّ بيان على كل منها، الأحدث أولاً."""
+    """أسئلة الجمهور مع ردّ بيان على كل منها، الأحدث أولاً.
+    Questions from the public with Bayan's reply to each, newest first."""
     where, args = ["u.role='user'"], []
     if outcome:
         where.append("u.outcome=?")

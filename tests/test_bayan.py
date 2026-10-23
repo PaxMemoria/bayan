@@ -1,4 +1,7 @@
-"""اختبار توجيه بيان وقواعده التحريرية.  التشغيل: python tests/test_bayan.py"""
+"""اختبار توجيه بيان وقواعده التحريرية.  التشغيل: python tests/test_bayan.py
+
+Tests for Bayan's routing and editorial rules.  Run: python tests/test_bayan.py
+"""
 import os, sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 os.environ.setdefault("DATA_DIR", str(pathlib.Path(__file__).resolve().parent.parent / "data"))
@@ -14,12 +17,18 @@ def check(name, cond, detail=""):
     if cond: ok += 1; print(f"✔ {name}")
     else: fail += 1; print(f"✘ {name}   {detail}")
 
-# ── ١. البوابة: داخل النطاق مقابل خارجه ───────────────────────────
+# ── ١. البوابة: داخل النطاق مقابل خارجه / 1. The gate: in scope versus out of scope ──
 print("── البوابة ──")
 # بالمتجهات تُضبط العتبة كي لا يُرفض سؤال مشروع، فيتجاوزها بعض أسئلة المعرفة
 # العامة ويرفضها النموذج في الطبقة ٢ (scripts/calibrate.py يقيس كم منها).
 # المطلوب هنا: المشروع يمرّ، والخارجي أدنى ثقةً من أدنى سؤال مشروع، وفي
 # البحث النصي وحده تبقى البوابة هي من يرفض.
+# With vectors, the threshold is set so that no legitimate question is
+# refused, so some general-knowledge questions pass it and the model
+# refuses them in layer 2 (scripts/calibrate.py measures how many). What
+# is required here: legitimate questions pass, out-of-scope ones score
+# lower than the lowest legitimate question, and with text search alone
+# the gate is still the one that refuses.
 from app import embed
 vectors = embed.enabled() and retrieve.status()["vectors"] > 0
 inside = []
@@ -39,7 +48,7 @@ for q in ["ما هي عاصمة فرنسا؟", "اكتب لي كود بايثو�
     else:
         check(f'[{r["confidence"]:.2f}] {"يُجيب" if passed else "يرفض"} | {q}', not passed)
 
-# ── ٢. المسار المنظّم ─────────────────────────────────────────────
+# ── ٢. المسار المنظّم / 2. The structured path ────────────────────
 print("\n── المسار المنظّم (الأدوات كقاعدة بيانات) ──")
 r = retrieve.search("ما هي أدوات الترجمة المتاحة؟")
 check("سؤال تصنيف يُرجع قائمة", len(r["category_tools"]) >= 3,
@@ -51,7 +60,7 @@ check("سؤال باسم أداة يطابقها", any("Hunchly" in t["name"] fo
       str([t["name"] for t in r2["tools"]]))
 check("سؤال باسم أداة لا يُغرق بقائمة", len(r2["category_tools"]) == 0)
 
-# ── ٣. القواعد التحريرية في المصادر ───────────────────────────────
+# ── ٣. القواعد التحريرية في المصادر / 3. Editorial rules in the sources ──
 print("\n── القواعد التحريرية ──")
 sens = store.tools_in_category(
     retrieve.normalize_ar("Facebook"), 20)
@@ -74,7 +83,7 @@ if tr:
     check("درجة التحقق تُنقل كدرجة دليل لا حكم أمان",
           "لم تُراجَع حيّاً" in rec and "آمنة" not in rec and "موثّقة" not in rec)
 
-# ── ٤. مرشّح الروابط الحتمي ───────────────────────────────────────
+# ── ٤. مرشّح الروابط الحتمي / 4. The deterministic link filter ────
 print("\n── الطبقة ٤: مرشّح الروابط ──")
 if sens:
     bad = sens[0]["link"]
@@ -89,6 +98,8 @@ if fake2:
 
 # المقاطع الدلالية تحمل نطاقات أدوات مُزالة. المرشّح يغطي كل الدليل، لا
 # ما استُرجع بالمسار المنظّم وحده.
+# Semantic passages carry domains of removed tools. The filter covers the
+# whole guide, not only what the structured path retrieved.
 with store.db() as c:
     leaky = c.execute(
         "SELECT ch.text, t.domain FROM chunks ch JOIN tools t ON t.removed=1 "
@@ -112,7 +123,7 @@ check("رابط أداة عادية يبقى", n == 0 and ok_link in cleaned, cl
 cleaned, n = brain.strip_forbidden("التفاصيل على https://paxmemoria.org/investigations/x")
 check("روابط الموقع تبقى", n == 0, cleaned)
 
-# ── محدودية معروفة: أسئلة المعنى تحتاج متجهات ─────────────────────
+# ── محدودية معروفة: أسئلة المعنى تحتاج متجهات / Known limitation: meaning questions need vectors ──
 print("\n── المتجهات: أسئلة المعنى مقابل الضجيج ──")
 MEANING = [
     "كيف أتحقق من موقع صورة جغرافياً؟",

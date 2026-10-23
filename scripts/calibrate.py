@@ -4,6 +4,14 @@
 
 يحسب ثقة كل سؤال من أسئلة المعايرة دون استدعاء النموذج، ثم يقترح عتبة.
 شغّله بعد كل فهرسة بنموذج متجهات جديد، واضبط العتبة من صفحة الإعدادات.
+
+Calibrate the gate threshold on the current index.
+
+Run:  python scripts/calibrate.py [questions_file.json]
+
+Computes the confidence of each calibration question without calling
+the model, then suggests a threshold. Run it after each indexing with a
+new embedding model, and set the threshold on the Settings page.
 """
 import json
 import sys

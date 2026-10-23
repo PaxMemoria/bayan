@@ -1,4 +1,7 @@
-"""تيليغرام — Bot API."""
+"""تيليغرام — Bot API.
+
+Telegram: Bot API.
+"""
 import logging
 
 import httpx

@@ -6,6 +6,15 @@
 
 التشغيل اليدوي:  python -m app.ingest
 التشغيل الآلي :  POST /admin/reindex بسرّ REINDEX_SECRET
+
+Indexing Bayan from the output of the site's extractor.
+
+No web crawling: the site is a React app, and its content is structured
+in src/data. This server pulls a read-only copy of the site repository,
+runs the extractor that lives there, then indexes its two files.
+
+Manual run:     python -m app.ingest
+Automatic run:  POST /admin/reindex with the REINDEX_SECRET secret
 """
 import json
 import os
@@ -18,13 +27,17 @@ from .arabic import normalize_ar
 
 
 def sync_repo(log: list[str]) -> None:
-    """سحب أو تحديث نسخة القراءة من مستودع الموقع."""
+    """سحب أو تحديث نسخة القراءة من مستودع الموقع.
+    Clone or update the read-only copy of the site repository."""
     repo = config.SITE_REPO
     if (repo / ".git").exists():
         branch = config.SITE_BRANCH
         cmds = [
             # المرجع صريح: نسخة --depth 1 --branch تتبع فرعها الأول وحده، فلا
             # يحدّث «fetch origin main» المرجع origin/main إن تغيّر SITE_BRANCH.
+            # Explicit refspec: a --depth 1 --branch clone tracks only its first
+            # branch, so «fetch origin main» would not update origin/main if
+            # SITE_BRANCH changed.
             ["git", "-C", str(repo), "fetch", "--depth", "1", "origin",
              f"+refs/heads/{branch}:refs/remotes/origin/{branch}"],
             ["git", "-C", str(repo), "reset", "--hard", f"origin/{branch}"],
@@ -54,6 +67,17 @@ def run_extractor(log: list[str]) -> None:
     وبأرقام هواتف الجمهور، وهذا ما فُصل المستودعان لمنعه. لذلك يُشغَّل:
     بلا متغيرات بيئة (فيها مفاتيح بيان)، وبنموذج صلاحيات Node: قراءة داخل
     المستودع وحده، وكتابة في bayan-export وحده، وبلا عمليات فرعية.
+
+    Run the site's extractor in isolation.
+
+    The files in src/data are JavaScript modules that run here, and anyone
+    who pushes to the site's main branch writes them. Without isolation, an
+    edit to the site becomes code running on Bayan's server, with its keys
+    and the public's phone numbers, which is what the two repositories were
+    separated to prevent. So it runs with no environment variables (they
+    hold Bayan's keys), and under the Node permission model: reads only
+    inside the repository, writes only in bayan-export, and no child
+    processes.
     """
     repo = config.SITE_REPO.resolve()
     out = config.EXPORT_DIR.resolve()
@@ -61,6 +85,8 @@ def run_extractor(log: list[str]) -> None:
     if not script.exists():
         raise RuntimeError(f"المُستخرِج غير موجود: {script}")
     # الصلاحية تُمنح لمسار موجود عند الإقلاع، فيُنشأ المجلد قبل التشغيل
+    # Permission is granted to a path that exists at startup, so the folder is
+    # created before the run
     out.mkdir(parents=True, exist_ok=True)
     r = subprocess.run(
         ["node", "--permission", f"--allow-fs-read={repo}",
@@ -88,6 +114,7 @@ def read_exports() -> tuple[list[dict], list[dict]]:
 
 def index(chunks: list[dict], tools: list[dict], log: list[str]) -> None:
     # الأدوات كقاعدة بيانات — تُستعلَم بالتصنيف والاسم مباشرة
+    # Tools as a database, queried directly by category and name
     tool_rows = [
         {
             "name": t["name"],
@@ -121,6 +148,8 @@ def index(chunks: list[dict], tools: list[dict], log: list[str]) -> None:
             "text": c["text"],
             "norm_text": normalize_ar(c["text"]),
             # لغة المقطع في meta، ليختار الاسترجاع نسخة التحقيق بلغة السائل
+            # The passage language goes in meta, so retrieval can pick the version of
+            # an investigation in the asker's language
             "meta": {**c.get("meta", {}), "lang": c.get("lang", "ar")},
         }
         for c in chunks
@@ -128,6 +157,9 @@ def index(chunks: list[dict], tools: list[dict], log: list[str]) -> None:
 
     # المتجهات تُولَّد قبل لمس الفهرس: إن فشلت يبقى الفهرس السابق يعمل.
     # ومع وجود المفتاح لا نفهرس بلا متجهات بصمت — الفشل يُعلَن.
+    # Vectors are generated before the index is touched: if that fails, the
+    # previous index keeps working. And when the key is present we never
+    # index without vectors silently; the failure is reported.
     if embed.enabled():
         log.append(f"جاري توليد المتجهات ({embed.model_id()})...")
         vectors = embed.embed([r["text"] for r in rows], input_type="document")
@@ -149,7 +181,8 @@ def running() -> bool:
 
 
 def run(pull: bool = True) -> tuple[bool, str]:
-    """ينفّذ دورة فهرسة كاملة ويُرجع (نجح، التفاصيل)."""
+    """ينفّذ دورة فهرسة كاملة ويُرجع (نجح، التفاصيل).
+    Run a full indexing cycle and return (succeeded, details)."""
     if not _running.acquire(blocking=False):
         return False, "فهرسة أخرى جارية الآن."
     try:
@@ -168,6 +201,14 @@ def start_background(pull: bool = True) -> str:
     الفهرسة بالنموذج المحلي تستغرق دقائق على معالج خادم، وطلب ينتظرها
     يتجاوز مهلة workflow الموقع. وإشارة تصل أثناء فهرسة جارية تُحفظ
     لدورة واحدة بعدها، فتعديل دُمج أثناء الفهرسة لا يفوت بيان.
+
+    Start indexing in the background and return at once: "started" or
+    "queued".
+
+    Indexing with the local model takes minutes on a server CPU, and a
+    request that waited for it would go past the site workflow's timeout. A
+    signal that arrives while indexing is running is kept for one more cycle
+    after it, so a change merged during indexing is not missed by Bayan.
     """
     global _again
     with _queue:
@@ -179,15 +220,19 @@ def start_background(pull: bool = True) -> str:
 
 
 def _background(pull: bool) -> None:
-    """يملك _running من لحظة start_background حتى آخر دورة."""
+    """يملك _running من لحظة start_background حتى آخر دورة.
+    Holds _running from the moment of start_background until the last cycle."""
     global _again
     while True:
         try:
             _run(pull)
         except Exception:  # noqa: BLE001 — _run يسجّل فشله، وهذا احتياط للقفل
+            # _run logs its own failure; this is a safeguard for the lock
             pass
         with _queue:
             # التحرير داخل _queue: إشارة تصل بين القرار والتحرير لا تضيع
+            # Release inside _queue: a signal that arrives between the decision and
+            # the release is not lost
             if not _again:
                 _running.release()
                 return

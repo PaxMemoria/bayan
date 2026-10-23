@@ -1,13 +1,21 @@
 # يُنسخ إلى مستودع الموقع: .github/workflows/bayan-reindex.yml
+# Copied into the site repository as: .github/workflows/bayan-reindex.yml
 #
 # هذا الـ workflow يرسل إشارة واحدة فقط إلى خادم بيان. لا يحمل أي مفتاح
 # من مفاتيح بيان (Anthropic، Voyage، تيليغرام، Meta): الخادم يسحب الموقع
 # بنفسه بمفتاح قراءة فقط ثم يعيد الفهرسة. السرّ الوحيد هنا أقصى ضرر
 # تسريبه إعادة فهرسة غير لازمة.
+# This workflow sends only one signal to Bayan's server. It carries none of
+# Bayan's keys (answer model, Voyage, Telegram, Meta): the server pulls the
+# site itself with a read-only key, then reindexes. The worst harm from
+# leaking the only secret here is an unnecessary reindex.
 #
 # الأسرار المطلوبة في مستودع الموقع:
 #   BAYAN_REINDEX_URL     مثال: https://bayan.paxmemoria.org/admin/reindex
 #   BAYAN_REINDEX_SECRET  نفس REINDEX_SECRET في .env الخاص ببيان
+# Secrets required in the site repository:
+#   BAYAN_REINDEX_URL     example: https://bayan.paxmemoria.org/admin/reindex
+#   BAYAN_REINDEX_SECRET  the same as REINDEX_SECRET in Bayan's .env
 
 name: إعادة فهرسة بيان
 
@@ -38,11 +46,17 @@ jobs:
       # نشغّل المُستخرِج هنا أولاً: إن كسره تعديل في بنية البيانات،
       # يفشل الـ workflow فوراً بدل أن يتوقف بيان صامتاً عن معرفة
       # آخر تحقيق لأسابيع.
+      # Run the extractor here first: if a change to the data structure breaks
+      # it, the workflow fails at once instead of Bayan silently not knowing
+      # about the latest investigation for weeks.
       - name: تشغيل المُستخرِج للتحقق
         run: node scripts/export-bayan-knowledge.mjs
 
       # الخادم يبدأ الفهرسة في الخلفية ويردّ فوراً بـ 202: الفهرسة بالنموذج
       # المحلي تستغرق دقائق، ونتيجتها في لوحة بيان لا هنا.
+      # The server starts indexing in the background and replies at once with
+      # 202: indexing with the local model takes minutes, and its result is in
+      # Bayan's dashboard, not here.
       - name: إرسال إشارة إعادة الفهرسة
         env:
           URL: ${{ secrets.BAYAN_REINDEX_URL }}

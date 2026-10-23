@@ -3,6 +3,14 @@
 مزوّدان (EMBED_PROVIDER):
   local  : voyage-4-nano على الخادم نفسه (الافتراضي). لا يغادر السؤال الخادم.
   voyage : خدمة Voyage عبر MongoDB Atlas.
+
+Vectors: necessary in practice; see "Why vectors are necessary" in the
+README.
+
+Two providers (EMBED_PROVIDER):
+  local  : voyage-4-nano on the server itself (the default). The question
+           never leaves the server.
+  voyage : the Voyage service through MongoDB Atlas.
 """
 import logging
 import time
@@ -15,17 +23,22 @@ log = logging.getLogger("embed")
 
 # المقطع العربي يستهلك رموزاً أكثر مما يوحي طوله، فتُقسَم دفعات الخدمة بعدد
 # الأحرف إلى جانب عدد المقاطع، لتبقى كل دفعة تحت حدّ الرموز لكل طلب.
+# An Arabic passage uses more tokens than its length suggests, so batches
+# for the service are split by character count as well as by passage
+# count, to keep each batch under the per-request token limit.
 BATCH_TEXTS = 128
 BATCH_CHARS = 120_000
 RETRY_STATUS = {429, 500, 502, 503, 504}
 
 
 class EmbedError(RuntimeError):
-    """فشل توليد المتجهات."""
+    """فشل توليد المتجهات.
+    Generating the vectors failed."""
 
 
 def unavailable_reason(lang: str = "ar") -> str:
-    """لماذا لا تتوفر المتجهات، أو نص فارغ إن كانت متوفرة."""
+    """لماذا لا تتوفر المتجهات، أو نص فارغ إن كانت متوفرة.
+    Why vectors are unavailable, or an empty string if they are available."""
     en = lang == "en"
     if config.EMBED_PROVIDER == "local":
         if config.EMBED_MODEL != "voyage-4-nano":
@@ -47,12 +60,16 @@ def enabled() -> bool:
 
 
 def model_id() -> str:
-    """ما يُخزَّن مع الفهرس: متجهات نموذج أو أبعاد مختلفة لا تُقارَن."""
+    """ما يُخزَّن مع الفهرس: متجهات نموذج أو أبعاد مختلفة لا تُقارَن.
+    What is stored with the index: vectors from a different model or
+    dimensions cannot be compared."""
     return f"{config.EMBED_MODEL}@{config.EMBED_DIM}"
 
 
 def preload() -> None:
-    """تحميل النموذج المحلي عند الإقلاع، كي لا ينتظر أول سائل تحميله."""
+    """تحميل النموذج المحلي عند الإقلاع، كي لا ينتظر أول سائل تحميله.
+    Load the local model at startup, so the first asker does not wait for
+    it to load."""
     if config.EMBED_PROVIDER != "local" or not enabled():
         return
     t0 = time.time()
@@ -123,6 +140,12 @@ def embed(texts: list[str], input_type: str = "document",
 
     يرفع EmbedError عند الفشل. retries للخدمة وحدها: الفهرسة تحتاج
     المحاولات الست، والسؤال الحيّ يمرّر retries=1 كي لا ينتظر السائل.
+
+    One vector per text, in the same order, or None if vectors are unavailable.
+
+    Raises EmbedError on failure. retries applies to the service only:
+    indexing needs all six attempts, and a live question passes retries=1
+    so the asker does not wait.
     """
     if not enabled() or not texts:
         return None

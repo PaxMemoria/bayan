@@ -6,6 +6,18 @@
 
 لا يعتمد على بقية app عمداً: تعديل الكود لا يُبطل طبقة النموذج في Docker
 فلا يُعاد تنزيل 0.7 GB مع كل بناء.
+
+Download voyage-4-nano at the pinned revision and check the hash of its
+weights.
+
+Run:  python scripts/fetch_model.py
+It runs when the Docker image is built, so the server then works without
+a connection to Hugging Face.
+Folder: LOCAL_MODEL_DIR, otherwise DATA_DIR/models/voyage-4-nano.
+
+It deliberately does not depend on the rest of app: a code change does
+not invalidate the model layer in Docker, so 0.7 GB is not downloaded
+again on every build.
 """
 import hashlib
 import os
@@ -26,6 +38,8 @@ target = Path(
 from huggingface_hub import snapshot_download  # noqa: E402
 
 # بلا HF_HOME يُنزَّل إلى مجلد مؤقت يُحذف بعد النسخ، كي لا تتضاعف الصورة.
+# Without HF_HOME, download to a temporary folder that is deleted after
+# copying, so the image does not double in size.
 cache = None if os.getenv("HF_HOME") else tempfile.mkdtemp(prefix="hf-")
 try:
     src = Path(snapshot_download(nano.REPO, revision=nano.REVISION,

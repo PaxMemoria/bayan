@@ -1,12 +1,18 @@
 """اللغتان: كشف لغة السؤال، ورسائل بيان الثابتة بالعربية والإنجليزية.
 
-Two languages: detect the question's language, and Bayan's fixed messages
-in Arabic and English.
-
 القاعدة: حرفان عربيان أو أكثر في السؤال يجعلانه عربياً، وإلا فالحروف
 اللاتينية تجعله إنجليزياً. أسماء الأدوات لاتينية في الغالب، فسؤال مثل
 «ما هي أداة Google Earth Pro؟» يبقى عربياً مهما طال الاسم. وأي لغة أخرى
 تُجاب بالعربية، لغة بيان الأولى.
+
+Two languages: detect the question's language, and Bayan's fixed messages
+in Arabic and English.
+
+The rule: two or more Arabic letters in the question make it Arabic;
+otherwise, Latin letters make it English. Tool names are mostly in Latin
+letters, so a question like «ما هي أداة Google Earth Pro؟» ("What is the
+Google Earth Pro tool?") stays Arabic however long the name is. Any other
+language is answered in Arabic, Bayan's first language.
 """
 import re
 
@@ -17,14 +23,17 @@ _LATIN = re.compile(r"[A-Za-z]")
 
 
 def detect(text: str) -> str:
-    """'ar' أو 'en'."""
+    """'ar' أو 'en'.
+    'ar' or 'en'."""
     if len(_ARABIC.findall(text or "")) >= 2:
         return "ar"
     return "en" if len(_LATIN.findall(text or "")) >= 2 else "ar"
 
 
 def hours(seconds: float, lang: str) -> str:
-    """المدة بالساعات مقرّبة إلى الأعلى، كي لا يعود السائل قبل موعده."""
+    """المدة بالساعات مقرّبة إلى الأعلى، كي لا يعود السائل قبل موعده.
+    The duration in hours, rounded up, so the asker does not come back too
+    early."""
     if seconds < 3600:
         return "less than an hour" if lang == "en" else "أقل من ساعة"
     n = int(-(-seconds // 3600))
@@ -66,6 +75,7 @@ def msg(key: str, lang: str, **kw) -> str:
 
 
 def both(key: str) -> str:
-    """الرسالة باللغتين، لما لا لغة له مثل الأوامر."""
+    """الرسالة باللغتين، لما لا لغة له مثل الأوامر.
+    The message in both languages, for input with no language, such as commands."""
     m = _messages()[key]
     return f"{m['ar']}\n\n{m['en']}"

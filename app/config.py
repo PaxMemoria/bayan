@@ -1,4 +1,7 @@
-"""إعدادات بيان — تُقرأ من متغيرات البيئة (.env)."""
+"""إعدادات بيان — تُقرأ من متغيرات البيئة (.env).
+
+Bayan's settings, read from environment variables (.env).
+"""
 import os
 from pathlib import Path
 
@@ -11,9 +14,11 @@ DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR / "data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "knowledge.db"
 
-# ───────────────────────────────── مصدر المعرفة
+# ───────────────────────────────── مصدر المعرفة / Knowledge source
 # نسخة للقراءة فقط من مستودع الموقع، يسحبها هذا الخادم بنفسه.
 # لا يحمل مستودع الموقع أياً من أسرار بيان.
+# A read-only copy of the site repository, which this server pulls itself.
+# The site repository holds none of Bayan's secrets.
 SITE_REPO = Path(os.getenv("SITE_REPO", DATA_DIR / "paxmemoria-site"))
 SITE_REPO_URL = os.getenv(
     "SITE_REPO_URL", "https://github.com/PaxMemoria/paxmemoria-site.git"
@@ -26,19 +31,28 @@ TOOLS_PATH = Path(os.getenv("TOOLS_PATH", EXPORT_DIR / "tools.json"))
 # سرّ الإشارة التي يرسلها workflow الموقع لطلب إعادة الفهرسة.
 # هذا هو السرّ الوحيد الذي يملكه مستودع الموقع، وأقصى ضرر تسريبه
 # إعادة فهرسة غير لازمة.
+# Secret for the signal the site workflow sends to request reindexing.
+# This is the only secret the site repository holds, and the worst harm
+# from leaking it is an unnecessary reindex.
 REINDEX_SECRET = os.getenv("REINDEX_SECRET", "")
 
-# ───────────────────────────────── النماذج
+# ───────────────────────────────── النماذج / Models
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 ANSWER_MODEL = os.getenv("ANSWER_MODEL", "claude-sonnet-5-5")
 MAX_OUTPUT_TOKENS = int(os.getenv("MAX_OUTPUT_TOKENS", "900"))
 
-# ───────────────────────────────── المتجهات
+# ───────────────────────────────── المتجهات / Vectors
 # local  : voyage-4-nano على الخادم نفسه، فلا يغادر سؤال الجمهور الخادم.
 # voyage : خدمة Voyage عبر MongoDB Atlas، وتحتاج VOYAGE_API_KEY.
+# local  : voyage-4-nano on the server itself, so questions from the
+#          public never leave the server.
+# voyage : the Voyage service through MongoDB Atlas; needs VOYAGE_API_KEY.
 EMBED_PROVIDER = os.getenv("EMBED_PROVIDER", "local").strip().lower()
 # تغيير النموذج أو الأبعاد يستلزم إعادة الفهرسة: يُعطَّل البحث الدلالي حتى
 # تُعاد الفهرسة، لأن متجهات إعدادين مختلفين لا تُقارَن.
+# Changing the model or the dimensions requires reindexing: semantic search
+# is disabled until the index is rebuilt, because vectors from two
+# different settings cannot be compared.
 EMBED_MODEL = os.getenv(
     "EMBED_MODEL", "voyage-4-nano" if EMBED_PROVIDER == "local" else "voyage-4"
 )
@@ -47,29 +61,44 @@ LOCAL_MODEL_DIR = Path(
     os.getenv("LOCAL_MODEL_DIR", DATA_DIR / "models" / "voyage-4-nano")
 )
 # أنوية المعالج للنموذج المحلي. 0 يترك القرار لـ torch.
+# CPU cores for the local model. 0 leaves the choice to torch.
 EMBED_THREADS = int(os.getenv("EMBED_THREADS", "0"))
 
 VOYAGE_API_KEY = os.getenv("VOYAGE_API_KEY", "")
 # المفاتيح التي تُنشأ في MongoDB Atlas تعمل على هذا العنوان. مفتاح قديم من
 # منصة Voyage نفسها يعمل على https://api.voyageai.com/v1/embeddings
+# Keys created in MongoDB Atlas work with this address. An older key from
+# the Voyage platform itself works with https://api.voyageai.com/v1/embeddings
 VOYAGE_ENDPOINT = os.getenv("VOYAGE_ENDPOINT", "https://ai.mongodb.com/v1/embeddings")
 
-# ───────────────────────────────── الاسترجاع
+# ───────────────────────────────── الاسترجاع / Retrieval
 TOP_K = int(os.getenv("TOP_K", "6"))
 CANDIDATES = int(os.getenv("CANDIDATES", "25"))
 # القيمة الابتدائية للعتبة. تُعدَّل بعد ذلك من اللوحة دون إعادة تشغيل،
 # وقيمة اللوحة تتقدّم على هذه. 0.30 معايَرة لـ voyage-4-nano بـ1024 بُعداً
 # على 36 سؤالاً؛ أعد المعايرة بـ scripts/calibrate.py عند تغيير النموذج.
+# Initial value of the threshold. After that it is changed from the
+# dashboard without a restart, and the dashboard value takes precedence
+# over this one. 0.30 is calibrated for voyage-4-nano at 1024 dimensions
+# on 36 questions; recalibrate with scripts/calibrate.py when the model
+# changes.
 MIN_RELEVANCE = float(os.getenv("MIN_RELEVANCE", "0.30"))
 # بلا متجهات تصبح الثقة تداخلاً لفظياً موزوناً بالندرة — مقياس مختلف
 # يحتاج عتبة أعلى، تُعاير داخلياً إلى مقياس MIN_RELEVANCE نفسه.
+# Without vectors, confidence becomes word overlap weighted by rarity, a
+# different measure that needs a higher threshold. It is rescaled
+# internally to the same scale as MIN_RELEVANCE.
 LEXICAL_THRESHOLD = float(os.getenv("LEXICAL_THRESHOLD", "0.60"))
 # أقصى عدد أدوات تُعرض في إجابة تصنيف واحد
+# Maximum number of tools listed in one category answer
 MAX_TOOLS_LISTED = int(os.getenv("MAX_TOOLS_LISTED", "12"))
 
-# ───────────────────────────────── الهوية
+# ───────────────────────────────── الهوية / Identity
 # بيان يجيب بلغة السائل: العربية أو الإنجليزية (app/i18n.py). لكل رسالة
 # ثابتة نسختان، والترحيب يجمعهما لأن من يضغط «ابدأ» لم يكتب شيئاً بعد.
+# Bayan answers in the asker's language: Arabic or English (app/i18n.py).
+# Each fixed message has two versions, and the welcome combines both,
+# because someone who presses «ابدأ» (Start) has not written anything yet.
 BOT_NAME = os.getenv("BOT_NAME", "بيان")
 BOT_NAME_EN = os.getenv("BOT_NAME_EN", "Bayan")
 ORG_NAME = os.getenv("ORG_NAME", "باكس ميموريا")
@@ -129,7 +158,7 @@ ERROR_MESSAGE = "حدث خلل مؤقت. حاول بعد قليل من فضلك.
 ERROR_MESSAGE_EN = "Something went wrong for a moment. Please try again shortly."
 SHOW_SOURCES = os.getenv("SHOW_SOURCES", "true").lower() == "true"
 
-# ───────────────────────────────── القنوات
+# ───────────────────────────────── القنوات / Channels
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_WEBHOOK_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
 
@@ -143,7 +172,7 @@ MESSENGER_PAGE_TOKEN = os.getenv("MESSENGER_PAGE_TOKEN", "")
 
 PUBLIC_URL = os.getenv("PUBLIC_URL", "")
 
-# ───────────────────────────────── اللوحة والحدود
+# ───────────────────────────────── اللوحة والحدود / Dashboard and limits
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
 SESSION_SECRET = os.getenv("SESSION_SECRET", "")
 
@@ -151,6 +180,9 @@ RATE_LIMIT_MESSAGES = int(os.getenv("RATE_LIMIT_MESSAGES", "12"))
 RATE_LIMIT_WINDOW = int(os.getenv("RATE_LIMIT_WINDOW", "60"))
 # أقصى عدد أسئلة للمستخدم الواحد في أي 24 ساعة متتالية، في كل قناة. 0 بلا حدّ.
 # يُعدَّل من اللوحة دون إعادة تشغيل، وقيمة اللوحة تتقدّم على هذه.
+# Maximum questions per user in any rolling 24 hours, in each channel.
+# 0 means no limit. It is changed from the dashboard without a restart,
+# and the dashboard value takes precedence over this one.
 DAILY_LIMIT = int(os.getenv("DAILY_LIMIT", "10"))
 HISTORY_TURNS = int(os.getenv("HISTORY_TURNS", "4"))
 MAX_QUESTION_CHARS = int(os.getenv("MAX_QUESTION_CHARS", "600"))

@@ -4,6 +4,17 @@
 بتصفية على حقل التصنيف تعيد القائمة كاملة ومرتّبة — لا ببحث نصي يعيد
 ستة مقاطع متفرقة. وسؤال «كيف أتحقق من تاريخ صورة؟» سؤال معنى، فيذهب
 للمسار الدلالي. المساران يعملان معاً ويتغذّى النموذج من ناتجهما.
+
+Retrieval along two paths.
+
+Tools are a database, so a question like
+«ما أدوات تحليل صور الأقمار الصناعية؟» ("What tools analyze satellite
+images?") is answered by filtering on the category field, which returns
+the full list in order, not by a text search that returns six scattered
+passages. A question like «كيف أتحقق من تاريخ صورة؟» ("How do I verify
+the date of a photo?") is a question of meaning, so it goes to the
+semantic path. The two paths run together and the model is fed with
+their output.
 """
 import json
 import logging
@@ -21,10 +32,14 @@ log = logging.getLogger("retrieve")
 _lock = threading.Lock()
 
 # صيغ تدل على طلب قائمة لا تعريف أداة بعينها
+# Phrasings that point to a request for a list, not for a definition of
+# one specific tool
 LIST_INTENT = re.compile(
     r"\b(ادوات|اداه|قائمه|قائمة|ماهي|ما هي|اقترح|افضل|انواع|وش|شنو|كل ال)\b"
 )
 # درجة ثقة ثابتة للمطابقة المنظّمة: المطابقة هنا يقينية لا تقديرية
+# Fixed confidence for a structured match: the match here is certain, not
+# an estimate
 STRUCTURED_CONFIDENCE = 0.95
 
 
@@ -33,6 +48,11 @@ class _State:
 
     الاستبدال الذرّي يمنع سؤالاً يصل أثناء إعادة التحميل من قراءة مصفوفة
     متجهات جديدة مع معرّفات قديمة.
+
+    Everything loaded from the index into memory, replaced all at once.
+
+    The atomic swap stops a question that arrives during a reload from
+    reading a new vector matrix with old IDs.
     """
 
     def __init__(self) -> None:
@@ -45,6 +65,7 @@ class _State:
         self.tool_names: list[tuple[str, str]] = []  # (norm_name, name)
         self.idf: dict[str, float] = {}
         self.idf_unseen = 1.0
+        # All investigations, in both languages
         self.inv_slugs: set[str] = set()  # كل التحقيقات بلغتيها
         self.banned: list[str] = []
         self.allowed: set[str] = set()
@@ -54,13 +75,17 @@ _S = _State()
 
 
 def norm_link(value: str) -> str:
-    """صيغة موحّدة لرابط أو نطاق، لمقارنة ما يكتبه النموذج بالدليل."""
+    """صيغة موحّدة لرابط أو نطاق، لمقارنة ما يكتبه النموذج بالدليل.
+    A normalized form of a link or domain, to compare what the model writes
+    with the guide."""
     v = re.sub(r"^[a-z]+://", "", (value or "").strip().lower())
     return re.sub(r"^www\.", "", v).rstrip("/")
 
 
 def warm() -> None:
-    """تحميل المتجهات وجداول البحث — عند الإقلاع وكلما تغيّر الفهرس."""
+    """تحميل المتجهات وجداول البحث — عند الإقلاع وكلما تغيّر الفهرس.
+    Load the vectors and the search tables, at startup and whenever the
+    index changes."""
     global _S
     with _lock:
         s = _State()
@@ -105,6 +130,7 @@ def warm() -> None:
             }
         s.idf = _build_idf(texts)
         # كلمة لا ترد في أي مقطع أندر من أندر كلمة موجودة: log(n)
+        # A word found in no passage is rarer than the rarest word present: log(n)
         s.idf_unseen = math.log(max(len(texts), 2))
 
         banned, allowed = store.link_rules()
@@ -115,7 +141,9 @@ def warm() -> None:
 
 
 def ensure_fresh() -> None:
-    """يعيد التحميل إن تغيّر الفهرس منذ آخر تحميل (فهرسة من عملية أخرى)."""
+    """يعيد التحميل إن تغيّر الفهرس منذ آخر تحميل (فهرسة من عملية أخرى).
+    Reload if the index changed since the last load (indexing from another
+    process)."""
     if store.index_version() != _S.version:
         warm()
 
@@ -130,7 +158,9 @@ def link_rules() -> tuple[list[str], set[str]]:
 
 
 def _build_idf(texts: list[str]) -> dict[str, float]:
-    """وزن ندرة كل كلمة في قاعدة المعرفة، لاستعماله بلا متجهات."""
+    """وزن ندرة كل كلمة في قاعدة المعرفة، لاستعماله بلا متجهات.
+    The rarity weight of each word in the knowledge base, for use without
+    vectors."""
     df: Counter = Counter()
     for t in texts:
         df.update(set(tokens(t)))
@@ -138,9 +168,11 @@ def _build_idf(texts: list[str]) -> dict[str, float]:
     return {w: max(math.log(n / (1 + c)), 0.0) for w, c in df.items()}
 
 
-# ───────────────────────────────────── المسار المنظّم
+# ───────────────────────────────────── المسار المنظّم / Structured path
 def match_category(question: str) -> dict | None:
-    """أطول تصنيف يرد اسمه (عربياً أو إنجليزياً) داخل السؤال."""
+    """أطول تصنيف يرد اسمه (عربياً أو إنجليزياً) داخل السؤال.
+    The longest category whose name (in Arabic or English) appears in the
+    question."""
     q = normalize_ar(question)
     best = None
     for cat in _S.categories:
@@ -152,7 +184,8 @@ def match_category(question: str) -> dict | None:
 
 
 def match_tool_names(question: str, limit: int = 3) -> list[dict]:
-    """أدوات يرد اسمها حرفياً في السؤال — الأطول اسماً أولاً."""
+    """أدوات يرد اسمها حرفياً في السؤال — الأطول اسماً أولاً.
+    Tools whose name appears literally in the question, longest name first."""
     q = normalize_ar(question)
     hits = [(len(n), name) for n, name in _S.tool_names if n in q]
     hits.sort(reverse=True)
@@ -168,7 +201,8 @@ def match_tool_names(question: str, limit: int = 3) -> list[dict]:
 
 
 def structured(question: str) -> dict:
-    """ناتج المسار المنظّم: أدوات بالاسم و/أو قائمة تصنيف."""
+    """ناتج المسار المنظّم: أدوات بالاسم و/أو قائمة تصنيف.
+    Output of the structured path: tools by name and/or a category list."""
     result = {"tools": [], "category": None, "category_tools": []}
 
     result["tools"] = match_tool_names(question)
@@ -176,6 +210,9 @@ def structured(question: str) -> dict:
     cat = match_category(question)
     # لا نُخرج قائمة تصنيف كاملة إلا إذا بدا السؤال طلب قائمة، وإلا
     # فسؤال عن أداة واحدة في تصنيف ما يُغرق بقائمة لا يريدها السائل.
+    # Only return a full category list when the question looks like a request
+    # for a list. Otherwise a question about one tool in some category would
+    # be flooded with a list the asker does not want.
     if cat and (LIST_INTENT.search(normalize_ar(question)) or not result["tools"]):
         tools = store.tools_in_category(cat["norm_category"], config.MAX_TOOLS_LISTED)
         if tools:
@@ -184,7 +221,7 @@ def structured(question: str) -> dict:
     return result
 
 
-# ───────────────────────────────────── المسار الدلالي
+# ───────────────────────────────────── المسار الدلالي / Semantic path
 def _fts(question: str, limit: int) -> list[int]:
     q = fts_query(question)
     if not q:
@@ -207,6 +244,7 @@ def _vector(question: str, limit: int, s: _State) -> tuple[list[int], dict[int, 
     try:
         vecs = embed.embed([question], input_type="query", retries=1)
     except Exception:  # noqa: BLE001 — تعطّل Voyage لا يُسكت بيان
+        # A Voyage outage does not silence Bayan
         log.exception("تعذّر متجه السؤال — البحث اللفظي وحده لهذا السؤال")
         return [], {}
     if not vecs or len(vecs[0]) != s.matrix.shape[1]:
@@ -222,6 +260,13 @@ def _in_language(p: dict, lang: str, s: _State) -> bool:
 
     كي لا يأخذ التحقيق نفسه خانتين من المقاطع الستة، بالعربية وبالإنجليزية.
     slug النسخة الإنجليزية هو slug العربية مع "-en".
+
+    An investigation that has a version in the question's language is not
+    shown in its other language.
+
+    This keeps the same investigation from taking two of the six passage
+    slots, once in Arabic and once in English. The slug of the English
+    version is the Arabic slug plus "-en".
     """
     if p["type"] != "investigation":
         return True
@@ -234,7 +279,8 @@ def _in_language(p: dict, lang: str, s: _State) -> bool:
 
 
 def semantic(question: str, lang: str = "ar") -> tuple[list[dict], float, bool]:
-    """-> (مقاطع، ثقة، هل استُعملت المتجهات)"""
+    """-> (مقاطع، ثقة، هل استُعملت المتجهات)
+    -> (passages, confidence, whether vectors were used)"""
     s = _S
     lex = _fts(question, config.CANDIDATES)
     vec, sims = _vector(question, config.CANDIDATES, s)
@@ -257,15 +303,18 @@ def semantic(question: str, lang: str = "ar") -> tuple[list[dict], float, bool]:
         confidence = max(sims.get(p["id"], 0.0) for p in passages)
     else:
         # بلا متجهات: تداخل موزون بالندرة، مُعاير إلى مقياس العتبة نفسه
+        # Without vectors: overlap weighted by rarity, rescaled to the same scale
+        # as the threshold
         raw = max(weighted_overlap(question, p["text"], s.idf, s.idf_unseen)
                   for p in passages)
         confidence = raw * (config.MIN_RELEVANCE / config.LEXICAL_THRESHOLD)
     return passages, float(confidence), bool(sims)
 
 
-# ───────────────────────────────────── الواجهة الموحّدة
+# ───────────────────────────────────── الواجهة الموحّدة / Unified interface
 def search(question: str, lang: str | None = None) -> dict:
-    """يُرجع ناتج المسارين ودرجة ثقة واحدة."""
+    """يُرجع ناتج المسارين ودرجة ثقة واحدة.
+    Return the output of both paths and a single confidence score."""
     ensure_fresh()
     lang = lang or i18n.detect(question)
     struct = structured(question)

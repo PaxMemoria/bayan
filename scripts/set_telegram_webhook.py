@@ -1,4 +1,7 @@
-"""ربط بوت تيليغرام بالخادم.  التشغيل: python scripts/set_telegram_webhook.py"""
+"""ربط بوت تيليغرام بالخادم.  التشغيل: python scripts/set_telegram_webhook.py
+
+Connect the Telegram bot to the server.  Run: python scripts/set_telegram_webhook.py
+"""
 import sys
 from pathlib import Path
 

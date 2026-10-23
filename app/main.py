@@ -1,4 +1,8 @@
-"""خادم الـ webhooks — يستقبل من القنوات الثلاث ويردّ عبر العقل نفسه."""
+"""خادم الـ webhooks — يستقبل من القنوات الثلاث ويردّ عبر العقل نفسه.
+
+The webhook server: it receives from the three channels and replies
+through the same brain.
+"""
 import asyncio
 import hashlib
 import hmac
@@ -25,6 +29,8 @@ async def startup() -> None:
     store.init()
     retrieve.warm()
     # تحميل النموذج المحلي يستغرق ثوانيَ، فيجري في الخلفية والخادم يستقبل
+    # Loading the local model takes seconds, so it runs in the background
+    # while the server accepts requests
     threading.Thread(target=embed.preload, daemon=True).start()
     n = store.chunk_count()
     log.info("بيان جاهز — %d مقطع في قاعدة المعرفة", n)
@@ -34,7 +40,8 @@ async def startup() -> None:
 
 @app.get("/", include_in_schema=False)
 async def root():
-    """لا صفحة لبيان على الويب: الزائر يُحال إلى موقع المنظمة."""
+    """لا صفحة لبيان على الويب: الزائر يُحال إلى موقع المنظمة.
+    Bayan has no web page: visitors are redirected to the organization's site."""
     return RedirectResponse(config.SITE_URL, status_code=302)
 
 
@@ -44,7 +51,8 @@ async def healthz():
 
 
 def _verify_meta(body: bytes, signature: str | None) -> None:
-    """التحقق من توقيع Meta — يمنع أي طرف ثالث من حقن رسائل."""
+    """التحقق من توقيع Meta — يمنع أي طرف ثالث من حقن رسائل.
+    Verify Meta's signature, which stops any third party from injecting messages."""
     if not config.META_APP_SECRET:
         raise HTTPException(500, "META_APP_SECRET غير مضبوط")
     if not signature or not signature.startswith("sha256="):
@@ -68,7 +76,7 @@ async def _reply(channel: str, user_id: str, text: str, sender) -> None:
         log.exception("فشل إرسال الرد على %s", channel)
 
 
-# ------------------------------------------------------------- تيليغرام
+# ------------------------------------------------------------- تيليغرام / Telegram
 @app.post("/webhooks/telegram")
 async def telegram_hook(
     request: Request,
@@ -77,6 +85,8 @@ async def telegram_hook(
 ):
     # بلا سرّ يستطيع أي أحد أن يرسل إلى هذا الرابط تحديثات مزيّفة، فيجعل
     # بيان يراسل محادثات باسم المنظمة ويستهلك رصيد النموذج.
+    # Without a secret, anyone could send fake updates to this URL, making
+    # Bayan message chats in the organization's name and use up model credit.
     if not config.TELEGRAM_WEBHOOK_SECRET:
         raise HTTPException(500, "TELEGRAM_WEBHOOK_SECRET غير مضبوط")
     if not hmac.compare_digest(
@@ -93,7 +103,7 @@ async def telegram_hook(
     return {"ok": True}
 
 
-# -------------------------------------------- واتساب + ماسنجر (Meta)
+# --------------------------------- واتساب + ماسنجر (Meta) / WhatsApp + Messenger (Meta)
 @app.get("/webhooks/meta")
 async def meta_verify(request: Request):
     params = request.query_params
@@ -129,7 +139,7 @@ async def meta_hook(
     return JSONResponse({"ok": True})
 
 
-# ------------------------------------------------------------- اختبار محلي
+# ---------------------------------------------------------- اختبار محلي / Local testing
 LOOPBACK = {"127.0.0.1", "::1"}
 
 
@@ -140,6 +150,13 @@ async def debug_ask(request: Request):
     من داخل الخادم وحده (docker compose exec). مفتوحاً للعموم كان سيتيح
     لأي أحد استدعاء النموذج بلا حدّ معدل ورؤية المقاطع المسترجعة.
     من المتصفح: صفحة «جرّب بيان» في اللوحة.
+
+    Test the brain without any channel: POST {"question": "..."}
+
+    Only from inside the server (docker compose exec). Open to the public,
+    it would let anyone call the model with no rate limit and see the
+    retrieved passages. From a browser: the Try Bayan («جرّب بيان») page in
+    the dashboard.
     """
     if not request.client or request.client.host not in LOOPBACK:
         raise HTTPException(404)
@@ -170,6 +187,11 @@ async def reindex(request: Request, x_bayan_secret: str | None = Header(default=
 
     هذا هو السرّ الوحيد الذي يملكه مستودع الموقع. لا يمرّ عبره أي مفتاح
     من مفاتيح بيان: الخادم يسحب الموقع بنفسه بمفتاح قراءة فقط.
+
+    The reindex signal from the site repository's workflow.
+
+    This is the only secret the site repository holds. None of Bayan's keys
+    pass through it: the server pulls the site itself with a read-only key.
     """
     if not config.REINDEX_SECRET:
         raise HTTPException(500, "REINDEX_SECRET غير مضبوط")
@@ -180,6 +202,9 @@ async def reindex(request: Request, x_bayan_secret: str | None = Header(default=
 
     # الفهرسة تستغرق دقائق على معالج خادم، فتبدأ في الخلفية ويعود الرد فوراً.
     # النتيجة في اللوحة، والخادم يلتقط الفهرس الجديد بنفسه عند اكتماله.
+    # Indexing takes minutes on a server CPU, so it starts in the background
+    # and the response returns at once. The result is in the dashboard, and
+    # the server picks up the new index by itself when it is complete.
     state = ingest.start_background(pull=True)
     detail = {
         "started": "بدأت الفهرسة. النتيجة في لوحة التحكم.",

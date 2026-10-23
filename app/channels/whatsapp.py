@@ -1,4 +1,7 @@
-"""واتساب — WhatsApp Cloud API (Meta)."""
+"""واتساب — WhatsApp Cloud API (Meta).
+
+WhatsApp: WhatsApp Cloud API (Meta).
+"""
 import logging
 
 import httpx
