@@ -400,7 +400,20 @@ check("تيليغرام: صورة بلا تعليق تصل بنص فارغ ول�
                  "from": {"language_code": "ar"}}}) == ("tg:7", "1", "", "ar"))
 check("واتساب: صورة تصل بنص فارغ",
       wa.parse({"entry": [{"changes": [{"value": {"messages": [
-          {"id": "m1", "from": "966", "type": "image"}]}}]}]}) == [("wa:m1", "966", "")])
+          {"id": "m1", "from": "966", "type": "image"}]}}]}]}) == [("wa:m1", "966", "966", "")])
+check("واتساب: يُعرَّف المستخدم بالـBSUID ويُردّ على رقمه",
+      wa.parse({"entry": [{"changes": [{"value": {"messages": [
+          {"id": "m2", "from": "966", "from_user_id": "SA.123", "type": "text",
+           "text": {"body": "سؤال"}}]}}]}]}) == [("wa:m2", "SA.123", "966", "سؤال")])
+check("واتساب: صاحب اسم المستخدم بلا رقم يُردّ عليه بالـBSUID",
+      wa.parse({"entry": [{"changes": [{"value": {"messages": [
+          {"id": "m3", "from_user_id": "SA.456", "type": "text",
+           "text": {"body": "سؤال"}}]}}]}]}) == [("wa:m3", "SA.456", "SA.456", "سؤال")])
+check("واتساب: رسالة بلا أي معرّف تُتجاهل ولا توقف الباقي",
+      [e[0] for e in wa.parse({"entry": [{"changes": [{"value": {"messages": [
+          {"id": "m4", "type": "text", "text": {"body": "x"}},
+          {"id": "m5", "from": "966", "type": "text", "text": {"body": "y"}}]}}]}]})]
+      == ["wa:m5"])
 check("ماسنجر: مرفق بلا نص يصل بنص فارغ",
       ms.parse({"entry": [{"messaging": [{"sender": {"id": "p"}, "message": {
           "mid": "x", "attachments": [{"type": "image"}]}}]}]}) == [("fb:x", "p", "")])
@@ -728,6 +741,13 @@ check("تيليغرام يُرسل بوضع HTML", tg_calls[-1].get("parse_mode"
 asyncio.run(tg.send("5", "**رفض** هنا"))
 check("رفض التنسيق يعيد الرسالة نصاً عادياً",
       "parse_mode" not in tg_calls[-1] and tg_calls[-1]["text"] == "رفض هنا", tg_calls[-1])
+asyncio.run(wa.sender("966500000001")("SA.123", "**مرحبا**"))
+check("واتساب يردّ على الرقم في to", tg_calls[-1].get("to") == "966500000001"
+      and "recipient" not in tg_calls[-1] and tg_calls[-1]["text"]["body"] == "*مرحبا*",
+      tg_calls[-1])
+asyncio.run(wa.sender("SA.456")("SA.456", "نص"))
+check("واتساب يردّ على الـBSUID في recipient", tg_calls[-1].get("recipient") == "SA.456"
+      and "to" not in tg_calls[-1], tg_calls[-1])
 tg.httpx.AsyncClient = real_async
 
 embed.embed = real_embed

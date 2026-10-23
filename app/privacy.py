@@ -52,15 +52,16 @@ def _arabic(days: int, limit: int, turns: int, contact: str) -> str:
 <h1>سياسة الخصوصية لبيان</h1>
 <p class="muted">آخر تحديث: {UPDATED_AR}</p>
 <p>بيان مساعد آلي تديره باكس ميموريا، يجيب عن دليل أدوات المصادر المفتوحة
-والتحقيقات المنشورة عبر تطبيقات المراسلة (تيليغرام حالياً). تشرح هذه الصفحة ما
+والتحقيقات المنشورة عبر تطبيقات المراسلة (تيليغرام وواتساب). تشرح هذه الصفحة ما
 يحفظه بيان من بياناتك وما يفعله بها، وتكمّل
 <a href="{GENERAL_POLICY}">سياسة الخصوصية العامة لباكس ميموريا</a>.</p>
 
 <h2>ما نحفظه</h2>
 <ul>
 <li>نص أسئلتك وإجابات بيان عليها.</li>
-<li>معرّفك في القناة التي تراسلنا منها: رقم المحادثة في تيليغرام، أو رقم هاتفك
-في واتساب، أو المعرّف الذي تمنحه فيسبوك لمحادثتك مع صفحتنا في ماسنجر.</li>
+<li>معرّفك في القناة التي تراسلنا منها: رقم المحادثة في تيليغرام، أو المعرّف الذي
+يمنحه واتساب لمحادثتك معنا (ورقم هاتفك إن لم يرسل واتساب هذا المعرّف)، أو المعرّف
+الذي تمنحه فيسبوك لمحادثتك مع صفحتنا في ماسنجر.</li>
 <li>وقت كل رسالة، وهل أُجيبت أم رُفضت.</li>
 </ul>
 <p>لا نطلب اسمك ولا نحفظه، ولا نحفظ الصور أو الملفات أو الرسائل الصوتية، فبيان لا
@@ -116,7 +117,7 @@ def _english(days: int, limit: int, turns: int, contact: str) -> str:
 <p class="muted">Last updated: {UPDATED_EN}</p>
 <p>Bayan is an automated assistant run by Pax Memoria. It answers questions
 about our open-source tools guide and our published investigations through
-messaging apps (Telegram for now). This page explains what Bayan stores about
+messaging apps (Telegram and WhatsApp). This page explains what Bayan stores about
 you and what it does with it, and supplements
 <a href="{GENERAL_POLICY}">Pax Memoria's general privacy policy</a>.</p>
 
@@ -124,8 +125,9 @@ you and what it does with it, and supplements
 <ul>
 <li>The text of your questions and Bayan's answers.</li>
 <li>Your identifier on the channel you write from: the chat ID on Telegram,
-your phone number on WhatsApp, or the ID Facebook assigns to your conversation
-with our page on Messenger.</li>
+the ID WhatsApp assigns to your conversation with us (or your phone number, if
+WhatsApp does not send that ID), or the ID Facebook assigns to your
+conversation with our page on Messenger.</li>
 <li>The time of each message, and whether it was answered or refused.</li>
 </ul>
 <p>We do not ask for or store your name, and we do not store photos, files or

@@ -150,9 +150,9 @@ async def meta_hook(
     payload = await request.json()
 
     if payload.get("object") == "whatsapp_business_account":
-        for event_id, wa_id, text in whatsapp.parse(payload):
+        for event_id, user_id, address, text in whatsapp.parse(payload):
             if store.first_time(event_id):
-                bg.add_task(_reply, "whatsapp", wa_id, text, whatsapp.send)
+                bg.add_task(_reply, "whatsapp", user_id, text, whatsapp.sender(address))
 
     elif payload.get("object") == "page":
         for event_id, psid, text in messenger.parse(payload):
