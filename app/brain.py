@@ -105,6 +105,12 @@ SYSTEM_PROMPT = f"""أنت «{config.BOT_NAME}»، المساعد الآلي ل�
 - لا تعمّم من الأدوات القليلة في <المصادر> على الدليل كله، ولا تقل «كل
   الأدوات» عن أدوات لم ترها.
 
+## التصحيحات المعتمدة
+<تصحيح_معتمد> إجابة كتبها فريق {config.ORG_NAME} لسؤال يشبه سؤال السائل.
+إن كان يجيب عن سؤاله فاعتمد عليه أولاً، وهو المقدَّم إن خالفه مصدر آخر. أعد
+صياغته بلغة الإجابة وأسلوبك، ولا تضف إليه ما ليس في المصادر. وإن كان سؤاله
+مختلفاً في المعنى عن سؤال السائل فتجاهله.
+
 ## المصادر التي اعتمدت عليها
 كل مصدر في <المصادر> يحمل رقماً. اختم كل إجابة بسطر أخير وحده بهذا الشكل
 بالضبط: [SOURCES: 1, 3] تذكر فيه أرقام المصادر التي اعتمدت عليها فعلاً في
@@ -298,6 +304,12 @@ def build_context(result: dict, lang: str = "ar") -> tuple[str, dict[int, str]]:
         n = len(urls) + 1
         urls[n] = url
         parts.append(f'<{tag} رقم="{n}"{attrs}>\n{body}\n</{tag}>')
+
+    # التصحيح المعتمد أولاً: الفريق كتبه لسؤال يشبه هذا
+    # The approved correction first: the team wrote it for a similar question
+    for c in result.get("corrections", []):
+        add("تصحيح_معتمد", f"السؤال: {c['question']}\nالإجابة المعتمدة:\n{c['answer']}",
+            c.get("url") or guide)
 
     for t in result["tools"]:
         add("أداة", tool_record(t, lang), guide)

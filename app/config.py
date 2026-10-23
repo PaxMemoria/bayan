@@ -111,6 +111,17 @@ LEXICAL_THRESHOLD = float(os.getenv("LEXICAL_THRESHOLD", "0.60"))
 # أقصى عدد أدوات تُعرض في إجابة تصنيف واحد
 # Maximum number of tools listed in one category answer
 MAX_TOOLS_LISTED = int(os.getenv("MAX_TOOLS_LISTED", "12"))
+# التصحيح المعتمد يُرسل للنموذج حين يشبه سؤاله سؤالَ السائل بهذا القدر على
+# الأقل. 0.75 معايَرة لـ voyage-4-nano: صياغات أخرى للسؤال نفسه بين 0.65 و
+# 0.96، وأسئلة متقاربة الموضوع مختلفة المعنى لم تتجاوز 0.70.
+# An approved correction is sent to the model when its question is at least
+# this similar to the asker's. 0.75 is calibrated for voyage-4-nano: other
+# wordings of the same question scored 0.65 to 0.96, and questions on a close
+# topic with a different meaning never went above 0.70.
+CORRECTION_MIN_SIMILARITY = float(os.getenv("CORRECTION_MIN_SIMILARITY", "0.75"))
+# أقصى عدد تصحيحات تُرسل مع سؤال واحد
+# Maximum number of corrections sent with one question
+CORRECTIONS_PER_QUESTION = int(os.getenv("CORRECTIONS_PER_QUESTION", "2"))
 
 # ───────────────────────────────── الهوية / Identity
 # بيان يجيب بلغة السائل: العربية أو الإنجليزية (app/i18n.py). لكل رسالة

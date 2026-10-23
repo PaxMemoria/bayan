@@ -248,19 +248,28 @@ def _fts(question: str, limit: int) -> list[int]:
     return [r["rowid"] for r in rows]
 
 
-def _vector(question: str, limit: int, s: _State) -> tuple[list[int], dict[int, float]]:
-    if s.matrix.shape[0] == 0:
-        return [], {}
+def _query_vector(question: str) -> np.ndarray | None:
+    """متجه السؤال مُطبَّعاً، يُحسب مرة للبحث وللتصحيحات معاً، أو None.
+    The question's normalized vector, computed once for both the search and
+    the corrections, or None."""
+    if not embed.enabled():
+        return None
     try:
         vecs = embed.embed([question], input_type="query", retries=1)
     except Exception:  # noqa: BLE001 — تعطّل Voyage لا يُسكت بيان
         # A Voyage outage does not silence Bayan
         log.exception("تعذّر متجه السؤال — البحث اللفظي وحده لهذا السؤال")
-        return [], {}
-    if not vecs or len(vecs[0]) != s.matrix.shape[1]:
-        return [], {}
+        return None
+    if not vecs:
+        return None
     q = np.asarray(vecs[0], dtype=np.float32)
-    sims = s.matrix @ (q / (np.linalg.norm(q) or 1.0))
+    return q / (np.linalg.norm(q) or 1.0)
+
+
+def _vector(q: np.ndarray | None, limit: int, s: _State) -> tuple[list[int], dict[int, float]]:
+    if q is None or s.matrix.shape[0] == 0 or len(q) != s.matrix.shape[1]:
+        return [], {}
+    sims = s.matrix @ q
     top = np.argsort(-sims)[:limit]
     return [s.ids[i] for i in top], {s.ids[i]: float(sims[i]) for i in top}
 
@@ -288,12 +297,16 @@ def _in_language(p: dict, lang: str, s: _State) -> bool:
     return twin not in s.inv_slugs
 
 
-def semantic(question: str, lang: str = "ar") -> tuple[list[dict], float, bool]:
-    """-> (مقاطع، ثقة، هل استُعملت المتجهات)
-    -> (passages, confidence, whether vectors were used)"""
+def semantic(question: str, lang: str = "ar",
+             q: np.ndarray | None = None) -> tuple[list[dict], float, bool]:
+    """-> (مقاطع، ثقة، هل استُعملت المتجهات). q متجه السؤال إن حُسب سلفاً.
+    -> (passages, confidence, whether vectors were used). q is the
+    question's vector if it was already computed."""
     s = _S
     lex = _fts(question, config.CANDIDATES)
-    vec, sims = _vector(question, config.CANDIDATES, s)
+    if q is None:
+        q = _query_vector(question)
+    vec, sims = _vector(q, config.CANDIDATES, s)
 
     scores: dict[int, float] = {}
     for ranked in (lex, vec):
@@ -328,15 +341,86 @@ def search(question: str, lang: str | None = None) -> dict:
     ensure_fresh()
     lang = lang or i18n.detect(question)
     struct = structured(question)
-    passages, confidence, used_vectors = semantic(question, lang)
+    q = _query_vector(question)
+    passages, confidence, used_vectors = semantic(question, lang, q)
+    fixes = match_corrections(question, q)
 
     if struct["tools"] or struct["category_tools"]:
         confidence = max(confidence, STRUCTURED_CONFIDENCE)
+    # تصحيح معتمد مطابق يجيز السؤال من البوابة بقدر شبهه
+    # A matching approved correction lets the question through the gate, by
+    # its similarity
+    if fixes:
+        confidence = max(confidence, fixes[0]["similarity"])
 
     return {
         "passages": passages,
         "confidence": confidence,
         "used_vectors": used_vectors,
+        "corrections": fixes,
         **struct,
-        "has_any": bool(passages or struct["tools"] or struct["category_tools"]),
+        "has_any": bool(passages or struct["tools"] or struct["category_tools"] or fixes),
     }
+
+
+# ──────────────────────────────────────── التصحيحات المعتمدة / Approved corrections
+def match_corrections(question: str, q: np.ndarray | None) -> list[dict]:
+    """التصحيحات المعتمدة التي يشبه سؤالُها سؤالَ السائل، الأقرب أولاً.
+
+    السؤال نفسه بعد التطبيع يطابق دائماً. وبالمتجهات يطابق ما بلغ شبهه
+    CORRECTION_MIN_SIMILARITY، إن وُلّد متجه التصحيح بنموذج المتجهات الحالي.
+
+    The approved corrections whose question resembles the asker's, closest
+    first.
+
+    The same question, once normalized, always matches. With vectors, a
+    correction matches when its similarity reaches CORRECTION_MIN_SIMILARITY,
+    provided its vector was produced with the current embedding model.
+    """
+    norm_q, model = normalize_ar(question), embed.model_id()
+    found = []
+    for c in store.corrections(active_only=True):
+        v = c.pop("vector")
+        if c["norm_question"] == norm_q:
+            sim = 1.0
+        elif (q is not None and v is not None and c["embed_model"] == model
+              and len(v) == len(q)):
+            sim = float(v @ q / (np.linalg.norm(v) or 1.0))
+        else:
+            continue
+        if sim >= config.CORRECTION_MIN_SIMILARITY:
+            found.append({**c, "similarity": sim})
+    found.sort(key=lambda c: -c["similarity"])
+    return found[: config.CORRECTIONS_PER_QUESTION]
+
+
+def embed_correction(question: str) -> tuple[list[float] | None, str | None]:
+    """(متجه سؤال التصحيح، النموذج الذي ولّده)، أو (None، None) إن تعذّر،
+    فيطابق التصحيح عندها السؤال نفسه وحده حتى يُولَّد متجهه.
+    (the correction question's vector, the model that produced it), or
+    (None, None) if that fails, in which case the correction matches only the
+    same question until its vector is produced."""
+    if not embed.enabled():
+        return None, None
+    try:
+        vecs = embed.embed([question], input_type="query", retries=3)
+    except Exception:  # noqa: BLE001
+        log.exception("تعذّر متجه سؤال التصحيح")
+        return None, None
+    return (vecs[0], embed.model_id()) if vecs else (None, None)
+
+
+def refresh_correction_vectors() -> int:
+    """يولّد متجه كل تصحيح بلا متجه أو بمتجه من نموذج سابق، ويعيد عددها.
+    Produces the vector of every correction with none, or with one from an
+    earlier model, and returns how many."""
+    if not embed.enabled():
+        return 0
+    model, n = embed.model_id(), 0
+    for c in store.corrections():
+        if c["vector"] is None or c["embed_model"] != model:
+            vec, used = embed_correction(c["question"])
+            if vec is not None:
+                store.set_correction_vector(c["id"], vec, used)
+                n += 1
+    return n

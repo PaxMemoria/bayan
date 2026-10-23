@@ -1,8 +1,9 @@
 """لوحة تحكم بيان — بالعربية والإنجليزية، بلا JavaScript، خلف كلمة مرور.
 
-تعرض حالة الفهرس والمتجهات، وأسئلة الجمهور ونتيجة كل منها، وتجربة بيان
-دون قناة، والعتبة والحدّ اليومي وزر الإيقاف، والمحظورين. اللغة تُختار
-برابط في الشريط (?lang=en أو ?lang=ar) وتُحفظ في كوكي.
+تعرض حالة الفهرس والمتجهات، وأسئلة الجمهور ونتيجة كل منها مع تقييم
+إجابتها، والتصحيحات المعتمدة التي يكتبها الفريق، وتجربة بيان دون قناة،
+والعتبة والحدّ اليومي وزر الإيقاف، والمحظورين. اللغة تُختار برابط في
+الشريط (?lang=en أو ?lang=ar) وتُحفظ في كوكي.
 
 الخصوصية: معرّف واتساب هو رقم الهاتف، فلا تعرض اللوحة أي معرّف. كل
 مستخدم يظهر ببصمة مشتقّة بـ SESSION_SECRET لا تُعكس إلى رقمه، والحظر
@@ -12,7 +13,8 @@ Bayan's dashboard, in Arabic and English, with no JavaScript, behind a
 password.
 
 It shows the state of the index and the vectors, the public's questions
-and the outcome of each, a way to try Bayan without a channel, the
+with the outcome of each and the rating of its answer, the approved
+corrections the team writes, a way to try Bayan without a channel, the
 threshold, the daily limit and the pause button, and the blocked users.
 The language is chosen with a link in the bar (?lang=en or ?lang=ar) and
 kept in a cookie.
@@ -266,9 +268,94 @@ TEXT: dict[str, tuple[str, str]] = {
     "env_settings": ("إعدادات من ⁦.env⁩", "Settings from .env"),
     "env_help": ("تتغيّر بتعديل ملف ⁦.env⁩ على الخادم ثم إعادة تشغيله.",
                  "Changed by editing .env on the server and restarting."),
+    # التقييم / Ratings
+    "rate_summary": ("قيّم الإجابة", "Rate the answer"),
+    "rate_up": ("👍 جيدة", "👍 Good"),
+    "rate_down": ("👎 تحتاج تصحيحاً", "👎 Needs fixing"),
+    "rate_clear": ("امسح التقييم", "Clear rating"),
+    "rate_reason": ("السبب", "Reason"),
+    "rate_note": ("ملاحظة (اختيارية)", "Note (optional)"),
+    "rated_up": ("التقييم: جيدة", "Rating: good"),
+    "rated_down": ("التقييم: تحتاج تصحيحاً", "Rating: needs fixing"),
+    "rr_none": ("بلا سبب", "No reason"),
+    "rr_wrong": ("معلومة خاطئة", "Wrong information"),
+    "rr_missing": ("معلومة ناقصة", "Missing information"),
+    "rr_refused_wrongly": ("رفض سؤالاً مشروعاً", "Refused a legitimate question"),
+    "rr_should_refuse": ("كان يجب أن يرفض", "Should have refused"),
+    "rr_format": ("التنسيق أو اللغة", "Formatting or language"),
+    "rr_other": ("سبب آخر", "Other"),
+    "r_all": ("كل التقييمات", "All ratings"),
+    "r_none": ("بلا تقييم", "Unrated"),
+    "write_fix": ("اكتب تصحيحاً", "Write a correction"),
+    "flash_rated": ("حُفظ التقييم.", "Rating saved."),
+    "c_ratings": ("التقييمات، آخر 7 أيام", "Ratings, last 7 days"),
+    "c_ratings_d": ("👍 {up}، 👎 {down}. التصحيحات المفعّلة: {fixes}.",
+                    "👍 {up}, 👎 {down}. Active corrections: {fixes}."),
+    # التصحيحات / Corrections
+    "nav_corrections": ("التصحيحات", "Corrections"),
+    "fix_title": ("التصحيحات المعتمدة", "Approved corrections"),
+    "fix_help": ("إجابات يكتبها الفريق لأسئلة أخطأ فيها بيان أو قصّر. حين يشبه سؤالٌ جديد "
+                 "سؤالَ تصحيحٍ بما يكفي، يُرسل التصحيح إلى النموذج قبل غيره من المصادر "
+                 "ويُقدَّم عليها، من لحظة حفظه ودون إعادة فهرسة.",
+                 "Answers the team writes for questions Bayan got wrong or answered "
+                 "poorly. When a new question is close enough to a correction's question, "
+                 "the correction is sent to the model ahead of the other sources and takes "
+                 "precedence over them, from the moment it is saved and without reindexing."),
+    "fix_new": ("تصحيح جديد", "New correction"),
+    "fix_edit": ("عدّل التصحيح", "Edit the correction"),
+    "fix_q": ("السؤال", "Question"),
+    "fix_q_help": ("اكتبه بكلماتك كما قد يسأله الناس، دون أي اسم أو رقم أو تفصيل شخصي من "
+                   "الرسالة الأصلية، فالتصحيح يبقى بعد حذف الرسائل.",
+                   "Write it in your own words, as people might ask it, without any name, "
+                   "number or personal detail from the original message: the correction "
+                   "stays after the messages are deleted."),
+    "fix_a": ("الإجابة المعتمدة", "Approved answer"),
+    "fix_a_help": ("ما يجب أن يقوله بيان. يعيد صياغتها بلغة السائل، وتبقى قواعد الروابط "
+                   "سارية عليها.",
+                   "What Bayan should say. It rewords it in the asker's language, and the "
+                   "link rules still apply to it."),
+    "fix_url": ("رابط المصدر (اختياري)", "Source link (optional)"),
+    "fix_url_help": ("صفحة من {site} تُعرض مصدراً حين يستعمل بيان هذا التصحيح. إن تُرك "
+                     "فارغاً تُعرض صفحة الدليل.",
+                     "A page on {site}, shown as the source when Bayan uses this "
+                     "correction. Left empty, the guide page is shown."),
+    "fix_active": ("مفعّل: يستعمله بيان", "Active: Bayan uses it"),
+    "fix_orig": ("السؤال الأصلي وردّ بيان عليه، للرجوع إليهما فقط",
+                 "The original question and Bayan's reply, for reference only"),
+    "fix_none": ("لا تصحيحات بعد. ابدأ من صفحة الأسئلة: «اكتب تصحيحاً» تحت أي إجابة.",
+                 "No corrections yet. Start from the Questions page: “Write a correction” "
+                 "under any answer."),
+    "fix_try": ("جرّبه", "Try it"),
+    "fix_delete": ("احذف", "Delete"),
+    "fix_on": ("مفعّل", "Active"),
+    "fix_off": ("معطّل", "Inactive"),
+    "fix_novec": ("بلا متجه: يطابق السؤال نفسه وحده", "No vector: matches the same question only"),
+    "fix_updated": ("آخر تعديل {when}", "Last edited {when}"),
+    "fix_matched": ("تصحيحات مطابقة", "Matching corrections"),
+    "fix_sim": ("الشبه {s}", "Similarity {s}"),
+    "err_fix": ("السؤال والإجابة مطلوبان: السؤال حتى {q} حرف، والإجابة حتى {a} حرف.",
+                "The question and the answer are required: up to {q} characters for the "
+                "question and {a} for the answer."),
+    "err_fix_url": ("رابط المصدر يجب أن يكون صفحة من {site}.",
+                    "The source link must be a page on {site}."),
+    "flash_fix_saved": ("حُفظ التصحيح، ويستعمله بيان من الآن.",
+                        "Correction saved. Bayan uses it from now on."),
+    "flash_fix_novec": ("حُفظ التصحيح، لكن تعذّر توليد متجه سؤاله، فلن يطابق الآن إلا السؤال "
+                        "نفسه. يُعاد توليده عند إعادة تشغيل الخادم.",
+                        "Correction saved, but its question's vector could not be produced, "
+                        "so for now it only matches the same question. It is produced again "
+                        "when the server restarts."),
+    "flash_fix_deleted": ("حُذف التصحيح.", "Correction deleted."),
 }
 FLASH_KIND = {"reindex": "ok", "busy": "warn", "saved": "ok", "blocked": "ok",
-              "unblocked": "ok"}
+              "unblocked": "ok", "rated": "ok", "fix_saved": "ok", "fix_novec": "warn",
+              "fix_deleted": "ok"}
+RATINGS = ("up", "down", "none")
+# نموذج التصحيح أكبر من غيره: الحرف العربي 6 بايتات بعد ترميز الرابط
+# The correction form is larger than the others: an Arabic character takes
+# 6 bytes once URL-encoded
+FIX_FORM_BYTES = 65_536
+FIX_ANSWER_CHARS = 3000
 
 
 def tr(lang: str):
@@ -353,20 +440,21 @@ def _plain(key: str, status: int) -> Response:
     return Response(f"{ar} / {en}", status_code=status)
 
 
-async def _form(request: Request) -> dict[str, str] | None:
-    if int(request.headers.get("content-length") or 0) > MAX_FORM_BYTES:
+async def _form(request: Request, limit: int = MAX_FORM_BYTES) -> dict[str, str] | None:
+    if int(request.headers.get("content-length") or 0) > limit:
         return None
-    body = (await request.body())[:MAX_FORM_BYTES].decode("utf-8", "replace")
+    body = (await request.body())[:limit].decode("utf-8", "replace")
     return {k: v[0] for k, v in parse_qs(body, keep_blank_values=True).items()}
 
 
-async def _post_gate(request: Request) -> tuple[Response | None, dict]:
+async def _post_gate(request: Request,
+                     limit: int = MAX_FORM_BYTES) -> tuple[Response | None, dict]:
     denied = _gate(request)
     if denied:
         return denied, {}
     if not _same_origin(request):
         return _plain("origin_denied", 403), {}
-    form = await _form(request)
+    form = await _form(request, limit)
     if form is None:
         return _plain("too_large", 413), {}
     return None, form
@@ -462,8 +550,10 @@ button.danger{background:transparent;color:var(--bad);border:1px solid var(--bad
 button.small{font-size:13px;padding:1px 10px}
 .meta form{margin-inline-start:auto}
 button:disabled{opacity:.5;cursor:default}
-input,textarea{font:inherit;color:var(--ink);background:var(--bg);
+input,textarea,select{font:inherit;color:var(--ink);background:var(--bg);
 border:1px solid var(--line);border-radius:7px;padding:7px 10px;width:100%}
+.rate{margin-top:8px}.rate form{max-width:560px}
+.rated{margin-top:6px}
 input[type=checkbox]{width:auto}
 label{display:block;margin:10px 0 4px;font-weight:600}
 .row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
@@ -483,6 +573,7 @@ NAV = [
     ("/admin", "nav_home", "home"),
     ("/admin/messages", "nav_messages", "messages"),
     ("/admin/try", "nav_try", "try"),
+    ("/admin/corrections", "nav_corrections", "corrections"),
     ("/admin/settings", "nav_settings", "settings"),
     ("/admin/blocked", "nav_blocked", "blocked"),
 ]
@@ -657,6 +748,8 @@ async def overview(request: Request, msg: str = ""):
     channels = store.channel_stats(week)
     total = sum(outcomes.values())
     thr = brain.threshold()
+    rates = store.rating_stats(week)
+    fixes = len(store.corrections(active_only=True))
 
     vec_ok = T("vec_on") if status["vectors"] else T("vec_off")
     thr_src = T("thr_dash") if store.setting("min_relevance", "") else T("thr_init")
@@ -670,6 +763,9 @@ async def overview(request: Request, msg: str = ""):
 <span>{T("c_vec_d", n=emb, t=counts['_chunks'])}</span></div>
 <div class="card stat"><span>{T("c_thr")}</span><b>{thr:.2f}</b>
 <span>{thr_src}</span></div>
+<div class="card stat"><span>{T("c_ratings")}</span>
+<b><a href="/admin/messages?rating=down">{rates.get('down', 0)}</a></b>
+<span>{T("c_ratings_d", up=rates.get('up', 0), down=rates.get('down', 0), fixes=fixes)}</span></div>
 </div>"""
 
     rows = ""
@@ -725,18 +821,20 @@ async def reindex_now(request: Request):
 # ─────────────────────────────────────────────────────── الأسئلة / Questions
 @router.get("/admin/messages")
 async def messages(request: Request, outcome: str = "", channel: str = "",
-                   before: int = 0, sort: str = "", msg: str = ""):
+                   before: int = 0, sort: str = "", rating: str = "", msg: str = ""):
     if denied := _gate(request):
         return denied
     T = tr(req_lang(request))
     outcome = outcome if outcome in OUTCOMES else ""
     channel = channel if channel in CHANNELS else ""
+    rating = rating if rating in RATINGS else ""
     by_conf = sort == "confidence"
     items = store.questions(outcome, channel, 0 if by_conf else before, by_conf,
-                            limit=100 if by_conf else 50)
+                            limit=100 if by_conf else 50, rating=rating)
 
     def link(**kw) -> str:
-        params = {"outcome": outcome, "channel": channel, "sort": sort if by_conf else ""}
+        params = {"outcome": outcome, "channel": channel, "rating": rating,
+                  "sort": sort if by_conf else ""}
         params.update(kw)
         query = urlencode({k: v for k, v in params.items() if v})
         return "/admin/messages" + (f"?{query}" if query else "")
@@ -759,8 +857,15 @@ async def messages(request: Request, outcome: str = "", channel: str = "",
         f'<a href="{link(sort="confidence")}" class="{"on" if by_conf else ""}">'
         f'{T("highest")}</a>'
     )
+    r_tabs = (f'<a href="{link(rating="")}" class="{"on" if not rating else ""}">'
+              f'{T("r_all")}</a>')
+    r_tabs += "".join(
+        f'<a href="{link(rating=k)}" class="{"on" if k == rating else ""}">'
+        f'{T({"up": "rate_up", "down": "rate_down", "none": "r_none"}[k])}</a>'
+        for k in RATINGS
+    )
     head = (f'<div class="tabs">{tabs}</div><div class="tabs">{ch_tabs}</div>'
-            f'<div class="tabs">{sort_tab}</div>')
+            f'<div class="tabs">{r_tabs}</div><div class="tabs">{sort_tab}</div>')
     if outcome in ("refused_gate", "refused_model", "error"):
         head += f'<p class="help">{e(T("help_" + outcome))}</p>'
 
@@ -776,7 +881,7 @@ async def messages(request: Request, outcome: str = "", channel: str = "",
                  f'{f"<ul>{sources}</ul>" if sources else ""}</details>'
                  if m.get("reply") else "")
         conf = f"{m['confidence']:.2f}" if m["confidence"] is not None else "—"
-        cards.append(f"""<div class="card">
+        cards.append(f"""<div class="card" id="m{m['id']}">
 <div class="meta">{badge(m['outcome'], T)}<span>{T("conf", c=conf)}</span>
 <span>{e(channel_name(m['channel'], T))}</span>
 <span title="{T("fp_title")}">{T("user", fp=fp)}</span><span>{when(m['ts'])}</span>
@@ -784,12 +889,67 @@ async def messages(request: Request, outcome: str = "", channel: str = "",
 <input type="hidden" name="msg_id" value="{m['id']}">
 <input type="hidden" name="next" value="{e(here)}">
 <button class="danger small" type="submit">{T("block_btn")}</button></form></div>
-<div class="q">{e(m['content'])}</div>{reply}</div>""")
+<div class="q">{e(m['content'])}</div>{reply}{_rating_html(m, here, T)}</div>""")
     body = head + ("".join(cards) or f'<div class="card muted">{T("none_here")}</div>')
     if items and not by_conf and len(items) == 50:
         body += (f'<p><a class="btn" href="{e(link(before=str(items[-1]["id"])))}">'
                  f'{T("older")}</a></p>')
     return page(request, T("q_title"), body, "messages", flash=msg)
+
+
+def _rating_html(m: dict, here: str, T) -> str:
+    """التقييم الحالي، ونموذج التقييم، ورابط كتابة تصحيح، تحت إجابة السؤال.
+    The current rating, the rating form and the link to write a correction,
+    under the question's answer."""
+    mid = m["id"]
+    shown = ""
+    if m.get("rating"):
+        up = m["rating"] > 0
+        parts = [f'<span class="badge {"ok" if up else "bad"}">'
+                 f'{T("rated_up") if up else T("rated_down")}</span>']
+        if m.get("rating_reason") in store.RATING_REASONS:
+            parts.append(f'<span>{T("rr_" + m["rating_reason"])}</span>')
+        if m.get("rating_note"):
+            parts.append(f'<span>{e(m["rating_note"])}</span>')
+        shown = f'<div class="meta rated">{"".join(parts)}</div>'
+    options = "".join(
+        f'<option value="{r}" {"selected" if m.get("rating_reason") == r else ""}>'
+        f'{T("rr_" + r)}</option>'
+        for r in store.RATING_REASONS
+    )
+    clear = (f'<button class="ghost small" name="rating" value="clear" type="submit">'
+             f'{T("rate_clear")}</button>' if m.get("rating") else "")
+    return f"""{shown}<details class="rate"><summary>{T("rate_summary")}</summary>
+<form method="post" action="/admin/rate">
+<input type="hidden" name="msg_id" value="{mid}">
+<input type="hidden" name="next" value="{e(here)}">
+<label for="rr{mid}">{T("rate_reason")}</label>
+<select id="rr{mid}" name="reason"><option value="">{T("rr_none")}</option>{options}</select>
+<label for="rn{mid}">{T("rate_note")}</label>
+<input id="rn{mid}" name="note" maxlength="300" value="{e(m.get('rating_note') or '')}">
+<p class="row"><button name="rating" value="up" type="submit">{T("rate_up")}</button>
+<button class="danger" name="rating" value="down" type="submit">{T("rate_down")}</button>
+{clear}<a href="/admin/corrections/new?from={mid}">{T("write_fix")}</a></p>
+</form></details>"""
+
+
+@router.post("/admin/rate")
+async def rate(request: Request):
+    denied, form = await _post_gate(request)
+    if denied:
+        return denied
+    nxt = _safe_next(form.get("next", ""))
+    mid = form.get("msg_id") or ""
+    if mid.isdigit():
+        choice = form.get("rating")
+        if choice == "clear":
+            store.clear_rating(int(mid))
+        elif choice in ("up", "down"):
+            store.set_rating(int(mid), 1 if choice == "up" else -1,
+                             form.get("reason", ""), (form.get("note") or "")[:300])
+    sep = "&" if "?" in nxt else "?"
+    return RedirectResponse(f"{nxt}{sep}msg=rated#m{mid if mid.isdigit() else ''}",
+                            status_code=303)
 
 
 @router.post("/admin/block")
@@ -855,11 +1015,14 @@ def _try_form(T, q: str = "") -> str:
 
 
 @router.get("/admin/try")
-async def try_form(request: Request):
+async def try_form(request: Request, q: str = ""):
     if denied := _gate(request):
         return denied
     T = tr(req_lang(request))
-    return page(request, T("nav_try"), _try_form(T), "try")
+    # ?q= يملأ الخانة فقط (من رابط «جرّبه» في التصحيحات)، ولا يستدعي النموذج
+    # ?q= only fills in the box (from the "Try it" link on a correction), and
+    # does not call the model
+    return page(request, T("nav_try"), _try_form(T, q[: config.MAX_QUESTION_CHARS]), "try")
 
 
 @router.post("/admin/try")
@@ -889,6 +1052,11 @@ async def try_ask(request: Request):
         f'<td class="wrap"><a href="{e(p["url"])}" rel="noreferrer">{e(p["url"])}</a></td></tr>'
         for p in r["passages"]
     )
+    fixes = sep.join(
+        f'<a href="/admin/corrections/edit?id={c["id"]}">{e(c["question"])}</a> '
+        f'<span class="muted">({T("fix_sim", s=round(c["similarity"], 2))})</span>'
+        for c in r.get("corrections", [])
+    ) or T("nothing")
     mode = T("mode_vec") if r.get("used_vectors") else T("mode_text")
     answer_lang = T("lang_en") if res.get("lang") == "en" else T("lang_ar")
     table = (f'<table><tr><th>{T("th_type")}</th><th>{T("th_title")}</th>'
@@ -900,11 +1068,134 @@ async def try_ask(request: Request):
 <span>{T("answer_lang", l=answer_lang)}</span></div>
 <div class="reply" dir="auto">{e(res['text'])}</div></div>
 <div class="card"><table>
+<tr><th>{T("fix_matched")}</th><td>{fixes}</td></tr>
 <tr><th>{T("th_name_match")}</th><td>{tools}</td></tr>
 <tr><th>{T("th_cat_match")}</th><td>{cat_html}</td></tr></table></div>
 <h2>{T("passages")}</h2>
 <div class="card">{table}</div>"""
     return page(request, T("nav_try"), body, "try")
+
+
+# ─────────────────────────────────────────── التصحيحات المعتمدة / Approved corrections
+@router.get("/admin/corrections")
+async def corrections_list(request: Request, msg: str = ""):
+    if denied := _gate(request):
+        return denied
+    T = tr(req_lang(request))
+    model = embed.model_id()
+    cards = []
+    for c in store.corrections():
+        state = (f'<span class="badge ok">{T("fix_on")}</span>' if c["active"]
+                 else f'<span class="badge muted">{T("fix_off")}</span>')
+        novec = ("" if c["vector"] is not None and c["embed_model"] == model
+                 else f'<span class="badge warn">{T("fix_novec")}</span>')
+        link = (f'<a href="{e(c["url"])}" rel="noreferrer">{e(c["url"])}</a>'
+                if c["url"] else "")
+        cards.append(f"""<div class="card">
+<div class="meta">{state}{novec}<span>{T("fix_updated", when=when(c['updated']))}</span></div>
+<div class="q">{e(c['question'])}</div>
+<details><summary>{T("fix_a")}</summary><div class="reply">{e(c['answer'])}</div>{link}</details>
+<p class="row"><a class="btn" href="/admin/corrections/edit?id={c['id']}">{T("fix_edit")}</a>
+<a href="/admin/try?{urlencode({'q': c['question']})}">{T("fix_try")}</a>
+<form method="post" action="/admin/corrections/delete">
+<input type="hidden" name="id" value="{c['id']}">
+<button class="danger small" type="submit">{T("fix_delete")}</button></form></p></div>""")
+    body = (f'<p class="help">{T("fix_help")}</p>'
+            f'<p><a class="btn" href="/admin/corrections/new">{T("fix_new")}</a></p>'
+            + ("".join(cards) or f'<div class="card muted">{T("fix_none")}</div>'))
+    return page(request, T("fix_title"), body, "corrections", flash=msg)
+
+
+def _fix_form(T, c: dict, error: str = "", original: tuple[str, str | None] | None = None
+              ) -> str:
+    err = f'<div class="alert bad">{e(error)}</div>' if error else ""
+    ref = ""
+    if original:
+        q, reply = original
+        ref = (f'<details class="card"><summary>{T("fix_orig")}</summary>'
+               f'<div class="q">{e(q)}</div>'
+               f'{f"<div class=reply>{e(reply)}</div>" if reply else ""}</details>')
+    return f"""{err}{ref}<div class="card"><form method="post" action="/admin/corrections/save">
+<input type="hidden" name="id" value="{c.get('id') or ''}">
+<label for="fq">{T("fix_q")}</label><p class="help">{T("fix_q_help")}</p>
+<textarea id="fq" name="question" rows="2" maxlength="{config.MAX_QUESTION_CHARS}"
+required>{e(c.get('question') or '')}</textarea>
+<label for="fa">{T("fix_a")}</label><p class="help">{T("fix_a_help")}</p>
+<textarea id="fa" name="answer" rows="8" maxlength="{FIX_ANSWER_CHARS}"
+required>{e(c.get('answer') or '')}</textarea>
+<label for="fu">{T("fix_url")}</label>
+<p class="help">{e(T("fix_url_help", site=config.SITE_URL))}</p>
+<input id="fu" name="url" type="url" dir="ltr" value="{e(c.get('url') or '')}">
+<label><input type="checkbox" name="active" value="1"
+{'checked' if c.get('active', 1) else ''}> {T("fix_active")}</label>
+<p><button type="submit">{T("save")}</button></p></form></div>"""
+
+
+@router.get("/admin/corrections/new")
+async def correction_new(request: Request):
+    if denied := _gate(request):
+        return denied
+    T = tr(req_lang(request))
+    src = request.query_params.get("from", "")
+    original = store.question_text(int(src)) if src.isdigit() else None
+    # السؤال الأصلي يملأ الخانة ليُعاد صوغه، لا ليُحفظ كما هو
+    # The original question fills the box to be reworded, not saved as it is
+    c = {"question": original[0] if original else "", "active": 1}
+    return page(request, T("fix_new"), _fix_form(T, c, original=original), "corrections")
+
+
+@router.get("/admin/corrections/edit")
+async def correction_edit(request: Request, id: int = 0):
+    if denied := _gate(request):
+        return denied
+    T = tr(req_lang(request))
+    c = store.correction(id)
+    if not c:
+        return _back("/admin/corrections")
+    return page(request, T("fix_edit"), _fix_form(T, c), "corrections")
+
+
+def _valid_fix_url(url: str) -> bool:
+    site = urlsplit(config.SITE_URL)
+    u = urlsplit(url)
+    return u.scheme == "https" and u.netloc == site.netloc and "\n" not in url
+
+
+@router.post("/admin/corrections/save")
+async def correction_save(request: Request):
+    denied, form = await _post_gate(request, FIX_FORM_BYTES)
+    if denied:
+        return denied
+    T = tr(req_lang(request))
+    cid = int(form["id"]) if (form.get("id") or "").isdigit() else 0
+    c = {"id": cid, "question": (form.get("question") or "").strip(),
+         "answer": (form.get("answer") or "").strip(),
+         "url": (form.get("url") or "").strip(), "active": bool(form.get("active"))}
+    title = T("fix_edit") if cid else T("fix_new")
+    if (not c["question"] or not c["answer"]
+            or len(c["question"]) > config.MAX_QUESTION_CHARS
+            or len(c["answer"]) > FIX_ANSWER_CHARS):
+        error = T("err_fix", q=config.MAX_QUESTION_CHARS, a=FIX_ANSWER_CHARS)
+        return page(request, title, _fix_form(T, c, error), "corrections", status=400)
+    if c["url"] and not _valid_fix_url(c["url"]):
+        error = T("err_fix_url", site=config.SITE_URL)
+        return page(request, title, _fix_form(T, c, error), "corrections", status=400)
+    if cid and not store.correction(cid):
+        return _back("/admin/corrections")
+    vector, model = await asyncio.to_thread(retrieve.embed_correction, c["question"])
+    store.save_correction(c["question"], c["answer"], c["url"], c["active"],
+                          vector, model, cid)
+    return _back("/admin/corrections", msg="fix_saved" if vector is not None else "fix_novec")
+
+
+@router.post("/admin/corrections/delete")
+async def correction_delete(request: Request):
+    denied, form = await _post_gate(request)
+    if denied:
+        return denied
+    if (form.get("id") or "").isdigit():
+        store.delete_correction(int(form["id"]))
+    return _back("/admin/corrections", msg="fix_deleted")
 
 
 # ─────────────────────────────────────────────────────── الإعدادات / Settings

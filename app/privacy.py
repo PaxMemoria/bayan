@@ -17,8 +17,8 @@ from fastapi.responses import HTMLResponse
 
 from . import brain, config
 
-UPDATED_AR = "23 تشرين الأول/أكتوبر 2026"
-UPDATED_EN = "23 October 2026"
+UPDATED_AR = "24 تشرين الأول/أكتوبر 2026"
+UPDATED_EN = "24 October 2026"
 GENERAL_POLICY = "https://paxmemoria.org/privacy-policy"
 
 CSS = """
@@ -73,8 +73,12 @@ def _arabic(days: int, limit: int, turns: int, contact: str) -> str:
 <li>لتذكّر آخر {turns} أسئلة في محادثتك، كي يفهم بيان السؤال الذي يتبع سؤالاً سابقاً.</li>
 {limit_line}
 <li>لمراجعة جودة الإجابات وتحسينها. يرى فريقنا في لوحة التحكم الأسئلة والإجابات
-دون أي معرّف، فكل مستخدم يظهر ببصمة لا تُعكس إلى رقمه.</li>
+دون أي معرّف، فكل مستخدم يظهر ببصمة لا تُعكس إلى رقمه، وقد يقيّم إجابة بيان
+على سؤالك. التقييم يُحذف مع الرسالة.</li>
 </ul>
+<p>إن كشف سؤالٌ خطأً أو نقصاً في إجابات بيان، قد يكتب فريقنا بكلماته سؤالاً
+مشابهاً وإجابة مصحّحة يعتمد عليها بيان بعد ذلك. لا تحوي هذه الإجابات معرّفك ولا
+نص رسالتك ولا أي تفصيل شخصي منها، وتبقى ما دامت مفيدة.</p>
 
 <h2>من يتلقى بياناتك</h2>
 <ul>
@@ -142,8 +146,14 @@ understands a question that follows an earlier one.</li>
 {limit_line}
 <li>To review and improve the quality of answers. In the dashboard our team
 sees questions and answers without any identifier: each user appears as a
-fingerprint that cannot be traced back to their number.</li>
+fingerprint that cannot be traced back to their number. The team may rate
+Bayan's answer to your question; the rating is deleted with the message.</li>
 </ul>
+<p>If a question reveals a mistake or a gap in Bayan's answers, our team may
+write a similar question in its own words, with a corrected answer that Bayan
+relies on afterwards. These answers do not contain your identifier, the text
+of your message or any personal detail from it, and they are kept for as long
+as they are useful.</p>
 
 <h2>Who receives your data</h2>
 <ul>

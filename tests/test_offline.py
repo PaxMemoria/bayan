@@ -323,6 +323,64 @@ fp = server.dashboard.fingerprint("whatsapp", "966500000001")
 client.post("/admin/unblock", data={"channel": "whatsapp", "fp": fp})
 check("رفع الحظر بالبصمة يعمل", not store.is_blocked("whatsapp", "966500000001"))
 
+# ── التقييم والتصحيحات في اللوحة / Ratings and corrections in the dashboard ──
+r = client.post("/admin/rate", data={"msg_id": str(msg_id), "rating": "down", "reason": "wrong",
+                                     "note": "<b>x</b>", "next": "/admin/messages"},
+                follow_redirects=False)
+check("التقييم يُحفظ ويعود إلى بطاقة السؤال",
+      r.status_code == 303 and f"#m{msg_id}" in r.headers["location"]
+      and [q["id"] for q in store.questions(rating="down")] == [msg_id], r.headers.get("location"))
+r = client.get("/admin/messages?rating=down")
+check("تصفية الأسئلة بالتقييم، والسبب يظهر، والملاحظة مُهرَّبة",
+      "التقييم: تحتاج تصحيحاً" in r.text and "معلومة خاطئة" in r.text
+      and "&lt;b&gt;x" in r.text and "<b>x</b>" not in r.text)
+check("«بلا تقييم» يستثني المقيَّم", msg_id not in [q["id"] for q in store.questions(rating="none")])
+client.post("/admin/rate", data={"msg_id": str(msg_id), "rating": "clear", "next": "/admin/messages"})
+check("مسح التقييم", not store.questions(rating="down"))
+r = client.post("/admin/rate", data={"msg_id": str(msg_id), "rating": "up"},
+                headers={"origin": "https://evil.example"}, follow_redirects=False)
+check("تقييم من مصدر آخر يُرفض", r.status_code == 403 and not store.questions(rating="up"))
+
+store.remember("telegram", "u-rate", "user", "سؤال للتقييم", outcome="answered",
+               confidence=0.5, sources=[])
+rid = store.questions(channel="telegram")[0]["id"]
+store.set_rating(rid, -1)
+store.clear_history("telegram", "u-rate")
+with store.db() as conn:
+    left = conn.execute("SELECT COUNT(*) FROM ratings WHERE message_id=?", (rid,)).fetchone()[0]
+check("التقييم يُحذف مع رسالته", left == 0)
+
+r = client.get(f"/admin/corrections/new?from={msg_id}")
+check("نموذج التصحيح يُملأ بالسؤال الأصلي ويعرض ردّ بيان للرجوع إليه",
+      r.status_code == 200 and "ما أدوات Hunchly" in r.text and "رد &lt;b&gt;تجريبي" in r.text)
+fix = {"question": "ما أداة Hunchly؟", "answer": "Hunchly توثّق الصفحات أثناء البحث.",
+       "url": "https://evil.example/x", "active": "1"}
+r = client.post("/admin/corrections/save", data=fix)
+check("رابط مصدر من خارج الموقع يُرفض", r.status_code == 400 and not store.corrections())
+r = client.post("/admin/corrections/save", data={**fix, "answer": ""})
+check("إجابة فارغة تُرفض", r.status_code == 400 and not store.corrections())
+r = client.post("/admin/corrections/save",
+                data={**fix, "url": "https://paxmemoria.org/osint-tools"}, follow_redirects=False)
+saved = store.corrections()
+check("التصحيح يُحفظ، وبلا متجهات يُنبَّه إلى أنه يطابق السؤال نفسه وحده",
+      r.status_code == 303 and "fix_novec" in r.headers["location"]
+      and len(saved) == 1 and saved[0]["vector"] is None, r.headers.get("location"))
+cid = saved[0]["id"]
+r = client.get("/admin/corrections")
+check("صفحة التصحيحات تعرضه مع رابط تجربته",
+      "ما أداة Hunchly؟" in r.text and "/admin/try?q=" in r.text)
+check("رابط «جرّبه» يملأ خانة التجربة ولا يستدعي النموذج",
+      "ما أداة Hunchly؟" in client.get("/admin/try?q=ما أداة Hunchly؟").text)
+client.post("/admin/corrections/save",
+            data={"id": str(cid), "question": fix["question"], "answer": "معدّلة", "url": ""})
+check("تعديل التصحيح وإطفاؤه", store.correction(cid)["answer"] == "معدّلة"
+      and not store.correction(cid)["active"])
+client.post("/admin/corrections/delete", data={"id": str(cid)})
+check("حذف التصحيح", store.correction(cid) is None)
+check("الإنجليزية في صفحة التصحيحات", "Approved corrections" in
+      client.get("/admin/corrections?lang=en").text)
+client.get("/admin?lang=ar")
+
 r = client.post("/admin/settings", data={"threshold": "2"}, follow_redirects=False)
 check("عتبة خارج المدى تُرفض", "error=threshold" in r.headers["location"])
 client.post("/admin/settings", data={"threshold": "0.47"})
@@ -537,6 +595,44 @@ reply.update(content=[{"type": "text", "text": "أحدث تحقيقاتنا عن
 res = brain.answer("ما حجم السيول في محافظة الحديدة اليمنية؟", "admin", "console")
 check("الاستناد إلى قائمة التحقيقات يعطي صفحة التحقيقات مصدراً",
       res["sources"] == [f"{config.SITE_URL}/investigations"], res["sources"])
+
+# ── التصحيحات المعتمدة في الاسترجاع / Approved corrections in retrieval ──
+# المتجهات المزيّفة كيس كلمات: صياغة تشارك معظم الكلمات قريبة، وغيرها بعيدة
+# The fake vectors are a bag of words: a wording that shares most words is
+# close, and others are far
+config.VOYAGE_API_KEY = "test"
+fq = "ما قوائم الأدوات في الدليل؟"
+vec, model = retrieve.embed_correction(fq)
+cid = store.save_correction(fq, "في الدليل تصنيفات كثيرة، وكل أداة تُعرف بالبحث عنها.",
+                            "", True, vec, model)
+
+
+def matches(q):
+    return [c["id"] for c in retrieve.match_corrections(q, retrieve._query_vector(q))]
+
+
+check("السؤال نفسه يطابق تصحيحه", matches(fq) == [cid])
+check("صياغة قريبة تطابق بالمتجهات", matches("ما قوائم الأدوات المتوفرة في الدليل؟") == [cid])
+check("سؤال مختلف لا يطابق", matches("ما أدوات تتبع الطيران؟") == [])
+reply.update(content=[{"type": "text", "text": "في الدليل تصنيفات كثيرة.\n[SOURCES: 1]"}],
+             stop_reason="end_turn")
+res = brain.answer("ما قوائم الأدوات المتوفرة في الدليل؟", "admin", "console")
+ctx = json.loads(sent[-1].content)["messages"][-1]["content"]
+check("التصحيح المطابق أول المصادر، ويجيز السؤال من البوابة",
+      res["outcome"] == "answered" and '<تصحيح_معتمد رقم="1">' in ctx
+      and "الإجابة المعتمدة" in ctx, res["outcome"])
+check("مصدر تصحيح بلا رابط هو صفحة الدليل",
+      res["sources"] == [f"{config.SITE_URL}/osint-tools"], res["sources"])
+store.save_correction(fq, "x", "", False, vec, model, cid)
+check("التصحيح المعطّل لا يُستعمل", matches(fq) == [])
+store.save_correction(fq, "x", "", True, vec, "model-from-before", cid)
+check("متجه من نموذج سابق لا يُقارن، والسؤال نفسه يبقى مطابقاً",
+      matches(fq) == [cid] and matches("ما قوائم الأدوات المتوفرة في الدليل؟") == [])
+check("إعادة توليد متجهات التصحيحات بعد تغيّر النموذج",
+      retrieve.refresh_correction_vectors() == 1
+      and matches("ما قوائم الأدوات المتوفرة في الدليل؟") == [cid])
+store.delete_correction(cid)
+config.VOYAGE_API_KEY = ""
 
 ctx, urls = brain.build_context(
     {"tools": [], "category": None, "category_tools": [],

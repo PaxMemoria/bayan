@@ -11,6 +11,7 @@ from contextlib import contextmanager
 import numpy as np
 
 from . import config
+from .arabic import normalize_ar
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS chunks (
@@ -113,6 +114,36 @@ CREATE TABLE IF NOT EXISTS ingest_runs (
 CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
+);
+
+-- تقييم الفريق لإجابة بيان على سؤال، برقم رسالة السؤال. يُحذف مع الرسالة.
+-- The team's rating of Bayan's answer to a question, keyed by the question's
+-- message number. Deleted together with the message.
+CREATE TABLE IF NOT EXISTS ratings (
+    message_id INTEGER PRIMARY KEY,
+    rating     INTEGER NOT NULL,   -- 1 جيدة / good، -1 تحتاج تصحيحاً / needs fixing
+    reason     TEXT,
+    note       TEXT,
+    ts         REAL NOT NULL
+);
+
+-- إجابات معتمدة يكتبها الفريق بكلماته. لا تحوي معرّف مستخدم، ولا تُحذف مع
+-- الرسائل ولا مع إعادة الفهرسة. embedding متجه السؤال، و embed_model النموذج
+-- الذي ولّده.
+-- Approved answers the team writes in its own words. They hold no user ID,
+-- and are deleted neither with the messages nor by reindexing. embedding is
+-- the question's vector, and embed_model the model that produced it.
+CREATE TABLE IF NOT EXISTS corrections (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    question    TEXT NOT NULL,
+    norm_question TEXT NOT NULL,
+    answer      TEXT NOT NULL,
+    url         TEXT,
+    active      INTEGER NOT NULL DEFAULT 1,
+    embedding   BLOB,
+    embed_model TEXT,
+    created     REAL NOT NULL,
+    updated     REAL NOT NULL
 );
 
 CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts
@@ -391,9 +422,11 @@ def purge_old_messages(days: int) -> int:
     if days <= 0:
         return 0
     with db() as conn:
-        return conn.execute(
+        n = conn.execute(
             "DELETE FROM messages WHERE ts < ?", (time.time() - days * 86400,)
         ).rowcount
+        _drop_orphan_ratings(conn)
+        return n
 
 
 def clear_history(channel: str, user_id: str) -> None:
@@ -401,6 +434,13 @@ def clear_history(channel: str, user_id: str) -> None:
         conn.execute(
             "DELETE FROM messages WHERE channel=? AND user_id=?", (channel, user_id)
         )
+        _drop_orphan_ratings(conn)
+
+
+def _drop_orphan_ratings(conn) -> None:
+    """تقييم رسالة حُذفت يُحذف معها.
+    The rating of a deleted message is deleted with it."""
+    conn.execute("DELETE FROM ratings WHERE message_id NOT IN (SELECT id FROM messages)")
 
 
 # ──────────────────────────────────────────────────────── الحدود / Limits
@@ -536,13 +576,21 @@ def channel_stats(since: float) -> dict[str, dict]:
 
 
 def questions(outcome: str = "", channel: str = "", before: int = 0,
-              by_confidence: bool = False, limit: int = 50) -> list[dict]:
-    """أسئلة الجمهور مع ردّ بيان على كل منها، الأحدث أولاً.
-    Questions from the public with Bayan's reply to each, newest first."""
+              by_confidence: bool = False, limit: int = 50,
+              rating: str = "") -> list[dict]:
+    """أسئلة الجمهور مع ردّ بيان على كل منها وتقييمه، الأحدث أولاً.
+    rating: up أو down أو none لتصفيتها بالتقييم.
+    Questions from the public with Bayan's reply to each and its rating,
+    newest first. rating: up, down or none to filter by rating."""
     where, args = ["u.role='user'"], []
     if outcome:
         where.append("u.outcome=?")
         args.append(outcome)
+    if rating in ("up", "down"):
+        where.append("r.rating=?")
+        args.append(1 if rating == "up" else -1)
+    elif rating == "none":
+        where.append("r.rating IS NULL")
     if channel:
         where.append("u.channel=?")
         args.append(channel)
@@ -554,8 +602,10 @@ def questions(outcome: str = "", channel: str = "", before: int = 0,
         rows = conn.execute(
             "SELECT u.*, (SELECT a.content FROM messages a WHERE a.channel=u.channel "
             "AND a.user_id=u.user_id AND a.role='assistant' AND a.id>u.id "
-            "ORDER BY a.id LIMIT 1) AS reply "
-            f"FROM messages u WHERE {' AND '.join(where)} ORDER BY {order} LIMIT ?",
+            "ORDER BY a.id LIMIT 1) AS reply, "
+            "r.rating AS rating, r.reason AS rating_reason, r.note AS rating_note "
+            "FROM messages u LEFT JOIN ratings r ON r.message_id=u.id "
+            f"WHERE {' AND '.join(where)} ORDER BY {order} LIMIT ?",
             (*args, limit),
         ).fetchall()
     out = []
@@ -564,6 +614,111 @@ def questions(outcome: str = "", channel: str = "", before: int = 0,
         d["sources"] = json.loads(d["sources"] or "[]")
         out.append(d)
     return out
+
+
+def question_text(message_id: int) -> tuple[str, str | None] | None:
+    """(نص السؤال، ردّ بيان عليه) برقم رسالة السؤال، لتعبئة نموذج التصحيح.
+    (the question's text, Bayan's reply to it) by the question's message
+    number, to fill in the correction form."""
+    rows = [q for q in questions(before=message_id + 1, limit=1) if q["id"] == message_id]
+    return (rows[0]["content"], rows[0].get("reply")) if rows else None
+
+
+# ──────────────────────────────────────────────────── التقييم / Ratings
+RATING_REASONS = ("wrong", "missing", "refused_wrongly", "should_refuse", "format", "other")
+
+
+def set_rating(message_id: int, rating: int, reason: str = "", note: str = "") -> bool:
+    """يحفظ تقييم إجابة السؤال، ويستبدل تقييماً سابقاً. False إن لم يوجد السؤال.
+    Saves the rating of the question's answer, replacing an earlier one.
+    False if the question does not exist."""
+    with db() as conn:
+        if not conn.execute("SELECT 1 FROM messages WHERE id=? AND role='user'",
+                            (message_id,)).fetchone():
+            return False
+        conn.execute(
+            "INSERT OR REPLACE INTO ratings (message_id, rating, reason, note, ts) "
+            "VALUES (?,?,?,?,?)",
+            (message_id, 1 if rating > 0 else -1,
+             reason if reason in RATING_REASONS else None, note.strip() or None,
+             time.time()),
+        )
+    return True
+
+
+def clear_rating(message_id: int) -> None:
+    with db() as conn:
+        conn.execute("DELETE FROM ratings WHERE message_id=?", (message_id,))
+
+
+def rating_stats(since: float) -> dict[str, int]:
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT r.rating, COUNT(*) n FROM ratings r JOIN messages m "
+            "ON m.id=r.message_id WHERE m.ts >= ? GROUP BY r.rating", (since,)
+        ).fetchall()
+    return {"up" if r["rating"] > 0 else "down": r["n"] for r in rows}
+
+
+# ──────────────────────────────────────── التصحيحات المعتمدة / Approved corrections
+def _vector_blob(vector: list[float] | None) -> bytes | None:
+    return np.asarray(vector, dtype=np.float32).tobytes() if vector is not None else None
+
+
+def save_correction(question: str, answer: str, url: str | None, active: bool,
+                    vector: list[float] | None, embed_model: str | None,
+                    correction_id: int = 0) -> int:
+    """يضيف تصحيحاً أو يعدّله (correction_id)، ويعيد رقمه.
+    Adds a correction, or edits one (correction_id), and returns its number."""
+    now = time.time()
+    values = (question, normalize_ar(question), answer, url or None, int(active),
+              _vector_blob(vector), embed_model if vector is not None else None, now)
+    with db() as conn:
+        if correction_id:
+            conn.execute(
+                "UPDATE corrections SET question=?, norm_question=?, answer=?, url=?, "
+                "active=?, embedding=?, embed_model=?, updated=? WHERE id=?",
+                (*values, correction_id),
+            )
+            return correction_id
+        return conn.execute(
+            "INSERT INTO corrections (question, norm_question, answer, url, active, "
+            "embedding, embed_model, updated, created) VALUES (?,?,?,?,?,?,?,?,?)",
+            (*values, now),
+        ).lastrowid
+
+
+def set_correction_vector(correction_id: int, vector: list[float], embed_model: str) -> None:
+    with db() as conn:
+        conn.execute("UPDATE corrections SET embedding=?, embed_model=? WHERE id=?",
+                     (_vector_blob(vector), embed_model, correction_id))
+
+
+def delete_correction(correction_id: int) -> None:
+    with db() as conn:
+        conn.execute("DELETE FROM corrections WHERE id=?", (correction_id,))
+
+
+def corrections(active_only: bool = False) -> list[dict]:
+    """التصحيحات، الأحدث تعديلاً أولاً، مع متجه كل سؤال إن وُجد.
+    The corrections, most recently edited first, with each question's vector
+    if there is one."""
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM corrections"
+            + (" WHERE active=1" if active_only else "") + " ORDER BY updated DESC"
+        ).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        blob = d.pop("embedding")
+        d["vector"] = np.frombuffer(blob, dtype=np.float32) if blob else None
+        out.append(d)
+    return out
+
+
+def correction(correction_id: int) -> dict | None:
+    return next((c for c in corrections() if c["id"] == correction_id), None)
 
 
 def message_owner(message_id: int) -> tuple[str, str] | None:

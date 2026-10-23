@@ -250,10 +250,18 @@ least 32 characters, `python -c "import secrets;print(secrets.token_urlsafe(48))
   questions in the last 7 days, and the last indexing run with a button to run
   it again.
 - **Questions** («الأسئلة»): every question with Bayan's reply and its
-  confidence score, filterable by outcome and channel. The questions the gate
-  refused, sorted by confidence, are the tool for tuning the threshold.
+  confidence score, filterable by outcome, channel and rating. The questions
+  the gate refused, sorted by confidence, are the tool for tuning the
+  threshold. Under each answer: a 👍 or 👎 rating with a reason and a note, and
+  a "Write a correction" link.
+- **Corrections** («التصحيحات»): approved answers the team writes in its own
+  words. Every new question is compared with their questions, and one that
+  reaches `CORRECTION_MIN_SIMILARITY` (0.75) is sent to the model ahead of the
+  other sources and takes precedence over them, from the moment it is saved and
+  without reindexing. They are also a test set that grows over time:
+  `scripts/check_corrections.py` asks their questions again after any change.
 - **Try Bayan** («جرّب بيان»): a question without a channel, with the
-  retrieved passages.
+  retrieved passages and the matching corrections.
 - **Settings** («الإعدادات»): the threshold, the daily question limit and the
   pause button, applied without a restart, and the connection status of each
   channel.
@@ -324,10 +332,11 @@ app/
   nano/         voyage-4-nano: the copied code, its license and the pinned revision
   retrieve.py   the two paths: structured + semantic
   brain.py      ★ the four layers and the editorial rules
-  dashboard.py  the dashboard
+  dashboard.py  the dashboard, ratings and approved corrections
+  overview.py   the overview of the guide and investigations, for general questions
   main.py       webhooks + /admin/reindex + /debug/ask
   channels/     Telegram, WhatsApp, Messenger
-scripts/        Telegram webhook, deploy key, model download, threshold calibration
+scripts/        Telegram webhook, deploy key, model download, threshold calibration, correction checks
 site-workflow/  copied into the site repository
 tests/          test_bayan on the real index, test_offline with no keys
 ```
@@ -346,6 +355,9 @@ tests/          test_bayan on the real index, test_offline with no keys
   conversation immediately. The daily limit counts from a separate record
   (identifier and time, 24 hours), so deleting the conversation does not
   reset it.
+- **Ratings and corrections**: an answer's rating is deleted with its message.
+  An approved correction is written by the team in its own words, without any
+  personal detail from the message, so it stays after the messages are deleted.
 - **Logs**: Bayan writes no question text to the server log, and the Docker
   log is capped at 3 files of 10 MB.
 

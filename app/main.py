@@ -31,11 +31,23 @@ async def startup() -> None:
     # تحميل النموذج المحلي يستغرق ثوانيَ، فيجري في الخلفية والخادم يستقبل
     # Loading the local model takes seconds, so it runs in the background
     # while the server accepts requests
-    threading.Thread(target=embed.preload, daemon=True).start()
+    threading.Thread(target=_preload, daemon=True).start()
     # حذف الأسئلة الأقدم من مدة الحفظ: عند الإقلاع ثم كل 6 ساعات
     # Delete questions older than the retention period: at startup, then
     # every 6 hours
     app.state.retention = asyncio.create_task(_retention_loop())
+
+
+def _preload() -> None:
+    embed.preload()
+    # تصحيح بلا متجه، أو بمتجه من نموذج سابق، يُولَّد متجهه بعد تحميل النموذج
+    # A correction with no vector, or one from an earlier model, gets its
+    # vector once the model is loaded
+    try:
+        if n := retrieve.refresh_correction_vectors():
+            log.info("وُلّدت متجهات %d تصحيح", n)
+    except Exception:  # noqa: BLE001
+        log.exception("تعذّر توليد متجهات التصحيحات")
 
 
 async def _retention_loop() -> None:
