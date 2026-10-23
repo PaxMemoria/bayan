@@ -7,6 +7,7 @@ import logging
 import httpx
 
 from .. import config
+from .fmt import to_plain
 
 log = logging.getLogger("messenger")
 
@@ -22,7 +23,7 @@ async def send(psid: str, text: str) -> None:
                 json={
                     "recipient": {"id": psid},
                     "messaging_type": "RESPONSE",
-                    "message": {"text": part},
+                    "message": {"text": to_plain(part)},
                 },
             )
             if r.status_code >= 300:
@@ -51,8 +52,12 @@ def parse(payload: dict) -> list[tuple[str, str, str]]:
             if msg.get("is_echo"):
                 continue
             text = msg.get("text") or (event.get("postback") or {}).get("title")
+            # مرفق بلا نص: يُجاب صاحبه بأن بيان يقرأ النص فقط
+            # An attachment without text: its sender is told Bayan reads text only
+            if text is None and msg.get("attachments"):
+                text = ""
             psid = (event.get("sender") or {}).get("id")
-            if text and psid:
+            if text is not None and psid:
                 mid = msg.get("mid") or f"{psid}:{event.get('timestamp')}"
                 out.append((f"fb:{mid}", psid, text))
     return out

@@ -30,7 +30,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 import httpx  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app import brain, config, embed, ingest, retrieve, store  # noqa: E402
+from app import brain, config, embed, i18n, ingest, retrieve, store  # noqa: E402
 from app import main as server  # noqa: E402
 
 ok = fail = 0
@@ -348,7 +348,7 @@ check("الرابع يتلقى رسالة الحدّ ومتى يعود",
 check("رسالة الحدّ لا تُحسب سؤالاً",
       len(store.questions_since("telegram", "u-limit", time.time() - 86400)) == 3)
 check("/start يعمل بعد بلوغ الحدّ",
-      brain.handle("/start", "telegram", "u-limit") == config.WELCOME_MESSAGE)
+      brain.handle("/start", "telegram", "u-limit") == i18n.welcome(None, brain.daily_limit()))
 check("مستخدم آخر لا يتأثر", "الحدّ المسموح" not in brain.handle("سؤال", "telegram", "u-other"))
 check("المعرّف نفسه في قناة أخرى لا يتأثر",
       "الحدّ المسموح" not in brain.handle("سؤال", "whatsapp", "u-limit"))
@@ -362,7 +362,6 @@ check("الحدّ اليومي يُحفظ من اللوحة", brain.daily_limit(
 
 # ── ٥ج. اللغتان / 5c. The two languages ──────────────────────────
 print("\n── اللغتان ──")
-from app import i18n  # noqa: E402
 
 check("سؤال عربي فيه اسم أداة إنجليزي طويل يبقى عربياً",
       i18n.detect("ما هي أداة Google Earth Pro؟") == "ar")
@@ -374,7 +373,37 @@ check("سؤال إنجليزي خارج النطاق يُرفض بالإنجلي
 check("/help باللغتين، و«مساعدة» بالعربية وحدها",
       config.BOT_NAME_EN in brain.handle("/help", "telegram", "u-en")
       and config.BOT_NAME_EN not in brain.handle("مساعدة", "telegram", "u-en"))
-check("الترحيب باللغتين", "Hello" in config.WELCOME_MESSAGE and "أهلاً" in config.WELCOME_MESSAGE)
+check("/start بلا لغة معروفة: الترحيب باللغتين",
+      "Hello" in brain.handle("/start", "telegram", "u-w") and "أهلاً" in brain.handle("/start", "telegram", "u-w"))
+w_ar = brain.handle("/start", "telegram", "u-w", "ar")
+w_en = brain.handle("/start", "telegram", "u-w", "en-GB")
+check("/start بواجهة عربية: بالعربية وحدها", "أهلاً" in w_ar and "Hello" not in w_ar)
+check("/start بواجهة إنجليزية: بالإنجليزية وحدها", "Hello" in w_en and "أهلاً" not in w_en)
+check("الترحيب يقول ما يستطيع بيان وما لا يستطيع",
+      "ما أستطيع فعله" in w_ar and "ما لا أستطيع فعله" in w_ar
+      and "What I can do" in w_en and "What I can't do" in w_en)
+check("الترحيب يذكر الحدّ اليومي كما في اللوحة",
+      f"حدّ الأسئلة: {brain.daily_limit()} في كل 24 ساعة" in w_ar)
+before = len(store.questions_since("whatsapp", "u-greet", time.time() - 86400))
+g_ar = brain.handle("مرحباً!", "whatsapp", "u-greet")
+g_en = brain.handle("Hello 👋", "whatsapp", "u-greet")
+check("تحية عربية: ترحيب بالعربية", "أهلاً" in g_ar and "Hello" not in g_ar)
+check("تحية إنجليزية: ترحيب بالإنجليزية", "Hello" in g_en and "أهلاً" not in g_en)
+check("التحية لا تُحسب سؤالاً",
+      len(store.questions_since("whatsapp", "u-greet", time.time() - 86400)) == before)
+check("سؤال يبدأ بتحية يبقى سؤالاً", "أهلاً" not in brain.handle("مرحبا، ما هي عاصمة فرنسا؟", "whatsapp", "u-greet"))
+check("رسالة بلا نص: بيان يقرأ النص فقط، بلغة الواجهة",
+      brain.handle("", "telegram", "u-img", "en") == i18n.msg("text_only", "en"))
+from app.channels import messenger as ms, telegram as tgp, whatsapp as wa  # noqa: E402
+check("تيليغرام: صورة بلا تعليق تصل بنص فارغ ولغة الواجهة",
+      tgp.parse({"update_id": 7, "message": {"chat": {"id": 1}, "photo": [{}],
+                 "from": {"language_code": "ar"}}}) == ("tg:7", "1", "", "ar"))
+check("واتساب: صورة تصل بنص فارغ",
+      wa.parse({"entry": [{"changes": [{"value": {"messages": [
+          {"id": "m1", "from": "966", "type": "image"}]}}]}]}) == [("wa:m1", "966", "")])
+check("ماسنجر: مرفق بلا نص يصل بنص فارغ",
+      ms.parse({"entry": [{"messaging": [{"sender": {"id": "p"}, "message": {
+          "mid": "x", "attachments": [{"type": "image"}]}}]}]}) == [("fb:x", "p", "")])
 store.set_setting("daily_limit", "1")
 brain.handle("Is there a tool for photos?", "telegram", "u-en-limit")
 check("رسالة الحدّ اليومي بلغة السائل",
@@ -608,6 +637,42 @@ config.TELEGRAM_WEBHOOK_SECRET = "tg-secret"
 check("سرّ خاطئ يُرفض", client.post(
     "/webhooks/telegram", json=upd,
     headers={"X-Telegram-Bot-Api-Secret-Token": "nope"}).status_code == 403)
+
+# ── تنسيق القنوات / Channel formatting ──────────────────────────
+print("\n── تنسيق القنوات ──")
+import asyncio  # noqa: E402
+
+from app.channels import fmt  # noqa: E402
+from app.channels import telegram as tg  # noqa: E402
+
+md = "### أدوات\n- **FlightAware**: <تتبّع> & __رحلات__"
+check("تيليغرام: عريض حقيقي، والرموز مهرّبة",
+      fmt.to_telegram_html(md) == "<b>أدوات</b>\n- <b>FlightAware</b>: &lt;تتبّع&gt; &amp; <b>رحلات</b>",
+      fmt.to_telegram_html(md))
+check("واتساب: نجمة واحدة", fmt.to_whatsapp("**FlightAware** و**Flightradar24**")
+      == "*FlightAware* و*Flightradar24*")
+check("ماسنجر: بلا تنسيق", fmt.to_plain("### عنوان\n**FlightAware**") == "عنوان\nFlightAware")
+
+tg_calls = []
+
+
+def tg_api(request):
+    body = json.loads(request.content)
+    tg_calls.append(body)
+    if body.get("parse_mode") == "HTML" and "رفض" in body["text"]:
+        return httpx.Response(400, json={"ok": False, "description": "can't parse entities"})
+    return httpx.Response(200, json={"ok": True})
+
+
+real_async = httpx.AsyncClient
+tg.httpx.AsyncClient = lambda **kw: real_async(transport=httpx.MockTransport(tg_api), **kw)
+asyncio.run(tg.send("5", "**مرحبا**"))
+check("تيليغرام يُرسل بوضع HTML", tg_calls[-1].get("parse_mode") == "HTML"
+      and tg_calls[-1]["text"] == "<b>مرحبا</b>", tg_calls[-1])
+asyncio.run(tg.send("5", "**رفض** هنا"))
+check("رفض التنسيق يعيد الرسالة نصاً عادياً",
+      "parse_mode" not in tg_calls[-1] and tg_calls[-1]["text"] == "رفض هنا", tg_calls[-1])
+tg.httpx.AsyncClient = real_async
 
 embed.embed = real_embed
 print(f"\nالنتيجة: {ok}/{ok + fail}")

@@ -64,9 +64,10 @@ def _verify_meta(body: bytes, signature: str | None) -> None:
         raise HTTPException(403, "توقيع غير صالح")
 
 
-async def _reply(channel: str, user_id: str, text: str, sender) -> None:
+async def _reply(channel: str, user_id: str, text: str, sender,
+                 lang_hint: str | None = None) -> None:
     try:
-        reply = await asyncio.to_thread(brain.handle, text, channel, user_id)
+        reply = await asyncio.to_thread(brain.handle, text, channel, user_id, lang_hint)
     except Exception:
         log.exception("فشل في معالجة رسالة من %s", channel)
         reply = i18n.msg("error", i18n.detect(text))
@@ -96,10 +97,10 @@ async def telegram_hook(
 
     parsed = telegram.parse(await request.json())
     if parsed:
-        event_id, chat_id, text = parsed
+        event_id, chat_id, text, hint = parsed
         if store.first_time(event_id):
             await telegram.typing(chat_id)
-            bg.add_task(_reply, "telegram", chat_id, text, telegram.send)
+            bg.add_task(_reply, "telegram", chat_id, text, telegram.send, hint)
     return {"ok": True}
 
 

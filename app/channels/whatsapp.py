@@ -7,6 +7,7 @@ import logging
 import httpx
 
 from .. import config
+from .fmt import to_whatsapp
 
 log = logging.getLogger("whatsapp")
 
@@ -26,7 +27,7 @@ async def send(to: str, text: str) -> None:
                     "messaging_product": "whatsapp",
                     "to": to,
                     "type": "text",
-                    "text": {"body": part, "preview_url": False},
+                    "text": {"body": to_whatsapp(part), "preview_url": False},
                 },
             )
             if r.status_code >= 300:
@@ -69,9 +70,11 @@ def parse(payload: dict) -> list[tuple[str, str, str]]:
                         or inter.get("list_reply", {}).get("title", "")
                     )
                 else:
-                    continue
-                if text:
-                    out.append((f"wa:{msg['id']}", msg["from"], text))
+                    # صورة أو صوت أو ملف أو موقع: يُجاب صاحبها بأن بيان يقرأ النص فقط
+                    # A photo, audio, file or location: its sender is told Bayan
+                    # reads text only
+                    text = ""
+                out.append((f"wa:{msg['id']}", msg["from"], text))
     return out
 
 

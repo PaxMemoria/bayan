@@ -145,23 +145,45 @@ OUT_OF_SCOPE_MESSAGE_EN = os.getenv(
     "open-source tools guide and its published investigations.\n"
     "Try asking about a tool, a category of tools, or one of our investigations.",
 )
-WELCOME_MESSAGE_AR = (
-    f"أهلاً بك 👋\n\nأنا {BOT_NAME}، مساعد {ORG_NAME}.\n"
-    "أجيب عن موضوعين فقط:\n"
-    "• أدوات المصادر المفتوحة في دليلنا: ما هي، ولأي غرض، وتحذيراتها\n"
-    "• تحقيقاتنا المنشورة: ماذا وثّقت وكيف\n\n"
-    "اكتب سؤالك مباشرة، بالعربية أو بالإنجليزية."
+# الترحيب بلغة السائل، ويقول ما يستطيع بيان فعله وما لا يستطيع. سطر حدّ
+# الأسئلة اليومي يُضاف عند العرض لأن الحدّ يتغيّر من اللوحة (app/i18n.py).
+# The welcome is in the asker's language and says what Bayan can and cannot
+# do. The daily-limit line is added when shown, since the limit is changed
+# from the dashboard (app/i18n.py).
+WELCOME_MESSAGE_AR = os.getenv(
+    "WELCOME_MESSAGE_AR",
+    f"أهلاً بك 👋\n\nأنا {BOT_NAME}، مساعد {ORG_NAME}.\n\n"
+    "ما أستطيع فعله:\n"
+    "• أعرّفك بأدوات المصادر المفتوحة في دليلنا: ما هي، ولأي غرض، وتحذيراتها، "
+    "ورابطها حين يُسمح بإعطائه.\n"
+    "• أقترح أدوات لمهمة ما، مثل معرفة مكان التقاط صورة أو تتبّع رحلة طائرة.\n"
+    "• أجيب عن تحقيقاتنا المنشورة: ماذا وثّقت وكيف، مع رابط التحقيق.\n\n"
+    "ما لا أستطيع فعله:\n"
+    "• الإجابة عن أي موضوع خارج الدليل والتحقيقات، كالأخبار والسياسة والصحة.\n"
+    "• فحص صورة أو فيديو أو رابط ترسله إليّ، أو البحث في الإنترنت. أقرأ النص فقط.\n"
+    "• إبداء رأي أو تقدير لم يرد في تحقيقاتنا.\n"
+    "• المساعدة في أي عمل قد يؤذي أحداً، كاختراق الحسابات.\n\n"
+    "اكتب سؤالك بالعربية أو بالإنجليزية.",
 )
-WELCOME_MESSAGE_EN = (
-    f"Hello 👋\n\nI'm {BOT_NAME_EN}, {ORG_NAME_EN}'s assistant.\n"
-    "I answer questions on two topics only:\n"
-    "• The open-source tools in our guide: what they are, what they are for, "
-    "and their warnings\n"
-    "• Our published investigations: what they documented and how\n\n"
-    "Just type your question, in Arabic or English."
-)
-WELCOME_MESSAGE = os.getenv(
-    "WELCOME_MESSAGE", f"{WELCOME_MESSAGE_AR}\n\n{WELCOME_MESSAGE_EN}"
+WELCOME_MESSAGE_EN = os.getenv(
+    "WELCOME_MESSAGE_EN",
+    f"Hello 👋\n\nI'm {BOT_NAME_EN}, {ORG_NAME_EN}'s assistant.\n\n"
+    "What I can do:\n"
+    "• Tell you about the open-source tools in our guide: what they are, what "
+    "they are for, their warnings, and their link where sharing it is allowed.\n"
+    "• Suggest tools for a task, such as finding where a photo was taken or "
+    "tracking a flight.\n"
+    "• Answer questions about our published investigations: what they "
+    "documented and how, with a link to the investigation.\n\n"
+    "What I can't do:\n"
+    "• Answer anything outside the guide and the investigations, such as news, "
+    "politics or health.\n"
+    "• Check a photo, video or link you send me, or search the internet. I read "
+    "text only.\n"
+    "• Give opinions or estimates that our investigations do not contain.\n"
+    "• Help with anything that could harm someone, such as breaking into "
+    "accounts.\n\n"
+    "Ask your question in Arabic or English.",
 )
 PAUSED_MESSAGE = os.getenv(
     "PAUSED_MESSAGE",

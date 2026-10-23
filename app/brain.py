@@ -26,6 +26,7 @@ import time
 from anthropic import Anthropic
 
 from . import config, i18n, retrieve, store
+from .arabic import normalize_ar
 
 log = logging.getLogger("brain")
 _client: Anthropic | None = None
@@ -478,36 +479,70 @@ def answer(question: str, channel: str, user_id: str) -> dict:
     return done(out, outcome, sources)
 
 
-def handle(question: str, channel: str, user_id: str) -> str:
+# تحية وحدها تُجاب بالترحيب بلغتها بدل رسالة الرفض: في واتساب يبدأ الناس
+# بـ«مرحبا» لا بـ /start. القائمة بعد التطبيع (أ←ا، ة←ه، بلا تشكيل).
+# A greeting on its own gets the welcome in its language instead of the
+# refusal: on WhatsApp people start with "hello", not /start. The list is
+# after normalization (أ to ا, ة to ه, no diacritics).
+GREETINGS = {
+    "مرحبا", "مرحبا بك", "اهلا", "اهلا وسهلا", "هلا", "سلام", "السلام عليكم",
+    "صباح الخير", "مساء الخير",
+    "hi", "hello", "hey", "hi there", "hello there", "good morning", "good evening",
+}
+_NOT_LETTERS = re.compile(r"[^\w\s]", re.UNICODE)
+
+
+def _is_greeting(text: str) -> bool:
+    return " ".join(normalize_ar(_NOT_LETTERS.sub(" ", text)).split()) in GREETINGS
+
+
+def handle(question: str, channel: str, user_id: str, lang_hint: str | None = None) -> str:
     """نقطة الدخول الموحّدة لكل القنوات.
-    The single entry point for all channels."""
-    lang = i18n.detect(question)
+
+    lang_hint لغة واجهة السائل إن أرسلتها القناة (تيليغرام)، وتحدد لغة
+    الترحيب حين لا نص يُستدلّ منه. نص فارغ يعني رسالة بلا نص (صورة، صوت…).
+    The single entry point for all channels.
+
+    lang_hint is the asker's interface language if the channel sends it
+    (Telegram), and sets the welcome's language when there is no text to go
+    by. Empty text means a message without text (a photo, audio, ...).
+    """
+    hint = i18n.from_hint(lang_hint)
+    lang = i18n.detect(question) if question.strip() else (hint or "ar")
     if store.is_blocked(channel, user_id):
         return i18n.msg("out_of_scope", lang)
     if not store.rate_ok(channel, user_id):
         return i18n.msg("rate", lang)
     if paused():
         return i18n.msg("paused", lang)
+    if not question.strip():
+        return (i18n.msg("text_only", hint) if hint
+                else f"{i18n.msg('text_only', 'ar')}\n\n{i18n.msg('text_only', 'en')}")
 
-    # الأوامر بلا لغة، فتُجاب باللغتين، إلا ما كُتب بالعربية
-    # Commands have no language, so they are answered in both languages,
-    # except those written in Arabic
+    # الأوامر: كلمة عربية تعني العربية، و"start" الإنجليزية، و /start لغة واجهة
+    # السائل، وإن لم تُعرف فاللغتان
+    # Commands: an Arabic word means Arabic, "start" English, /start the
+    # asker's interface language, and both languages if that is unknown
     cmd = question.strip().lower()
-    if cmd in ("/start", "start", "بدء", "ابدأ"):
-        store.clear_history(channel, user_id)
-        return config.WELCOME_MESSAGE
+    if cmd in ("/start", "start", "بدء", "ابدأ", "/help", "help", "مساعدة", "/about"):
+        if cmd in ("/start", "start", "بدء", "ابدأ"):
+            store.clear_history(channel, user_id)
+        if cmd in ("بدء", "ابدأ", "مساعدة"):
+            wl = "ar"
+        elif cmd in ("start", "help"):
+            wl = "en"
+        else:
+            wl = hint
+        return i18n.welcome(wl, daily_limit())
     if cmd in ("/reset", "/clear", "reset", "جديد", "مسح"):
         store.clear_history(channel, user_id)
-        ar, en = "تم بدء محادثة جديدة. اكتب سؤالك.", "New conversation started. Ask your question."
-        return ar if lang == "ar" and not cmd.startswith("/") else f"{ar}\n{en}"
-    if cmd in ("/help", "help", "مساعدة", "/about"):
-        ar = (f"{config.BOT_NAME}، مساعد {config.ORG_NAME}.\n"
-              f"أجيب عن {config.SCOPE_DESCRIPTION}.\n"
-              "اكتب سؤالك مباشرة، و /reset لبدء محادثة جديدة.")
-        en = (f"{config.BOT_NAME_EN}, {config.ORG_NAME_EN}'s assistant.\n"
-              f"I answer questions about {config.SCOPE_DESCRIPTION_EN}.\n"
-              "Just type your question, and /reset starts a new conversation.")
-        return ar if cmd == "مساعدة" else f"{ar}\n\n{en}"
+        if cmd in ("جديد", "مسح") or (cmd.startswith("/") and hint == "ar"):
+            return i18n.msg("reset", "ar")
+        if cmd == "reset" or hint == "en":
+            return i18n.msg("reset", "en")
+        return f"{i18n.msg('reset', 'ar')}\n{i18n.msg('reset', 'en')}"
+    if _is_greeting(question):
+        return i18n.welcome(lang, daily_limit())
 
     # بعد الأوامر: /start و /help لا تُحسب من الحدّ ولا يمنعها
     # After the commands: /start and /help do not count toward the limit, and

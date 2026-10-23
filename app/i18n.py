@@ -66,7 +66,40 @@ def _messages() -> dict[str, dict[str, str]]:
                   "The tools guide and the investigations are always at {site}",
         },
         "sources": {"ar": "🔗 المصدر:", "en": "🔗 Source:"},
+        "text_only": {
+            "ar": "أقرأ النص فقط، ولا أستطيع فحص الصور أو الفيديو أو الصوت أو الملفات.\n"
+                  "اكتب سؤالك نصاً عن أداة في دليلنا أو عن أحد تحقيقاتنا.",
+            "en": "I read text only, and can't check photos, video, audio or files.\n"
+                  "Type your question about a tool in our guide or one of our "
+                  "investigations.",
+        },
+        "reset": {"ar": "تم بدء محادثة جديدة. اكتب سؤالك.",
+                  "en": "New conversation started. Ask your question."},
     }
+
+
+def welcome(lang: str | None, limit: int) -> str:
+    """الترحيب بلغة السائل، أو باللغتين إن لم تُعرف لغته.
+    The welcome in the asker's language, or in both if it is not known."""
+    def one(code: str) -> str:
+        base = config.WELCOME_MESSAGE_EN if code == "en" else config.WELCOME_MESSAGE_AR
+        if limit <= 0:
+            return base
+        line = (f"Limit: {limit} questions every 24 hours." if code == "en"
+                else f"حدّ الأسئلة: {limit} في كل 24 ساعة.")
+        return f"{base}\n{line}"
+    if lang in ("ar", "en"):
+        return one(lang)
+    return f"{one('ar')}\n\n{one('en')}"
+
+
+def from_hint(hint: str | None) -> str | None:
+    """لغة واجهة السائل كما ترسلها القناة (تيليغرام: language_code).
+    The asker's interface language as the channel sends it (Telegram:
+    language_code)."""
+    if not hint:
+        return None
+    return "ar" if hint.lower().startswith("ar") else "en"
 
 
 def msg(key: str, lang: str, **kw) -> str:
