@@ -33,7 +33,8 @@ TEXT = {
         "commands": {
             "start": "Start and see what Bayan can do",
             "help": "What Bayan can and can't do",
-            "reset": "Start a new conversation",
+            "reset": "Delete your saved conversation and start over",
+            "privacy": "What Bayan stores and for how long",
         },
     },
     "ar": {
@@ -48,7 +49,8 @@ TEXT = {
         "commands": {
             "start": "ابدأ وتعرّف إلى ما يستطيعه بيان",
             "help": "ما يستطيعه بيان وما لا يستطيعه",
-            "reset": "ابدأ محادثة جديدة",
+            "reset": "احذف محادثتك المحفوظة وابدأ من جديد",
+            "privacy": "ما يحفظه بيان ومدة حفظه",
         },
     },
 }

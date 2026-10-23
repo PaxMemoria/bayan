@@ -522,6 +522,62 @@ check("ANSWER_FALLBACK=off: لا fallbacks ولا رأس beta",
 config.ANSWER_FALLBACK = "default"
 brain._client = None
 
+# ── ٥هـ. الخصوصية / Privacy ─────────────────────────────────────
+print("\n── الخصوصية ──")
+import logging  # noqa: E402
+
+with store.db() as c:
+    c.execute("INSERT INTO messages(channel,user_id,role,content,ts) VALUES(?,?,?,?,?)",
+              ("telegram", "u-old", "user", "سؤال قديم", time.time() - 31 * 86400))
+    c.execute("INSERT INTO messages(channel,user_id,role,content,ts) VALUES(?,?,?,?,?)",
+              ("telegram", "u-old", "user", "سؤال حديث", time.time() - 29 * 86400))
+removed = store.purge_old_messages(30)
+with store.db() as c:
+    left = [r["content"] for r in c.execute(
+        "SELECT content FROM messages WHERE user_id='u-old'").fetchall()]
+check("الحذف التلقائي يزيل ما مضى عليه 30 يوماً ويبقي الأحدث",
+      removed >= 1 and left == ["سؤال حديث"], (removed, left))
+with store.db() as c:
+    check("الحذف الآمن مفعّل في القاعدة", c.execute("PRAGMA secure_delete").fetchone()[0] == 1)
+
+store.set_setting("daily_limit", "2")
+brain.handle("سؤال أول عن أداة", "telegram", "u-reset")
+brain.handle("سؤال ثانٍ عن أداة", "telegram", "u-reset")
+brain.handle("/reset", "telegram", "u-reset")
+brain.handle("/start", "telegram", "u-reset")
+check("حذف المحادثة لا يلغي حدّ الأسئلة اليومي",
+      "الحدّ المسموح" in brain.handle("سؤال ثالث", "telegram", "u-reset"))
+store.set_setting("daily_limit", "10")
+
+pv = brain.handle("الخصوصية", "telegram", "u-p")
+check("«الخصوصية» تعيد الرابط ومدة الحفظ بالعربية",
+      "/privacy" in pv and "30 يوماً" in pv and "privacy policy" not in pv, pv)
+check("/privacy بواجهة إنجليزية بالإنجليزية",
+      "Bayan's privacy policy" in brain.handle("/privacy", "telegram", "u-p", "en"))
+check("الترحيب يذكر سياسة الخصوصية", "/privacy" in brain.handle("/start", "telegram", "u-p", "ar"))
+
+r = client.get("/privacy")
+check("صفحة الخصوصية تعمل باللغتين",
+      r.status_code == 200 and "سياسة الخصوصية لبيان" in r.text and "Bayan privacy policy" in r.text)
+check("الصفحة تذكر مدة الحفظ والعنوان من الإعدادات",
+      f"{config.MESSAGE_RETENTION_DAYS} يوماً" in r.text and config.PRIVACY_CONTACT in r.text)
+check("صفحة الخصوصية بلا سكربت", "default-src 'none'" in r.headers.get("content-security-policy", ""))
+
+captured = []
+
+
+class Grab(logging.Handler):
+    def emit(self, record):
+        captured.append(record.getMessage())
+
+
+grab = Grab()
+logging.getLogger("brain").addHandler(grab)
+brain.answer("كم سعر الذهب في سوق دمشق اليوم بالتحديد", "admin", "console")
+logging.getLogger("brain").removeHandler(grab)
+check("سجلّ الخادم لا يحوي نص السؤال", captured and not any("الذهب" in m for m in captured),
+      captured)
+
 # ── ٦. الفهرسة في الخلفية / 6. Background indexing ───────────────
 print("\n── الفهرسة في الخلفية ──")
 import threading  # noqa: E402

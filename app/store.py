@@ -83,6 +83,17 @@ CREATE TABLE IF NOT EXISTS blocked (
     PRIMARY KEY (channel, user_id)
 );
 
+-- أوقات الأسئلة لحدّ الأسئلة اليومي، منفصلة عن المحادثة كي لا يلغي حذفُ
+-- المحادثة (/reset) الحدَّ. تُحذف بعد 24 ساعة.
+-- Question times for the daily limit, kept apart from the conversation so
+-- deleting it (/reset) does not reset the limit. Deleted after 24 hours.
+CREATE TABLE IF NOT EXISTS asked (
+    channel TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    ts      REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_asked ON asked(channel, user_id, ts);
+
 CREATE TABLE IF NOT EXISTS seen_events (
     event_id TEXT PRIMARY KEY,
     ts       REAL NOT NULL
@@ -115,6 +126,10 @@ def db():
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=10000")
+    # المحذوف يُكتب فوقه أصفاراً، فلا يبقى نص سؤال محذوف في ملف القاعدة
+    # Deleted content is overwritten with zeros, so a deleted question's text
+    # does not linger in the database file
+    conn.execute("PRAGMA secure_delete=ON")
     try:
         yield conn
         conn.commit()
@@ -348,16 +363,37 @@ def remember(
         )
 
 
+def record_question(channel: str, user_id: str) -> None:
+    """يسجّل وقت سؤال لحدّ الأسئلة اليومي، ويحذف ما مضى عليه يوم.
+    Records a question's time for the daily limit, and deletes entries older
+    than a day."""
+    now = time.time()
+    with db() as conn:
+        conn.execute("DELETE FROM asked WHERE ts < ?", (now - 86400,))
+        conn.execute("INSERT INTO asked(channel,user_id,ts) VALUES(?,?,?)",
+                     (channel, user_id, now))
+
+
 def questions_since(channel: str, user_id: str, since: float) -> list[float]:
     """أوقات أسئلة المستخدم منذ since، الأقدم أولاً.
     Times of the user's questions at or after since, oldest first."""
     with db() as conn:
         rows = conn.execute(
-            "SELECT ts FROM messages WHERE channel=? AND user_id=? AND role='user' "
-            "AND ts >= ? ORDER BY ts",
+            "SELECT ts FROM asked WHERE channel=? AND user_id=? AND ts >= ? ORDER BY ts",
             (channel, user_id, since),
         ).fetchall()
     return [r["ts"] for r in rows]
+
+
+def purge_old_messages(days: int) -> int:
+    """يحذف الأسئلة والإجابات الأقدم من days يوماً، ويعيد عددها.
+    Deletes questions and answers older than days, and returns how many."""
+    if days <= 0:
+        return 0
+    with db() as conn:
+        return conn.execute(
+            "DELETE FROM messages WHERE ts < ?", (time.time() - days * 86400,)
+        ).rowcount
 
 
 def clear_history(channel: str, user_id: str) -> None:

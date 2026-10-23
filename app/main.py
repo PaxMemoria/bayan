@@ -12,7 +12,7 @@ import threading
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 
-from . import brain, config, dashboard, embed, i18n, ingest, retrieve, store
+from . import brain, config, dashboard, embed, i18n, ingest, privacy, retrieve, store
 from .channels import messenger, telegram, whatsapp
 
 logging.basicConfig(
@@ -32,6 +32,22 @@ async def startup() -> None:
     # Loading the local model takes seconds, so it runs in the background
     # while the server accepts requests
     threading.Thread(target=embed.preload, daemon=True).start()
+    # حذف الأسئلة الأقدم من مدة الحفظ: عند الإقلاع ثم كل 6 ساعات
+    # Delete questions older than the retention period: at startup, then
+    # every 6 hours
+    app.state.retention = asyncio.create_task(_retention_loop())
+
+
+async def _retention_loop() -> None:
+    days = config.MESSAGE_RETENTION_DAYS
+    while True:
+        try:
+            n = await asyncio.to_thread(store.purge_old_messages, days)
+            if n:
+                log.info("حُذفت %d رسالة أقدم من %d يوماً", n, days)
+        except Exception:  # noqa: BLE001
+            log.exception("تعذّر حذف الرسائل القديمة")
+        await asyncio.sleep(6 * 3600)
     n = store.chunk_count()
     log.info("بيان جاهز — %d مقطع في قاعدة المعرفة", n)
     if n == 0:
@@ -43,6 +59,13 @@ async def root():
     """لا صفحة لبيان على الويب: الزائر يُحال إلى موقع المنظمة.
     Bayan has no web page: visitors are redirected to the organization's site."""
     return RedirectResponse(config.SITE_URL, status_code=302)
+
+
+@app.get("/privacy", include_in_schema=False)
+async def privacy_page():
+    """سياسة الخصوصية، بالعربية والإنجليزية.
+    The privacy policy, in Arabic and English."""
+    return privacy.page()
 
 
 @app.get("/healthz")

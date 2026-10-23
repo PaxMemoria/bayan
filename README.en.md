@@ -332,6 +332,23 @@ site-workflow/  copied into the site repository
 tests/          test_bayan on the real index, test_offline with no keys
 ```
 
+## Privacy and data deletion
+
+- **The privacy policy** is at `PUBLIC_URL/privacy`, in Arabic and English
+  (`app/privacy.py`). Askers reach it with `/privacy` or «الخصوصية», and the
+  welcome links to it. Its figures (retention period, daily limit,
+  conversation memory) are read from the settings themselves.
+- **Automatic deletion**: questions and answers are deleted after
+  `MESSAGE_RETENTION_DAYS` (30 days), at startup and then every 6 hours. The
+  database runs with `secure_delete`, so deleted text does not linger in the
+  file.
+- **Deleting a conversation**: `/reset` or «مسح» deletes the asker's
+  conversation immediately. The daily limit counts from a separate record
+  (identifier and time, 24 hours), so deleting the conversation does not
+  reset it.
+- **Logs**: Bayan writes no question text to the server log, and the Docker
+  log is capped at 3 files of 10 MB.
+
 ## Security notes
 
 - The `X-Hub-Signature-256` signature is verified on every request from Meta.

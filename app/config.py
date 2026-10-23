@@ -225,5 +225,12 @@ RATE_LIMIT_WINDOW = int(os.getenv("RATE_LIMIT_WINDOW", "60"))
 # 0 means no limit. It is changed from the dashboard without a restart,
 # and the dashboard value takes precedence over this one.
 DAILY_LIMIT = int(os.getenv("DAILY_LIMIT", "10"))
+# مدة حفظ الأسئلة والإجابات بالأيام، ثم تُحذف تلقائياً. سياسة الخصوصية
+# المنشورة (/privacy) تذكر هذه المدة، فغيّرهما معاً.
+# How many days questions and answers are kept before they are deleted
+# automatically. The published privacy policy (/privacy) states this period,
+# so change both together.
+MESSAGE_RETENTION_DAYS = int(os.getenv("MESSAGE_RETENTION_DAYS", "30"))
+PRIVACY_CONTACT = os.getenv("PRIVACY_CONTACT", "GDPR@paxmemoria.org")
 HISTORY_TURNS = int(os.getenv("HISTORY_TURNS", "4"))
 MAX_QUESTION_CHARS = int(os.getenv("MAX_QUESTION_CHARS", "600"))

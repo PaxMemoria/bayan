@@ -405,7 +405,10 @@ def answer(question: str, channel: str, user_id: str) -> dict:
 
     # ── الطبقة ١ / Layer 1 ─────────────────────────────────────
     if not result["has_any"] or confidence < threshold():
-        log.info("رفض بالبوابة | ثقة=%.3f | %s", confidence, question[:60])
+        # لا نص السؤال في السجلّ: سجلّ الخادم لا يخضع لمدة الحذف (سياسة الخصوصية)
+        # No question text in the log: the server log is outside the retention
+        # period (privacy policy)
+        log.info("رفض بالبوابة | ثقة=%.3f | %s", confidence, lang)
         return done(refuse, "refused_gate")
 
     # ── الطبقة ٢ / Layer 2 ─────────────────────────────────────
@@ -444,13 +447,13 @@ def answer(question: str, channel: str, user_id: str) -> dict:
     # refusal and log its category
     if resp.stop_reason == "refusal":
         category = getattr(resp.stop_details, "category", None) if resp.stop_details else None
-        log.info("رفض مصنِّف الأمان (%s) | %s", category, question[:60])
+        log.info("رفض مصنِّف الأمان (%s) | %s", category, lang)
         return done(refuse, "refused_model")
     # إجابة قُطعت عند الحدّ لا تُرسل ناقصة
     # An answer cut off at the cap is not sent half-finished
     if resp.stop_reason == "max_tokens":
         log.warning("قُطعت الإجابة عند max_tokens=%d | %s",
-                    config.MAX_OUTPUT_TOKENS, question[:60])
+                    config.MAX_OUTPUT_TOKENS, lang)
         return done(i18n.msg("error", lang), "error")
 
     text = "".join(b.text for b in resp.content if b.type == "text").strip()
@@ -469,7 +472,7 @@ def answer(question: str, channel: str, user_id: str) -> dict:
     # ── الطبقة ٤ / Layer 4 ─────────────────────────────────────
     text, stripped = strip_forbidden(text)
     if stripped:
-        log.warning("حُذف %d رابط ممنوع من الإجابة | %s", stripped, question[:60])
+        log.warning("حُذف %d رابط ممنوع من الإجابة | %s", stripped, lang)
 
     out = text
     if config.SHOW_SOURCES and sources:
@@ -541,6 +544,14 @@ def handle(question: str, channel: str, user_id: str, lang_hint: str | None = No
         if cmd == "reset" or hint == "en":
             return i18n.msg("reset", "en")
         return f"{i18n.msg('reset', 'ar')}\n{i18n.msg('reset', 'en')}"
+    if cmd in ("/privacy", "privacy", "الخصوصية", "خصوصية"):
+        if cmd in ("الخصوصية", "خصوصية"):
+            pl = "ar"
+        elif cmd == "privacy":
+            pl = "en"
+        else:
+            pl = hint
+        return i18n.privacy(pl)
     if _is_greeting(question):
         return i18n.welcome(lang, daily_limit())
 
@@ -549,6 +560,7 @@ def handle(question: str, channel: str, user_id: str, lang_hint: str | None = No
     # the limit does not block them
     if (refusal := daily_refusal(channel, user_id, lang)) is not None:
         return refusal
+    store.record_question(channel, user_id)
 
     res = answer(question, channel, user_id)
     store.remember(channel, user_id, "user", question,

@@ -73,8 +73,9 @@ def _messages() -> dict[str, dict[str, str]]:
                   "Type your question about a tool in our guide or one of our "
                   "investigations.",
         },
-        "reset": {"ar": "تم بدء محادثة جديدة. اكتب سؤالك.",
-                  "en": "New conversation started. Ask your question."},
+        "reset": {"ar": "حُذفت محادثتك المحفوظة، وبدأت محادثة جديدة. اكتب سؤالك.",
+                  "en": "Your saved conversation was deleted and a new one started. "
+                        "Ask your question."},
     }
 
 
@@ -83,14 +84,33 @@ def welcome(lang: str | None, limit: int) -> str:
     The welcome in the asker's language, or in both if it is not known."""
     def one(code: str) -> str:
         base = config.WELCOME_MESSAGE_EN if code == "en" else config.WELCOME_MESSAGE_AR
-        if limit <= 0:
-            return base
-        line = (f"Limit: {limit} questions every 24 hours." if code == "en"
-                else f"حدّ الأسئلة: {limit} في كل 24 ساعة.")
-        return f"{base}\n{line}"
+        lines = []
+        if limit > 0:
+            lines.append(f"Limit: {limit} questions every 24 hours." if code == "en"
+                         else f"حدّ الأسئلة: {limit} في كل 24 ساعة.")
+        lines.append("Privacy policy: /privacy" if code == "en" else "سياسة الخصوصية: /privacy")
+        return base + "\n" + "\n".join(lines)
     if lang in ("ar", "en"):
         return one(lang)
     return f"{one('ar')}\n\n{one('en')}"
+
+
+def privacy(lang: str | None) -> str:
+    """رابط سياسة الخصوصية وخلاصتها، بلغة السائل أو باللغتين.
+    The privacy policy link and its gist, in the asker's language or both."""
+    url = f"{(config.PUBLIC_URL or config.SITE_URL).rstrip('/')}/privacy"
+    days = config.MESSAGE_RETENTION_DAYS
+    ar = (f"سياسة خصوصية بيان: {url}\n"
+          f"نحفظ أسئلتك وإجاباتها مدة {days} يوماً ثم نحذفها تلقائياً. "
+          "اكتب /reset لحذف محادثتك الآن.")
+    en = (f"Bayan's privacy policy: {url}\n"
+          f"We keep your questions and answers for {days} days, then delete them "
+          "automatically. Send /reset to delete your conversation now.")
+    if lang == "ar":
+        return ar
+    if lang == "en":
+        return en
+    return f"{ar}\n\n{en}"
 
 
 def from_hint(hint: str | None) -> str | None:
