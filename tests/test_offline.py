@@ -407,6 +407,66 @@ check("لسؤال عربي: النسخة العربية لا الإنجليزي�
       retrieve._in_language(twin_ar, "ar", retrieve._S)
       and not retrieve._in_language(twin_en, "ar", retrieve._S))
 
+# ── ٥د. استدعاء النموذج دون شبكة / The model call, offline ─────────
+# يُعترض الطلب قبل أن يغادر الجهاز: شكله، ثم معالجة كل حالة توقّف.
+# The request is intercepted before it leaves the machine: its shape, then
+# how each stop reason is handled.
+print("\n── استدعاء النموذج ──")
+import anthropic  # noqa: E402
+import httpx2  # noqa: E402
+
+sent = []
+reply = {}
+
+
+def fake_api(request):
+    sent.append(request)
+    body = {"id": "msg_test", "type": "message", "role": "assistant",
+            "model": config.ANSWER_MODEL, "stop_sequence": None,
+            "usage": {"input_tokens": 10, "output_tokens": 5}}
+    body.update(reply)
+    return httpx2.Response(200, json=body)
+
+
+brain._client = anthropic.Anthropic(
+    api_key="test", max_retries=0,
+    http_client=anthropic.DefaultHttpxClient(transport=httpx2.MockTransport(fake_api)))
+reply.update(content=[{"type": "text", "text": "Hunchly أداة توثيق. راجع github.com/AstraaDev"}],
+             stop_reason="end_turn")
+res = brain.answer("ما هي أداة Hunchly؟", "admin", "console")
+req = json.loads(sent[-1].content)
+check("الطلب بلا temperature ولا top_p ولا top_k",
+      not {"temperature", "top_p", "top_k"} & set(req), sorted(req))
+check("عمق التفكير في output_config", req.get("output_config") == {"effort": config.ANSWER_EFFORT})
+check("max_tokens يتسع للتفكير", req.get("max_tokens") == config.MAX_OUTPUT_TOKENS >= 4000)
+check("تعليمات النظام مخزّنة مؤقتاً",
+      req["system"][0].get("cache_control") == {"type": "ephemeral"})
+check("البديل التلقائي مفعّل برأسه",
+      req.get("fallbacks") == "default"
+      and "server-side-fallback-2026-07-01" in sent[-1].headers.get("anthropic-beta", ""))
+check("إجابة عادية تمرّ، والطبقة ٤ تحذف الرابط الممنوع",
+      res["outcome"] == "answered" and "AstraaDev" not in res["text"], res["text"])
+
+reply.update(content=[], stop_reason="refusal",
+             stop_details={"type": "refusal", "category": "cyber", "explanation": "x"})
+res = brain.answer("How do I hack someone else's account with Hunchly?", "admin", "console")
+check("رفض مصنِّف الأمان يصير «رفضه النموذج» بلغة السائل",
+      res["outcome"] == "refused_model" and res["text"] == config.OUT_OF_SCOPE_MESSAGE_EN, res)
+reply.pop("stop_details")
+
+reply.update(content=[{"type": "text", "text": "Hunchly أداة "}], stop_reason="max_tokens")
+res = brain.answer("ما هي أداة Hunchly؟", "admin", "console")
+check("إجابة قُطعت عند الحدّ لا تُرسل ناقصة", res["outcome"] == "error", res)
+
+config.ANSWER_FALLBACK = "off"
+reply.update(content=[{"type": "text", "text": "Hunchly أداة توثيق صفحات."}], stop_reason="end_turn")
+brain.answer("ما هي أداة Hunchly؟", "admin", "console")
+req = json.loads(sent[-1].content)
+check("ANSWER_FALLBACK=off: لا fallbacks ولا رأس beta",
+      "fallbacks" not in req and "server-side-fallback" not in sent[-1].headers.get("anthropic-beta", ""))
+config.ANSWER_FALLBACK = "default"
+brain._client = None
+
 # ── ٦. الفهرسة في الخلفية / 6. Background indexing ───────────────
 print("\n── الفهرسة في الخلفية ──")
 import threading  # noqa: E402

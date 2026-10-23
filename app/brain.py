@@ -349,16 +349,39 @@ def answer(question: str, channel: str, user_id: str) -> dict:
         f"أجب من المصادر أعلاه فقط، ملتزماً بقواعد الأدوات والتحقيقات، "
         f"أو اكتب {OUT_OF_SCOPE_TAG}."
     )
+    request = dict(
+        model=config.ANSWER_MODEL,
+        max_tokens=config.MAX_OUTPUT_TOKENS,
+        output_config={"effort": config.ANSWER_EFFORT},
+        # تعليمات النظام ثابتة، فتُخزَّن مؤقتاً لدى الواجهة بين الأسئلة
+        # The system prompt never changes, so the API caches it between questions
+        system=[{"type": "text", "text": SYSTEM_PROMPT,
+                 "cache_control": {"type": "ephemeral"}}],
+        messages=[*history, {"role": "user", "content": user_block}],
+    )
     try:
-        resp = client().messages.create(
-            model=config.ANSWER_MODEL,
-            max_tokens=config.MAX_OUTPUT_TOKENS,
-            temperature=0,
-            system=SYSTEM_PROMPT,
-            messages=[*history, {"role": "user", "content": user_block}],
-        )
+        if config.ANSWER_FALLBACK == "default":
+            resp = client().beta.messages.create(
+                betas=["server-side-fallback-2026-07-01"], fallbacks="default", **request
+            )
+        else:
+            resp = client().messages.create(**request)
     except Exception:
         log.exception("فشل استدعاء النموذج")
+        return done(i18n.msg("error", lang), "error")
+
+    # رفض مصنِّف الأمان يصل بلا نص: يُعامل رفضاً من النموذج، وفئته في السجلّ
+    # A safety-classifier decline arrives without text: treat it as a model
+    # refusal and log its category
+    if resp.stop_reason == "refusal":
+        category = getattr(resp.stop_details, "category", None) if resp.stop_details else None
+        log.info("رفض مصنِّف الأمان (%s) | %s", category, question[:60])
+        return done(refuse, "refused_model")
+    # إجابة قُطعت عند الحدّ لا تُرسل ناقصة
+    # An answer cut off at the cap is not sent half-finished
+    if resp.stop_reason == "max_tokens":
+        log.warning("قُطعت الإجابة عند max_tokens=%d | %s",
+                    config.MAX_OUTPUT_TOKENS, question[:60])
         return done(i18n.msg("error", lang), "error")
 
     text = "".join(b.text for b in resp.content if b.type == "text").strip()

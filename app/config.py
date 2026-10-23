@@ -39,7 +39,26 @@ REINDEX_SECRET = os.getenv("REINDEX_SECRET", "")
 # ───────────────────────────────── النماذج / Models
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 ANSWER_MODEL = os.getenv("ANSWER_MODEL", "claude-sonnet-5-5")
-MAX_OUTPUT_TOKENS = int(os.getenv("MAX_OUTPUT_TOKENS", "900"))
+# التفكير تكيّفي في نماذج الجيل الحالي، ورموزه تُحسب من max_tokens، فالحدّ
+# أعلى من طول الإجابة نفسها كي لا تُقطع.
+# Thinking is adaptive on current models and its tokens count against
+# max_tokens, so the cap is well above the answer's own length.
+MAX_OUTPUT_TOKENS = int(os.getenv("MAX_OUTPUT_TOKENS", "4000"))
+# عمق التفكير: low أو medium أو high. لا temperature: أُزيلت من الواجهة في
+# 21 تشرين الأول/أكتوبر 2026، والنماذج الحالية لا تقبل إلا القيم الافتراضية.
+# medium لأن القواعد التحريرية صارمة، و low أرخص إن ثبت أنها تكفي.
+# Thinking depth: low, medium or high. No temperature: the API removed it
+# on 21 October 2026 and current models accept only the defaults. medium
+# because the editorial rules are strict; low is cheaper if it holds up.
+ANSWER_EFFORT = os.getenv("ANSWER_EFFORT", "medium")
+# إن رفض مصنِّف الأمان سؤالاً، تُعيده واجهة Anthropic على نموذج بديل
+# (fallbacks: "default"). في Sonnet 5.5 يُعاد رفض فئتي cyber و frontier_llm
+# فقط، فيحمي أسئلة الأمن الرقمي المشروعة عن أدوات الدليل. "off" يعطّله.
+# If a safety classifier declines a question, the API reruns it on a
+# fallback model (fallbacks: "default"). On Sonnet 5.5 only the cyber and
+# frontier_llm categories are retried, which protects legitimate security
+# questions about the guide's tools. "off" disables it.
+ANSWER_FALLBACK = os.getenv("ANSWER_FALLBACK", "default").strip().lower()
 
 # ───────────────────────────────── المتجهات / Vectors
 # local  : voyage-4-nano على الخادم نفسه، فلا يغادر سؤال الجمهور الخادم.

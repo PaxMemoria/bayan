@@ -1,7 +1,8 @@
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
 httpx==0.28.1
-anthropic>=0.40.0
+# مثبّت: تحديث كبير للحزمة أزال temperature وكسر بيان / Pinned: a major update removed temperature
+anthropic==2.1.0
 numpy>=1.26
 python-dotenv==1.0.1
 # المتجهات المحلية (voyage-4-nano). في Docker يُثبَّت torch من فهرس المعالج.
