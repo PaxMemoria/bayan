@@ -62,16 +62,24 @@ def _dek(title: str | None, text: str) -> str:
     return head[len(prefix):].strip()[:400] if title and head.startswith(prefix) else ""
 
 
-def _who(rows) -> str:
-    """فقرة «من نحن» العربية كما في صفحة الموقع: نصّ أول مقاطعها دون رأسه.
-    The Arabic "who we are" paragraph as on the site's page: the text of its
-    first passage without its head."""
-    first = [r for r in rows if json.loads(r["meta"]).get("slug") == "about"
-             and json.loads(r["meta"]).get("position", 0) == 0]
-    if not first:
-        return ""
-    parts = first[0]["text"].split("\n\n", 1)
-    return parts[-1].strip()[:1500]
+def _about(rows) -> str:
+    """صفحة «من نحن» العربية كاملة كما في الموقع: أقسامها بالترتيب، كل قسم
+    باسمه ثم نصّه. صغيرة، فتُرسل كلها، فلا تتوقف إجابة سؤال عن المنظمة على
+    ترتيب البحث.
+    The whole Arabic About page as on the site: its sections in order, each
+    with its name and then its text. It is small, so all of it is sent, and
+    an answer about the organization never depends on how search ranks it."""
+    parts = sorted(
+        (json.loads(r["meta"]).get("position", 0), r["text"]) for r in rows
+        if json.loads(r["meta"]).get("slug") == "about"
+    )
+    out = []
+    for _, text in parts:
+        head, _, body = text.partition("\n\n")
+        section = head.split("\n")[-1].removeprefix("القسم:").strip()
+        out.append(f"{section}:\n{body.strip()}" if section and "\n" in head
+                   else body.strip() or head.strip())
+    return "\n\n".join(out)[:5000]
 
 
 def _n(n: int, few: str, many: str) -> str:
@@ -127,7 +135,7 @@ def build() -> str:
     cat_lines = "\n".join(
         f"  - {c['category_ar']} ({c['category_en']}): {c['n']}" for c in cats
     )
-    who = _who(about)
+    who = _about(about)
     org = (f'<نظرة_عامة رقم="{ABOUT_NO}" موضوع="{config.ORG_NAME}">\n'
            f"- صفحة «من نحن»: {site}/about\n{who}\n</نظرة_عامة>\n\n" if who else "")
     return org + f"""<نظرة_عامة رقم="{GUIDE_NO}" موضوع="الدليل">
