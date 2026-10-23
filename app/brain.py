@@ -4,8 +4,9 @@
   ١ — بوابة الاسترجاع: رفض قبل استدعاء النموذج إن لم يُسترجع شيء ذو صلة.
   ٢ — تعليمات صارمة: ممنوع استعمال المعرفة العامة.
   ٣ — فحص المخرجات: علامة الرفض تُستبدل برسالة موحّدة.
-  ٤ — مرشّح الروابط: يحذف حتمياً أي رابط لأداة حسّاسة أو مُزالة، مهما
-      فعل النموذج. القواعد التحريرية لا تُترك لطاعة نموذج.
+  ٤ — مرشّح الروابط: يعطّل حتمياً أي رابط لأداة حسّاسة أو مُزالة، مهما
+      فعل النموذج (نطاقها يُكتب archive[.]is، أو تحلّ محلّ رابطها صفحة
+      الدليل). القواعد التحريرية لا تُترك لطاعة نموذج.
 
 Bayan's brain: it answers from Pax Memoria's knowledge alone, with
 editorial rules enforced in code.
@@ -15,9 +16,10 @@ Protection layers:
      was retrieved.
   2. Strict instructions: using general knowledge is forbidden.
   3. Output check: the refusal marker is replaced with a standard message.
-  4. Link filter: deterministically removes any link to a sensitive or
-     removed tool, whatever the model did. Editorial rules are not left
-     to a model's obedience.
+  4. Link filter: deterministically neutralizes any link to a sensitive or
+     removed tool, whatever the model did (its domain is written as
+     archive[.]is, or the guide page replaces its link). Editorial rules
+     are not left to a model's obedience.
 """
 import logging
 import re
@@ -296,27 +298,46 @@ _URLISH = re.compile(
 )
 
 
-def _banned(link: str, banned: list[str], allowed: set[str]) -> bool:
+def _banned(link: str, banned: list[str], allowed: set[str]) -> str | None:
+    """القاعدة الممنوعة التي يطابقها الرابط، أو None.
+    The banned rule the link matches, or None."""
     if link in allowed:
-        return False
+        return None
     host = re.split(r"[/?#]", link, maxsplit=1)[0]
     for b in banned:
         if link == b or link.startswith((b + "/", b + "?", b + "#")):
-            return True
+            return b
         if not re.search(r"[/?#]", b) and host.endswith("." + b):
-            return True
-    return False
+            return b
+    return None
+
+
+def _defang(link: str) -> str:
+    """النطاق وحده بنقاط معطَّلة (archive[.]is): يُقرأ ولا يصير رابطاً.
+    The domain alone with defanged dots (archive[.]is): readable, and never
+    turned into a link."""
+    host = re.sub(r"^[a-z][a-z0-9+.-]*://", "", link, flags=re.IGNORECASE)
+    return re.split(r"[/?#:]", host, maxsplit=1)[0].replace(".", "[.]")
 
 
 def strip_forbidden(text: str) -> tuple[str, int]:
-    """يستبدل بصفحة الدليل كل رابط أو نطاق لأداة حسّاسة أو مُزالة.
+    """يعطّل كل رابط أو نطاق لأداة حسّاسة أو مُزالة.
+
+    نطاق الأداة كثيراً ما يكون اسمها (archive.is)، فيُكتب بنقاط معطَّلة
+    دون مسار، كي تبقى الجملة مفهومة ولا يبقى رابط. الأداة المستضافة على
+    منصة مشتركة (github.com/x) لا يدلّ عليها نطاقها، فتحلّ محلّ رابطها
+    صفحة الدليل.
 
     القائمة تشمل كل أدوات الدليل لا ما استُرجع للسؤال وحده: المقاطع
     الدلالية نفسها تحمل نطاقات أدوات مُزالة، والنموذج قد يكرّرها. رابط
     أداة عادية يشترك في بادئة مع رابط ممنوع يُستثنى بالمطابقة التامة.
 
-    Replace every link or domain of a sensitive or removed tool with the
-    guide page.
+    Neutralize every link or domain of a sensitive or removed tool.
+
+    A tool's domain is often its name (archive.is), so it is written with
+    defanged dots and no path: the sentence stays readable and no link
+    remains. A tool hosted on a shared platform (github.com/x) is not
+    identified by its domain, so the guide page replaces its link.
 
     The list covers every tool in the guide, not only those retrieved for
     the question: the semantic passages themselves carry domains of removed
@@ -330,10 +351,13 @@ def strip_forbidden(text: str) -> tuple[str, int]:
         nonlocal count
         raw = m.group(0)
         core = raw.rstrip(".:!?…")
-        if not _banned(retrieve.norm_link(core), banned, allowed):
+        rule = _banned(retrieve.norm_link(core), banned, allowed)
+        if rule is None:
             return raw
         count += 1
-        return f"{config.SITE_URL}/osint-tools" + raw[len(core):]
+        if re.search(r"[/?#]", rule):
+            return f"{config.SITE_URL}/osint-tools" + raw[len(core):]
+        return _defang(core) + raw[len(core):]
 
     return _URLISH.sub(sub, text), count
 

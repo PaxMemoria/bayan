@@ -60,6 +60,10 @@ TOOLS = [
      "domain": "github.com/AstraaDev", "sensitive": True, "removed": True,
      "removal_type_ar": "غير آمنة", "removal_reason_ar": "تضمّن أداة لسرقة رموز الدخول.",
      "removal_date": "2026-10-11"},
+    {"name": "archive.is", "category_ar": "الأرشفة", "category_en": "Archiving",
+     "domain": "archive.is", "sensitive": False, "removed": True,
+     "removal_type_ar": "مكررة", "removal_reason_ar": "الخدمة نفسها التي يقدّمها Archive.today.",
+     "removal_date": "2026-10-11"},
 ]
 CHUNKS = [
     {"id": "tool:0", "type": "tool", "title": "Hunchly", "url": "https://paxmemoria.org/osint-tools",
@@ -246,6 +250,12 @@ t, n = brain.strip_forbidden("حمّلها من github.com/AstraaDev/tool أو h
 check("نطاق مُزال ورابط حسّاس يُحذفان", n == 2 and "AstraaDev" not in t and "cse.google" not in t, t)
 t, n = brain.strip_forbidden("ابحث عبر https://cse.google.com/cse?cx=123:abc")
 check("رابط عادي يشترك في البادئة يبقى", n == 0, t)
+t, n = brain.strip_forbidden("أُزيلت أداة archive.is من الدليل، فلا تفتح https://www.archive.is/abc.")
+check("نطاق هو اسم الأداة يُكتب معطَّلاً بلا مسار ولا يُستبدل بصفحة الدليل",
+      n == 2 and t == "أُزيلت أداة archive[.]is من الدليل، فلا تفتح www[.]archive[.]is.", t)
+t, n = brain.strip_forbidden("المستودع github.com/AstraaDev/tool")
+check("أداة على منصة مشتركة تُستبدل بصفحة الدليل",
+      n == 1 and t.endswith("/osint-tools") and "github" not in t, t)
 
 # ── ٥. اللوحة / 5. Dashboard ─────────────────────────────────────
 print("\n── اللوحة ──")

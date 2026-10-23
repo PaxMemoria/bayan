@@ -2,7 +2,7 @@
 
 Tests for Bayan's routing and editorial rules.  Run: python tests/test_bayan.py
 """
-import os, sys, pathlib
+import os, re, sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 os.environ.setdefault("DATA_DIR", str(pathlib.Path(__file__).resolve().parent.parent / "data"))
 from app import brain, config, retrieve, store
@@ -90,7 +90,12 @@ if sens:
     fake = f"يمكنك استخدام الأداة من هنا: {bad} وهي مفيدة."
     cleaned, n = brain.strip_forbidden(fake)
     check("الرابط الممنوع حُذف رغم كتابة النموذج له", n == 1 and bad not in cleaned, cleaned)
-    check("استُبدل بصفحة الدليل", "/osint-tools" in cleaned)
+    # رابط بمسار تحلّ محلّه صفحة الدليل، ونطاق وحده يُكتب معطَّلاً
+    # A link with a path gives way to the guide page; a bare domain is
+    # written defanged
+    expect = ("/osint-tools" if re.search(r"[/?#]", retrieve.norm_link(bad))
+              else brain._defang(bad))
+    check("استُبدل بصفحة الدليل أو كُتب نطاقه معطَّلاً", expect in cleaned, cleaned)
 fake2 = f"نطاقها {rm['domain']} ." if rm.get("domain") else None
 if fake2:
     cleaned, n = brain.strip_forbidden(fake2)
@@ -110,7 +115,9 @@ if leaky:
     cleaned, n = brain.strip_forbidden(out)
     check("نطاق مُزال من مقطع دلالي يُحذف بلا مسار منظّم",
           n == 2 and leaky["domain"].lower() not in cleaned.lower(), cleaned)
-    check("علامات الترقيم بعد الرابط المحذوف باقية", cleaned.endswith("tools."), cleaned)
+    tail = ("tools." if re.search(r"[/?#]", leaky["domain"])
+            else brain._defang(leaky["domain"]) + ".")
+    check("علامات الترقيم بعد الرابط المعطَّل باقية", cleaned.endswith(tail), cleaned)
 
 banned, allowed = retrieve.link_rules()
 twin = next((a for a in sorted(allowed) for b in banned if a.startswith(b + "?")), None)

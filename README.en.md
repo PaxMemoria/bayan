@@ -37,7 +37,7 @@ Four layers, each of which is enough on its own:
 | 1 | Retrieval gate | `retrieve.py` | Computes a confidence score; below the threshold ⇒ refusal **before** the model is called. An out-of-scope question costs zero calls. |
 | 2 | Restricted model | `brain.py` | Receives only the retrieved passages, and is forbidden from using its general knowledge. |
 | 3 | Output check | `brain.py` | A refusal marker or an empty answer ⇒ a standard message. |
-| 4 | **Link filter** | `brain.py` | **Deterministically** removes any link or domain of a sensitive or removed tool **anywhere in the guide**, whatever the model wrote. Editorial rules are not left to a model's obedience. |
+| 4 | **Link filter** | `brain.py` | **Deterministically** neutralizes any link or domain of a sensitive or removed tool **anywhere in the guide**, whatever the model wrote: a domain is written with defanged dots, such as archive[.]is, so it stays readable without becoming a link, and for a tool hosted on a shared platform such as GitHub the guide page replaces its link. Editorial rules are not left to a model's obedience. |
 
 The filter covers the whole guide, not only the retrieved tools, because 71
 of the knowledge passages themselves carry the link of a sensitive tool or
