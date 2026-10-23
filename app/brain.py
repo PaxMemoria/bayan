@@ -75,9 +75,16 @@ SYSTEM_PROMPT = f"""أنت «{config.BOT_NAME}»، المساعد الآلي ل�
    ولا تعطي رابطها المباشر. أحِل إلى صفحة الدليل ليرى السائل التحذير
    في سياقه.
 ٣. **الأدوات المُزالة**: قل بوضوح إنها أُزيلت ومتى ولماذا، ولا تعطِ رابطاً
-   ولا نطاقاً قابلاً للفتح. اذكر البديل إن وُجد.
+   ولا نطاقاً قابلاً للفتح. اذكر البديل إن ورد في حقل «البديل» (Replacement)
+   في سجلّها. لا تسمِّ أي أداة أخرى بديلاً، ولو كانت من التصنيف نفسه: إن
+   ذكرتها فقل إنها أدوات أخرى في التصنيف نفسه.
 ٤. عند عرض قائمة أدوات، اذكر لكل أداة اسمها وسطراً واحداً عمّا تفعله.
    لا تُطِل.
+
+## المصادر التي اعتمدت عليها
+كل مصدر في <المصادر> يحمل رقماً. اختم كل إجابة بسطر أخير وحده بهذا الشكل
+بالضبط: [SOURCES: 1, 3] تذكر فيه أرقام المصادر التي اعتمدت عليها فعلاً في
+إجابتك، ولا شيء غيرها. السائل لا يرى هذا السطر. لا تكتبه مع `[OUT_OF_SCOPE]`.
 
 ## قواعد التحقيقات — إلزامية
 تتناول تحقيقاتنا وقائع قتل وقصف. التزم بالمنشور حرفياً في المعنى:
@@ -186,19 +193,48 @@ def _tool_record_en(t: dict) -> str:
     return "\n".join(lines)
 
 
-def build_context(result: dict, lang: str = "ar") -> str:
+# مقاطع الأدوات من المُستخرِج تحمل رمز درجة التحقق خاماً (direct …)؛ يُستبدل
+# بصياغته كي لا يصل الرمز إلى السائل.
+# Tool passages from the extractor carry the raw verification code (direct, ...);
+# it is replaced with its wording so the code never reaches the asker.
+_RAW_GRADE = re.compile(r"درجة التحقق في تدقيق OTVS: (direct|indirect|trained)")
+
+
+def _worded_grade(text: str, lang: str) -> str:
+    def sub(m: re.Match) -> str:
+        if lang == "en":
+            return f"Verification grade in the OTVS audit: {VERIFICATION_EN[m.group(1)]}"
+        return f"درجة التحقق في تدقيق OTVS: {VERIFICATION_AR[m.group(1)]}"
+    return _RAW_GRADE.sub(sub, text)
+
+
+def build_context(result: dict, lang: str = "ar") -> tuple[str, dict[int, str]]:
+    """-> (نص المصادر مرقّمة، رابط كل رقم)
+
+    الأرقام تتيح للنموذج أن يذكر المصادر التي اعتمد عليها فعلاً، فلا تُعرض
+    للسائل روابط مقاطع استُرجعت ولم تُستعمل.
+    -> (the numbered sources text, the link for each number)
+
+    The numbers let the model name the sources it actually used, so the
+    asker is not shown links to passages that were retrieved but not used.
+    """
     parts: list[str] = []
+    urls: dict[int, str] = {}
+    guide = f"{config.SITE_URL}/osint-tools"
+
+    def add(tag: str, body: str, url: str, attrs: str = "") -> None:
+        n = len(urls) + 1
+        urls[n] = url
+        parts.append(f'<{tag} رقم="{n}"{attrs}>\n{body}\n</{tag}>')
 
     for t in result["tools"]:
-        parts.append(f"<أداة>\n{tool_record(t, lang)}\n</أداة>")
+        add("أداة", tool_record(t, lang), guide)
 
     if result["category_tools"]:
         cat = result["category"]
         body = "\n\n".join(tool_record(t, lang) for t in result["category_tools"])
-        parts.append(
-            f"<قائمة_أدوات تصنيف=\"{cat['category_ar']}\" "
-            f"العدد=\"{len(result['category_tools'])}\">\n{body}\n</قائمة_أدوات>"
-        )
+        add("قائمة_أدوات", body, guide,
+            f' تصنيف="{cat["category_ar"]}" العدد="{len(result["category_tools"])}"')
 
     for p in result["passages"]:
         if p["type"] == "investigation":
@@ -208,11 +244,39 @@ def build_context(result: dict, lang: str = "ar") -> str:
                 head += f" | إعداد: {m['author']}"
             if m.get("date"):
                 head += f" | {m['date']}"
-            parts.append(f"<تحقيق>\n{head}\n{p['text']}\n</تحقيق>")
+            add("تحقيق", f"{head}\n{p['text']}", p["url"])
         else:
-            parts.append(f"<مقطع>\n{p['text']}\n</مقطع>")
+            add("مقطع", _worded_grade(p["text"], lang), p["url"])
 
-    return "\n\n".join(parts)
+    return "\n\n".join(parts), urls
+
+
+_SOURCES_LINE = re.compile(r"\[SOURCES:\s*([0-9,،\s]*)\]")
+
+
+def cited_sources(text: str, urls: dict[int, str], result: dict) -> tuple[str, list[str]]:
+    """يزيل سطر [SOURCES: …] من الإجابة ويعيد روابط ما اعتمد عليه النموذج.
+
+    إن لم يكتب النموذج السطر: صفحة الدليل إن كانت في المصادر أدوات، وإلا
+    أول مقطع.
+    Removes the [SOURCES: ...] line from the answer and returns the links the
+    model relied on. If the model did not write the line: the guide page when
+    the sources include tools, otherwise the first passage.
+    """
+    numbers: list[int] = []
+    for m in _SOURCES_LINE.finditer(text):
+        numbers += [int(x) for x in re.findall(r"\d+", m.group(1))]
+    text = _SOURCES_LINE.sub("", text).strip()
+    sources: list[str] = []
+    for n in numbers:
+        if n in urls and urls[n] not in sources:
+            sources.append(urls[n])
+    if not sources:
+        if result["tools"] or result["category_tools"]:
+            sources = [f"{config.SITE_URL}/osint-tools"]
+        elif result["passages"]:
+            sources = [result["passages"][0]["url"]]
+    return text, sources[:3]
 
 
 # ────────────── الطبقة ٤: مرشّح الروابط الحتمي / Layer 4: the deterministic link filter
@@ -342,8 +406,9 @@ def answer(question: str, channel: str, user_id: str) -> dict:
 
     # ── الطبقة ٢ / Layer 2 ─────────────────────────────────────
     history = store.history(channel, user_id, config.HISTORY_TURNS)
+    context, urls = build_context(result, lang)
     user_block = (
-        f"<المصادر>\n{build_context(result, lang)}\n</المصادر>\n\n"
+        f"<المصادر>\n{context}\n</المصادر>\n\n"
         f"<لغة_الإجابة>{'English' if lang == 'en' else 'العربية'}</لغة_الإجابة>\n\n"
         f"<سؤال_المستخدم>\n{question}\n</سؤال_المستخدم>\n\n"
         f"أجب من المصادر أعلاه فقط، ملتزماً بقواعد الأدوات والتحقيقات، "
@@ -390,6 +455,10 @@ def answer(question: str, channel: str, user_id: str) -> dict:
     if not text or "OUT_OF_SCOPE" in text:
         return done(refuse, "refused_model")
     text = re.sub(r"\[?OUT_OF_SCOPE\]?", "", text).strip()
+    # سطر المصادر يُزال قبل فحص الطول: إجابة ليس فيها غيره ليست إجابة
+    # The sources line is removed before the length check: an answer with
+    # nothing else in it is not an answer
+    text, sources = cited_sources(text, urls, result)
     if len(text) < 10:
         return done(refuse, "refused_model")
 
@@ -397,13 +466,6 @@ def answer(question: str, channel: str, user_id: str) -> dict:
     text, stripped = strip_forbidden(text)
     if stripped:
         log.warning("حُذف %d رابط ممنوع من الإجابة | %s", stripped, question[:60])
-
-    sources: list[str] = []
-    for p in result["passages"][:3]:
-        if p["url"] not in sources:
-            sources.append(p["url"])
-    if (result["tools"] or result["category_tools"]) and not sources:
-        sources.append(f"{config.SITE_URL}/osint-tools")
 
     out = text
     if config.SHOW_SOURCES and sources:

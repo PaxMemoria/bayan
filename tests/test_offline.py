@@ -447,6 +447,32 @@ check("البديل التلقائي مفعّل برأسه",
 check("إجابة عادية تمرّ، والطبقة ٤ تحذف الرابط الممنوع",
       res["outcome"] == "answered" and "AstraaDev" not in res["text"], res["text"])
 
+check("المصادر مرقّمة في السياق المرسل", 'رقم="1"' in req["messages"][-1]["content"])
+check("بلا سطر مصادر: صفحة الدليل لسؤال عن أداة",
+      res["sources"] == [f"{config.SITE_URL}/osint-tools"], res["sources"])
+
+reply.update(content=[{"type": "text", "text":
+             "كشفت صور الأقمار الصناعية حجم السيول في الحديدة.\n[SOURCES: 1, 99]"}],
+             stop_reason="end_turn")
+config.VOYAGE_API_KEY = ""
+res = brain.answer("ما حجم السيول في محافظة الحديدة اليمنية؟", "admin", "console")
+check("المصادر هي ما ذكره النموذج فقط، والرقم غير الموجود يُهمل",
+      res["sources"] == ["https://paxmemoria.org/investigations/x"], res["sources"])
+check("سطر [SOURCES] لا يصل إلى السائل", "SOURCES" not in res["text"], res["text"])
+
+ctx, urls = brain.build_context(
+    {"tools": [], "category": None, "category_tools": [],
+     "passages": [{"type": "tool", "url": "u", "meta": {},
+                   "text": "الأداة: X\nدرجة التحقق في تدقيق OTVS: direct"}]}, "ar")
+check("رمز درجة التحقق الخام يُستبدل بصياغته",
+      "direct" not in ctx and "روجِعت بدليل مباشر" in ctx, ctx)
+ctx, _ = brain.build_context(
+    {"tools": [], "category": None, "category_tools": [],
+     "passages": [{"type": "tool", "url": "u", "meta": {},
+                   "text": "درجة التحقق في تدقيق OTVS: trained"}]}, "en")
+check("وبالإنجليزية لسؤال إنجليزي", "not reviewed live" in ctx, ctx)
+check("قاعدة البديل في التعليمات", "لا تسمِّ أي أداة أخرى بديلاً" in brain.SYSTEM_PROMPT)
+
 reply.update(content=[], stop_reason="refusal",
              stop_details={"type": "refusal", "category": "cyber", "explanation": "x"})
 res = brain.answer("How do I hack someone else's account with Hunchly?", "admin", "console")
