@@ -25,6 +25,7 @@ import logging
 import re
 import time
 
+import httpx
 from anthropic import Anthropic
 
 from . import config, i18n, overview, retrieve, store
@@ -112,10 +113,11 @@ SYSTEM_PROMPT = f"""أنت «{config.BOT_NAME}»، المساعد الآلي ل�
   الأدوات» عن أدوات لم ترها.
 
 ## التصحيحات المعتمدة
-<تصحيح_معتمد> إجابة كتبها فريق {config.ORG_NAME} لسؤال يشبه سؤال السائل.
-إن كان يجيب عن سؤاله فاعتمد عليه أولاً، وهو المقدَّم إن خالفه مصدر آخر. أعد
-صياغته بلغة الإجابة وأسلوبك، ولا تضف إليه ما ليس في المصادر. وإن كان سؤاله
-مختلفاً في المعنى عن سؤال السائل فتجاهله.
+<تصحيح_معتمد> إجابة رسمية كتبها فريق {config.ORG_NAME} لسؤال يشبه سؤال السائل،
+وكل ما يرد فيها يُعدّ ضمن نطاقك حكماً (بما في ذلك إعلانات المنظمة وفرص الأسبوع)
+فلا ترفضه بـ `{OUT_OF_SCOPE_TAG}`. إن كان يجيب عن سؤال السائل فاعتمد عليه أولاً،
+وهو المقدَّم إن خالفه مصدر آخر. انقل جميع عناصره وروابطه كاملة دون حذف أو اختصار،
+ولا تضف إليه ما ليس في المصادر. وإن كان سؤاله مختلفاً في المعنى عن سؤال السائل فتجاهله.
 
 ## المصادر التي اعتمدت عليها
 كل مصدر في <المصادر> يحمل رقماً. اختم كل إجابة بسطر أخير وحده بهذا الشكل
@@ -498,6 +500,99 @@ def daily_refusal(channel: str, user_id: str, lang: str = "ar") -> str | None:
 
 
 # ──────────────────────────────────────────────────── الإجابة / Answering
+_GEMINI_REFUSAL_REASONS = {
+    "SAFETY", "RECITATION", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII", "IMAGE_SAFETY",
+}
+
+
+def _ask_claude(view: str, messages: list[dict], lang: str) -> tuple[str, str]:
+    """يستدعي واجهة Claude ويعيد (حالة التوقف، النص).
+    Calls the Claude API and returns (stop state, text)."""
+    request = dict(
+        model=config.ANSWER_MODEL,
+        max_tokens=config.MAX_OUTPUT_TOKENS,
+        output_config={"effort": config.ANSWER_EFFORT},
+        # تعليمات النظام ثابتة، فتُخزَّن مؤقتاً لدى الواجهة بين الأسئلة
+        # The system prompt never changes, so the API caches it between questions
+        system=[{"type": "text", "text": SYSTEM_PROMPT,
+                 "cache_control": {"type": "ephemeral"}}]
+        + ([{"type": "text", "text": view, "cache_control": {"type": "ephemeral"}}]
+           if view else []),
+        messages=messages,
+    )
+    if config.ANSWER_FALLBACK == "default":
+        resp = client().beta.messages.create(
+            betas=["server-side-fallback-2026-07-01"], fallbacks="default", **request
+        )
+    else:
+        resp = client().messages.create(**request)
+
+    if resp.stop_reason == "refusal":
+        category = getattr(resp.stop_details, "category", None) if resp.stop_details else None
+        log.info("رفض مصنِّف الأمان (%s) | %s", category, lang)
+        return "refusal", ""
+    if resp.stop_reason == "max_tokens":
+        return "max_tokens", ""
+    text = "".join(b.text for b in resp.content if b.type == "text").strip()
+    return "end_turn", text
+
+
+def _ask_gemini(view: str, messages: list[dict], model: str, lang: str) -> tuple[str, str]:
+    """يستدعي واجهة Gemini ويعيد (حالة التوقف، النص).
+
+    يُرسل المفتاح في الترويسة x-goog-api-key لا في عنوان الطلب، فلا يظهر في
+    أي سجلّ، وتُحوَّل أدوار المحادثة (assistant ← model) وتُستثنى أجزاء التفكير
+    الداخلي (thought=True).
+
+    Calls the Gemini API and returns (stop state, text).
+
+    The key is sent in the x-goog-api-key header rather than the URL so it
+    never appears in any log, conversation roles are mapped (assistant →
+    model), and internal thinking parts (thought=True) are filtered out.
+    """
+    if not config.GEMINI_API_KEY:
+        raise RuntimeError("GEMINI_API_KEY غير مضبوط")
+    sys_parts = [{"text": SYSTEM_PROMPT}] + ([{"text": view}] if view else [])
+    contents = [
+        {"role": "model" if m["role"] == "assistant" else "user",
+         "parts": [{"text": m["content"]}]}
+        for m in messages
+    ]
+    payload = {
+        "system_instruction": {"parts": sys_parts},
+        "contents": contents,
+        "generationConfig": {"maxOutputTokens": config.MAX_OUTPUT_TOKENS},
+    }
+    url = f"{config.GEMINI_ENDPOINT.rstrip('/')}/{model}:generateContent"
+    with httpx.Client(timeout=60) as http:
+        r = http.post(
+            url,
+            headers={"x-goog-api-key": config.GEMINI_API_KEY},
+            json=payload,
+        )
+    if r.status_code != 200:
+        raise RuntimeError(f"Gemini {r.status_code}: {r.text[:300]}")
+    data = r.json()
+    block = (data.get("promptFeedback") or {}).get("blockReason")
+    if block:
+        log.info("رفض مصنِّف الأمان في Gemini (%s) | %s", block, lang)
+        return "refusal", ""
+    candidates = data.get("candidates") or []
+    if not candidates:
+        log.info("استجابة Gemini بلا مرشّحات | %s", lang)
+        return "refusal", ""
+    cand = candidates[0]
+    finish = cand.get("finishReason") or ""
+    if finish in _GEMINI_REFUSAL_REASONS:
+        log.info("رفض مصنِّف الأمان في Gemini (%s) | %s", finish, lang)
+        return "refusal", ""
+    if finish == "MAX_TOKENS":
+        return "max_tokens", ""
+    parts = (cand.get("content") or {}).get("parts") or []
+    text = "".join(p.get("text", "") for p in parts if not p.get("thought")).strip()
+    return "end_turn", text
+
+
 def answer(question: str, channel: str, user_id: str) -> dict:
     question = question.strip()[: config.MAX_QUESTION_CHARS]
     lang = i18n.detect(question)
@@ -534,25 +629,24 @@ def answer(question: str, channel: str, user_id: str) -> dict:
         f"أجب من المصادر أعلاه فقط، ملتزماً بقواعد الأدوات والتحقيقات، "
         f"أو اكتب {OUT_OF_SCOPE_TAG}."
     )
-    request = dict(
-        model=config.ANSWER_MODEL,
-        max_tokens=config.MAX_OUTPUT_TOKENS,
-        output_config={"effort": config.ANSWER_EFFORT},
-        # تعليمات النظام ثابتة، فتُخزَّن مؤقتاً لدى الواجهة بين الأسئلة
-        # The system prompt never changes, so the API caches it between questions
-        system=[{"type": "text", "text": SYSTEM_PROMPT,
-                 "cache_control": {"type": "ephemeral"}}]
-        + ([{"type": "text", "text": view, "cache_control": {"type": "ephemeral"}}]
-           if view else []),
-        messages=[*history, {"role": "user", "content": user_block}],
+    messages = [*history, {"role": "user", "content": user_block}]
+    use_gemini_primary = config.ANSWER_MODEL.startswith("gemini") or (
+        _client is None and not config.ANTHROPIC_API_KEY and bool(config.GEMINI_API_KEY)
     )
     try:
-        if config.ANSWER_FALLBACK == "default":
-            resp = client().beta.messages.create(
-                betas=["server-side-fallback-2026-07-01"], fallbacks="default", **request
-            )
+        if use_gemini_primary:
+            gmodel = (config.ANSWER_MODEL if config.ANSWER_MODEL.startswith("gemini")
+                      else config.GEMINI_MODEL)
+            stop_reason, text = _ask_gemini(view, messages, gmodel, lang)
         else:
-            resp = client().messages.create(**request)
+            try:
+                stop_reason, text = _ask_claude(view, messages, lang)
+            except Exception:
+                if not config.GEMINI_API_KEY:
+                    raise
+                log.warning("تعذّر استدعاء Claude — التحويل التلقائي إلى Gemini (%s)",
+                            config.GEMINI_MODEL, exc_info=True)
+                stop_reason, text = _ask_gemini(view, messages, config.GEMINI_MODEL, lang)
     except Exception:
         log.exception("فشل استدعاء النموذج")
         return done(i18n.msg("error", lang), "error")
@@ -560,18 +654,14 @@ def answer(question: str, channel: str, user_id: str) -> dict:
     # رفض مصنِّف الأمان يصل بلا نص: يُعامل رفضاً من النموذج، وفئته في السجلّ
     # A safety-classifier decline arrives without text: treat it as a model
     # refusal and log its category
-    if resp.stop_reason == "refusal":
-        category = getattr(resp.stop_details, "category", None) if resp.stop_details else None
-        log.info("رفض مصنِّف الأمان (%s) | %s", category, lang)
+    if stop_reason == "refusal":
         return done(refuse, "refused_model")
     # إجابة قُطعت عند الحدّ لا تُرسل ناقصة
     # An answer cut off at the cap is not sent half-finished
-    if resp.stop_reason == "max_tokens":
+    if stop_reason == "max_tokens":
         log.warning("قُطعت الإجابة عند max_tokens=%d | %s",
                     config.MAX_OUTPUT_TOKENS, lang)
         return done(i18n.msg("error", lang), "error")
-
-    text = "".join(b.text for b in resp.content if b.type == "text").strip()
 
     # ── الطبقة ٣ / Layer 3 ─────────────────────────────────────
     if not text or "OUT_OF_SCOPE" in text:

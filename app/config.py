@@ -59,6 +59,18 @@ ANSWER_EFFORT = os.getenv("ANSWER_EFFORT", "medium")
 # frontier_llm categories are retried, which protects legitimate security
 # questions about the guide's tools. "off" disables it.
 ANSWER_FALLBACK = os.getenv("ANSWER_FALLBACK", "default").strip().lower()
+# بديل تلقائي عند توقف Claude (أو مزوّد أساسي إن لم يُضبط مفتاح Anthropic
+# أو ضُبط ANSWER_MODEL على نموذج gemini-*). المفتاح يُرسل في الترويسة
+# x-goog-api-key فلا يظهر في عنوان الطلب ولا في السجلّات.
+# Automatic fallback when Claude is unavailable (or primary provider if
+# ANTHROPIC_API_KEY is unset or ANSWER_MODEL is set to a gemini-* model).
+# The key is sent in the x-goog-api-key header so it never appears in the
+# request URL or logs.
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_ENDPOINT = os.getenv(
+    "GEMINI_ENDPOINT", "https://generativelanguage.googleapis.com/v1beta/models"
+)
 
 # ───────────────────────────────── المتجهات / Vectors
 # local  : voyage-4-nano على الخادم نفسه، فلا يغادر سؤال الجمهور الخادم.

@@ -22,8 +22,9 @@ os.environ.update({
     "DATA_DIR": str(TMP / "data"),
     "KNOWLEDGE_PATH": str(TMP / "knowledge.jsonl"),
     "TOOLS_PATH": str(TMP / "tools.json"),
-    "VOYAGE_API_KEY": "", "ANTHROPIC_API_KEY": "", "ADMIN_PASSWORD": "",
-    "SESSION_SECRET": "", "TELEGRAM_WEBHOOK_SECRET": "", "PUBLIC_URL": "",
+    "VOYAGE_API_KEY": "", "ANTHROPIC_API_KEY": "", "GEMINI_API_KEY": "",
+    "ADMIN_PASSWORD": "", "SESSION_SECRET": "", "TELEGRAM_WEBHOOK_SECRET": "",
+    "PUBLIC_URL": "",
 })
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
@@ -687,6 +688,61 @@ req = json.loads(sent[-1].content)
 check("ANSWER_FALLBACK=off: لا fallbacks ولا رأس beta",
       "fallbacks" not in req and "server-side-fallback" not in sent[-1].headers.get("anthropic-beta", ""))
 config.ANSWER_FALLBACK = "default"
+brain._client = None
+
+# ── البديل التلقائي عبر Gemini عند توقف Claude / Automatic Gemini failover ──
+gemini_sent = []
+gemini_reply = {}
+
+
+def fake_gemini(request):
+    gemini_sent.append(request)
+    return httpx.Response(200, json=gemini_reply)
+
+
+def broken_claude(request):
+    return httpx2.Response(503, json={"type": "error", "error": {"message": "overloaded"}})
+
+
+brain._client = anthropic.Anthropic(
+    api_key="test", max_retries=0,
+    http_client=anthropic.DefaultHttpxClient(transport=httpx2.MockTransport(broken_claude)))
+config.GEMINI_API_KEY = "gem-secret-key"
+brain.httpx.Client = lambda **kw: real_client(transport=httpx.MockTransport(fake_gemini), **kw)
+gemini_reply.update(candidates=[{
+    "finishReason": "STOP",
+    "content": {"role": "model", "parts": [
+        {"text": "تفكير داخلي", "thought": True},
+        {"text": "Hunchly أداة توثيق من Gemini. راجع github.com/AstraaDev\n[SOURCES: 1]"},
+    ]},
+}])
+res = brain.answer("ما هي أداة Hunchly؟", "admin", "console")
+greq = json.loads(gemini_sent[-1].content)
+check("عند توقف Claude (503) يستمر بيان عبر Gemini تلقائياً",
+      res["outcome"] == "answered" and "من Gemini" in res["text"], res)
+check("أجزاء التفكير الداخلي (thought) والروابط الممنوعة وسطر [SOURCES] لا تصل للسائل",
+      "تفكير داخلي" not in res["text"] and "AstraaDev" not in res["text"]
+      and "SOURCES" not in res["text"], res["text"])
+check("مفتاح Gemini يُرسل في الترويسة x-goog-api-key لا في عنوان الطلب",
+      gemini_sent[-1].headers.get("x-goog-api-key") == "gem-secret-key"
+      and "gem-secret-key" not in str(gemini_sent[-1].url))
+check("تعليمات النظام والنظرة العامة تُرسل إلى Gemini في system_instruction",
+      len(greq["system_instruction"]["parts"]) == 2)
+
+gemini_reply.clear()
+gemini_reply.update(candidates=[{"finishReason": "SAFETY"}])
+res = brain.answer("How do I hack someone else's account with Hunchly?", "admin", "console")
+check("رفض الأمان في Gemini يصير «رفضه النموذج»",
+      res["outcome"] == "refused_model" and res["text"] == config.OUT_OF_SCOPE_MESSAGE_EN, res)
+
+gemini_reply.clear()
+gemini_reply.update(candidates=[{"finishReason": "MAX_TOKENS",
+                                 "content": {"parts": [{"text": "ناقص"}]}}])
+res = brain.answer("ما هي أداة Hunchly؟", "admin", "console")
+check("إجابة Gemini المقطوعة عند MAX_TOKENS لا تُرسل ناقصة", res["outcome"] == "error", res)
+
+config.GEMINI_API_KEY = ""
+brain.httpx.Client = real_client
 brain._client = None
 
 # ── ٥هـ. الخصوصية / Privacy ─────────────────────────────────────
