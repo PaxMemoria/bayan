@@ -271,6 +271,10 @@ retrieve.warm()
 client = TestClient(server.app)
 r = client.get("/admin", follow_redirects=False)
 check("بلا كلمة مرور: اللوحة معطّلة", r.status_code == 503)
+import logging  # noqa: E402
+check("طلبات httpx لا تُسجَّل، فتوكن تيليغرام في عنوانها لا يصل إلى السجلّ",
+      all(logging.getLogger(n).getEffectiveLevel() >= logging.WARNING
+          for n in ("httpx", "httpx2")))
 
 config.ADMIN_PASSWORD = "correct horse battery"
 config.SESSION_SECRET = "s" * 40

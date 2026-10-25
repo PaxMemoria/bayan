@@ -19,6 +19,21 @@ logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
 )
 log = logging.getLogger("server")
+# httpx يسجّل عنوان كل طلب، وواجهة تيليغرام تضع التوكن في العنوان نفسه
+# (/bot<token>/sendMessage)، فلا تُسجَّل طلباته إلا عند خطأ
+# httpx logs the address of every request, and the Telegram API puts the token
+# in the address itself (/bot<token>/sendMessage), so its requests are logged
+# only on errors
+for name in ("httpx", "httpx2", "httpcore"):
+    logging.getLogger(name).setLevel(logging.WARNING)
+
+# كل كم دقيقة يُستعمل نموذج المتجهات المحلي كي يبقى في الذاكرة: على خادم مشترك
+# تنقل لينكس الذاكرة الخاملة إلى ملف المبادلة، فيستغرق أول سؤال بعد ساعات
+# خمول نحو 43 ثانية بدل بضع ثوانٍ
+# How often, in minutes, the local embedding model is used so it stays in
+# memory: on a shared server Linux moves idle memory to swap, so the first
+# question after hours of idleness took about 43 seconds instead of a few
+KEEP_WARM_MINUTES = 5
 
 app = FastAPI(title="Bayan", docs_url=None, redoc_url=None, openapi_url=None)
 app.include_router(dashboard.router)
@@ -41,6 +56,8 @@ async def startup() -> None:
     # Delete questions older than the retention period: at startup, then
     # every 6 hours
     app.state.retention = asyncio.create_task(_retention_loop())
+    if config.EMBED_PROVIDER == "local":
+        app.state.keep_warm = asyncio.create_task(_keep_warm_loop())
 
 
 def _preload() -> None:
@@ -53,6 +70,16 @@ def _preload() -> None:
             log.info("وُلّدت متجهات %d تصحيح", n)
     except Exception:  # noqa: BLE001
         log.exception("تعذّر توليد متجهات التصحيحات")
+
+
+async def _keep_warm_loop() -> None:
+    while True:
+        await asyncio.sleep(KEEP_WARM_MINUTES * 60)
+        try:
+            if embed.enabled():
+                await asyncio.to_thread(embed.embed, ["."], "query", 1)
+        except Exception:  # noqa: BLE001
+            log.exception("تعذّر إبقاء نموذج المتجهات في الذاكرة")
 
 
 async def _retention_loop() -> None:
