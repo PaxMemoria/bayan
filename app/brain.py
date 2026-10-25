@@ -624,6 +624,19 @@ def answer(question: str, channel: str, user_id: str) -> dict:
         log.info("رفض بالبوابة | ثقة=%.3f | %s", confidence, lang)
         return done(refuse, "refused_gate")
 
+    # مطابقة تامّة أو بكلمة مفتاحية مع تصحيح معتمد (مثل «فرص» أو «فرص هذا الأسبوع»):
+    # تُعاد الإجابة المعتمدة فوراً بكامل روابطها دون استدعاء النموذج
+    # Exact or keyword match with an approved correction: return the approved
+    # answer immediately with all its links without calling the model
+    if result.get("corrections") and result["corrections"][0]["similarity"] >= 1.0:
+        fix = result["corrections"][0]
+        text, _ = strip_forbidden(fix["answer"].strip())
+        sources = [fix["url"]] if fix.get("url") else [f"{config.SITE_URL}/osint-tools"]
+        out = text
+        if config.SHOW_SOURCES and sources and fix.get("url") and fix["url"] not in text:
+            out += f"\n\n{i18n.msg('sources', lang)}\n" + "\n".join(sources)
+        return done(out, "answered", sources)
+
     # ── الطبقة ٢ / Layer 2 ─────────────────────────────────────
     history = store.history(channel, user_id, config.HISTORY_TURNS)
     context, urls = build_context(result, lang)
