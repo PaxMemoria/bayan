@@ -563,15 +563,23 @@ def _ask_gemini(view: str, messages: list[dict], model: str, lang: str) -> tuple
         "contents": contents,
         "generationConfig": {"maxOutputTokens": config.MAX_OUTPUT_TOKENS},
     }
-    url = f"{config.GEMINI_ENDPOINT.rstrip('/')}/{model}:generateContent"
+    candidates_models = [model] + [
+        m for m in ("gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.5-flash")
+        if m != model
+    ]
+    base = config.GEMINI_ENDPOINT.rstrip("/")
+    r = None
     with httpx.Client(timeout=60) as http:
-        r = http.post(
-            url,
-            headers={"x-goog-api-key": config.GEMINI_API_KEY},
-            json=payload,
-        )
-    if r.status_code != 200:
-        raise RuntimeError(f"Gemini {r.status_code}: {r.text[:300]}")
+        for m in candidates_models:
+            r = http.post(
+                f"{base}/{m}:generateContent",
+                headers={"x-goog-api-key": config.GEMINI_API_KEY},
+                json=payload,
+            )
+            if r.status_code not in (404, 429, 500, 502, 503, 504):
+                break
+    if r is None or r.status_code != 200:
+        raise RuntimeError(f"Gemini {r.status_code if r else 'err'}: {r.text[:300] if r else ''}")
     data = r.json()
     block = (data.get("promptFeedback") or {}).get("blockReason")
     if block:
@@ -769,6 +777,47 @@ def handle(question: str, channel: str, user_id: str, lang_hint: str | None = No
 
     res = answer(question, channel, user_id)
     store.remember(channel, user_id, "user", question,
+                   outcome=res["outcome"], confidence=res["confidence"],
+                   sources=res["sources"])
+    store.remember(channel, user_id, "assistant", res["text"])
+    return res["text"]
+
+
+def handle_comment(question: str, channel: str, user_id: str) -> str | None:
+    """معالجة تعليق على منشور في صفحة فيسبوك لإرسال ردّ خاص (Private Reply).
+
+    لا يردّ بيان على التعليقات العادية بين المتابعين، بل يردّ فقط إذا طابق
+    التعليق تصحيحاً/إعلاناً معتمداً (مثل «فرص» أو «فرص هذا الأسبوع») أو ذكر اسم
+    «بيان»، شريطة أن تكون النتيجة إجابة فعلية لا رسالة رفض.
+
+    Handle a comment on a Facebook Page post to send a Private Reply.
+    Ordinary comments are ignored; Bayan replies only when the comment matches
+    an approved correction/announcement or mentions Bayan by name, and only
+    when the outcome is an actual answer rather than a refusal.
+    """
+    text = question.strip()[: config.MAX_QUESTION_CHARS]
+    if not text or store.is_blocked(channel, user_id) or paused():
+        return None
+    if not store.rate_ok(channel, user_id):
+        return None
+    lang = i18n.detect(text)
+    if daily_refusal(channel, user_id, lang) is not None:
+        return None
+
+    norm = normalize_ar(text)
+    fixes = retrieve.match_corrections(text, retrieve._query_vector(text))
+    mentions_bot = (
+        normalize_ar(config.BOT_NAME) in norm.split()
+        or config.BOT_NAME_EN.lower() in norm.lower().split()
+    )
+    if not fixes and not mentions_bot:
+        return None
+
+    res = answer(text, channel, user_id)
+    if res["outcome"] not in ("answered", "tool_list"):
+        return None
+    store.record_question(channel, user_id)
+    store.remember(channel, user_id, "user", text,
                    outcome=res["outcome"], confidence=res["confidence"],
                    sources=res["sources"])
     store.remember(channel, user_id, "assistant", res["text"])

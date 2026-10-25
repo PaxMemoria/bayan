@@ -381,10 +381,16 @@ def match_corrections(question: str, q: np.ndarray | None) -> list[dict]:
     provided its vector was produced with the current embedding model.
     """
     norm_q, model = normalize_ar(question), embed.model_id()
+    norm_words = set(norm_q.split())
     found = []
     for c in store.corrections(active_only=True):
         v = c.pop("vector")
-        if c["norm_question"] == norm_q:
+        nq = c["norm_question"]
+        if (
+            nq == norm_q
+            or (nq and " " not in nq and len(nq) >= 3 and nq in norm_words)
+            or (len(nq) >= 8 and nq in norm_q)
+        ):
             sim = 1.0
         elif (q is not None and v is not None and c["embed_model"] == model
               and len(v) == len(q)):

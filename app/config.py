@@ -67,7 +67,7 @@ ANSWER_FALLBACK = os.getenv("ANSWER_FALLBACK", "default").strip().lower()
 # The key is sent in the x-goog-api-key header so it never appears in the
 # request URL or logs.
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 GEMINI_ENDPOINT = os.getenv(
     "GEMINI_ENDPOINT", "https://generativelanguage.googleapis.com/v1beta/models"
 )

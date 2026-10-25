@@ -144,6 +144,20 @@ async def _reply(channel: str, user_id: str, text: str, sender,
         log.exception("فشل إرسال الرد على %s", channel)
 
 
+async def _reply_comment(user_id: str, comment_id: str, text: str) -> None:
+    try:
+        reply = await asyncio.to_thread(brain.handle_comment, text, "messenger", user_id)
+    except Exception:
+        log.exception("فشل في معالجة تعليق من فيسبوك")
+        return
+    if not reply:
+        return
+    try:
+        await messenger.send_private_reply(comment_id, reply)
+    except Exception:
+        log.exception("فشل إرسال الرد الخاص على تعليق فيسبوك")
+
+
 # ------------------------------------------------------------- تيليغرام / Telegram
 @app.post("/webhooks/telegram")
 async def telegram_hook(
@@ -203,6 +217,9 @@ async def meta_hook(
             if store.first_time(event_id):
                 await messenger.typing(psid)
                 bg.add_task(_reply, "messenger", psid, text, messenger.send)
+        for event_id, user_id, comment_id, text in messenger.parse_comments(payload):
+            if store.first_time(event_id):
+                bg.add_task(_reply_comment, user_id, comment_id, text)
 
     return JSONResponse({"ok": True})
 
