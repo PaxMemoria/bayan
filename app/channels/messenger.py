@@ -112,5 +112,45 @@ async def send_private_reply(comment_id: str, text: str) -> None:
             log.error("فشل إرسال الرد الخاص على التعليق: %s", r.text[:300])
 
 
+async def fetch_recent_comments() -> list[tuple[str, str, str, str]]:
+    """يجلب أحدث التعليقات من آخر منشورات الصفحة عبر Graph API.
+
+    يعمل حتى حين يكون تطبيق Meta في وضع التطوير (Unpublished) ولا يرسل
+    إشعارات feed webhook تلقائياً.
+    Fetches recent comments from the Page's latest posts via the Graph API.
+    Works even when the Meta app is in Development (Unpublished) mode and
+    does not push feed webhooks automatically.
+    """
+    if not config.MESSENGER_PAGE_TOKEN:
+        return []
+    url = f"https://graph.facebook.com/{config.META_GRAPH_VERSION}/me/published_posts"
+    params = {
+        "access_token": config.MESSENGER_PAGE_TOKEN,
+        "fields": "id,comments.limit(15){id,message,from,created_time}",
+        "limit": 5,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.get(url, params=params)
+        if r.status_code != 200:
+            return []
+        data = r.json()
+    except Exception:  # noqa: BLE001
+        return []
+
+    out = []
+    for post in data.get("data") or []:
+        page_id = str(post.get("id") or "").split("_", 1)[0]
+        for cm in (post.get("comments") or {}).get("data") or []:
+            cid = cm.get("id")
+            text = (cm.get("message") or "").strip()
+            sender_id = str((cm.get("from") or {}).get("id") or "")
+            if not cid or not text or (page_id and sender_id == page_id):
+                continue
+            user_id = sender_id or f"comment:{cid}"
+            out.append((f"fb_comment:{cid}", user_id, cid, text))
+    return out
+
+
 def _split(text: str, limit: int = 1900) -> list[str]:
     return [text[i : i + limit] for i in range(0, len(text), limit)] or [text]

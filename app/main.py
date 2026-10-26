@@ -56,6 +56,7 @@ async def startup() -> None:
     # Delete questions older than the retention period: at startup, then
     # every 6 hours
     app.state.retention = asyncio.create_task(_retention_loop())
+    app.state.comment_poll = asyncio.create_task(_comment_poll_loop())
     if config.EMBED_PROVIDER == "local":
         app.state.keep_warm = asyncio.create_task(_keep_warm_loop())
 
@@ -80,6 +81,19 @@ async def _keep_warm_loop() -> None:
                 await asyncio.to_thread(embed.embed, ["."], "query", 1)
         except Exception:  # noqa: BLE001
             log.exception("تعذّر إبقاء نموذج المتجهات في الذاكرة")
+
+
+async def _comment_poll_loop() -> None:
+    while True:
+        await asyncio.sleep(20)
+        if not config.MESSENGER_PAGE_TOKEN:
+            continue
+        try:
+            for event_id, user_id, comment_id, text in await messenger.fetch_recent_comments():
+                if store.first_time(event_id):
+                    await _reply_comment(user_id, comment_id, text)
+        except Exception:  # noqa: BLE001
+            log.exception("تعذّر فحص تعليقات فيسبوك الدورية")
 
 
 async def _retention_loop() -> None:
