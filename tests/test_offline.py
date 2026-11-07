@@ -655,6 +655,19 @@ check("إعادة توليد متجهات التصحيحات بعد تغيّر �
       retrieve.refresh_correction_vectors() == 1
       and matches("ما قوائم الأدوات المتوفرة في الدليل؟") == [cid])
 store.delete_correction(cid)
+# قوائم الفرص الأسبوعية: بلا رقم أحدث أسبوع، وبرقم ذلك الأسبوع
+w1 = store.save_correction("فرص الأسبوع 9", "قائمة 9", "", True, None, None)
+w2 = store.save_correction("فرص الأسبوع 45", "قائمة 45", "", True, None, None)
+w3 = store.save_correction("فرص الأسبوع 10", "قائمة 10", "", True, None, None)
+old = store.save_correction("فرص", "قديمة", "", True, None, None)
+first = lambda q: (matches(q) or [None])[0]
+check("«فرص» تعيد أحدث أسبوع لا الأحدث تعديلاً", first("فرص") == w2)
+check("«فرص هذا الأسبوع» تعيد أحدث أسبوع", first("فرص هذا الأسبوع") == w2)
+check("الأسبوع المسمّى برقمه يعيد قائمته", first("فرص الأسبوع 10") == w3)
+check("الرقم بالهندية يُطبَّع", first("فرص الأسبوع ٩") == w1)
+check("سؤال بلا علاقة بالفرص لا يُغيَّر", first("ما أدوات تتبع الطيران؟") is None)
+for i in (w1, w2, w3, old):
+    store.delete_correction(i)
 config.VOYAGE_API_KEY = ""
 
 ctx, urls = brain.build_context(
