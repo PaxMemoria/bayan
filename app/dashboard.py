@@ -146,6 +146,11 @@ TEXT: dict[str, tuple[str, str]] = {
     "provider_local": ("على الخادم", "on the server"),
     "provider_voyage": ("عبر Voyage", "via Voyage"),
     "week": ("آخر 7 أيام", "Last 7 days"),
+    "total_h": ("منذ البداية (أعداد فقط)", "Since the start (counts only)"),
+    "total_help": ("تبقى هذه الأعداد بعد حذف الرسائل، ولا تحمل نصاً ولا معرّفات. المستخدمون هنا مجموع المستخدمين اليوميين، فمن سأل في يومين يُحسب مرتين.",
+                   "These counts outlive the deleted messages and hold no text or identifiers. Users is the sum of daily users, so someone seen on two days counts twice."),
+    "th_total": ("المجموع", "Total"),
+    "th_first": ("أول يوم", "First day"),
     "week_n": ("عدد الأسئلة: {n}.", "Questions: {n}."),
     "th_outcome": ("النتيجة", "Outcome"),
     "th_count": ("العدد", "Count"),
@@ -789,6 +794,18 @@ async def overview(request: Request, msg: str = ""):
 {rows}</table></div>
 <div class="card"><table><tr><th>{T("th_channel")}</th><th>{T("th_questions")}</th>
 <th>{T("th_users")}</th></tr>{ch_rows}</table></div></div>"""
+
+    totals = store.usage_totals()
+    tt_rows = "".join(
+        f"<tr><td>{e(channel_name(c, T))}</td><td>{v['questions']}</td>"
+        f"<td>{v['users']}</td><td>{e(v['first'])}</td></tr>"
+        for c, v in sorted(totals.items())
+    ) or f'<tr><td colspan="4" class="muted">{T("none_yet")}</td></tr>'
+    tt_all = (f'<tr><th>{T("th_total")}</th><th>{sum(v["questions"] for v in totals.values())}</th>'
+              f'<th>{sum(v["users"] for v in totals.values())}</th><th></th></tr>') if totals else ""
+    activity += f"""<h2>{T("total_h")}</h2><p class="help">{T("total_help")}</p>
+<div class="card"><table><tr><th>{T("th_channel")}</th><th>{T("th_questions")}</th>
+<th>{T("th_users")}</th><th>{T("th_first")}</th></tr>{tt_rows}{tt_all}</table></div>"""
 
     if last:
         took = (T("run_took", s=round(last["finished"] - last["started"]))
