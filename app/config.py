@@ -258,6 +258,10 @@ DAILY_LIMIT = int(os.getenv("DAILY_LIMIT", "10"))
 # How many days questions and answers are kept before they are deleted
 # automatically. The published privacy policy (/privacy) states this period,
 # so change both together.
+# الفرص: كم أسبوعاً يبحث فيها بيان، وكم فرصة يرسلها للنموذج
+# Opportunities: how many weeks Bayan searches, and how many it sends the model
+OPPORTUNITY_WEEKS = int(os.getenv("OPPORTUNITY_WEEKS", "4"))
+OPPORTUNITIES_PER_QUESTION = int(os.getenv("OPPORTUNITIES_PER_QUESTION", "6"))
 MESSAGE_RETENTION_DAYS = int(os.getenv("MESSAGE_RETENTION_DAYS", "30"))
 PRIVACY_CONTACT = os.getenv("PRIVACY_CONTACT", "GDPR@paxmemoria.org")
 HISTORY_TURNS = int(os.getenv("HISTORY_TURNS", "4"))

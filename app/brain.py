@@ -276,6 +276,9 @@ def guide_overview() -> str:
         "اسمها فيها، ليرى السائل وصفها ودرجة التحقق منها وأي تحذير عليها. "
         "الأداة الحسّاسة لا يُعطى رابطها المباشر بل يُحال إلى صفحة الدليل، "
         "والأداة المُزالة لا رابط لها.",
+        "- الفرص: يعرض بيان فرصاً (زمالات ومنحاً وجوائز وتدريبات) من قوائم "
+        "الأسابيع الأخيرة، بروابطها المباشرة. لا يضمن بيان أن باب التقديم ما زال "
+        "مفتوحاً، فينصح السائل بقراءة صفحة الفرصة والتحقق من موعدها قبل التقديم.",
         "- لا يفحص بيان الصور أو الروابط أو الملفات، ويقرأ النص وحده.",
     ]
     if limit > 0:
@@ -320,6 +323,12 @@ def build_context(result: dict, lang: str = "ar") -> tuple[str, dict[int, str]]:
     for c in result.get("corrections", []):
         add("تصحيح_معتمد", f"السؤال: {c['question']}\nالإجابة المعتمدة:\n{c['answer']}",
             c.get("url") or guide)
+
+    # الفرص الأسبوعية، كل فرصة برقم أسبوعها ورابطها المباشر
+    # Weekly opportunities, each with its week number and direct link
+    for o in result.get("opportunities", []):
+        add("فرصة", f"الأسبوع {o['week']}: {o['title']}\nالرابط: {o['url']}", o["url"],
+            f' أسبوع="{o["week"]}"')
 
     for t in result["tools"]:
         add("أداة", tool_record(t, lang), guide)

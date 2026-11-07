@@ -95,6 +95,18 @@ CREATE TABLE IF NOT EXISTS asked (
 );
 CREATE INDEX IF NOT EXISTS idx_asked ON asked(channel, user_id, ts);
 
+-- الفرص: بند لكل فرصة، موزّعة بالأسابيع، وتبقى بعد كل فهرسة (ليست في chunks).
+-- Opportunities: one row each, split by week, kept across reindexing (not in chunks).
+CREATE TABLE IF NOT EXISTS opportunities (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    year     INTEGER NOT NULL,
+    week     INTEGER NOT NULL,       -- رقم أسبوع ISO / ISO week number
+    position INTEGER NOT NULL,       -- ترتيبها في القائمة / order in the list
+    title    TEXT NOT NULL,
+    url      TEXT NOT NULL,
+    UNIQUE (year, week, position)
+);
+
 -- أعداد الاستخدام اليومية فقط: لا نصوص ولا معرّفات. تبقى بعد حذف الرسائل.
 -- Daily usage counts only: no text and no identifiers. They outlive the messages.
 CREATE TABLE IF NOT EXISTS usage_daily (
@@ -424,6 +436,56 @@ def questions_since(channel: str, user_id: str, since: float) -> list[float]:
             (channel, user_id, since),
         ).fetchall()
     return [r["ts"] for r in rows]
+
+
+def save_opportunity_week(year: int, week: int, items: list[dict]) -> int:
+    """يستبدل فرص أسبوع بقائمته الجديدة، ويعيد عددها.
+    Replaces a week's opportunities with its new list, and returns how many."""
+    with db() as conn:
+        conn.execute("DELETE FROM opportunities WHERE year=? AND week=?", (year, week))
+        conn.executemany(
+            "INSERT INTO opportunities(year,week,position,title,url) VALUES(?,?,?,?,?)",
+            [(year, week, i, it["title"], it["url"]) for i, it in enumerate(items, 1)],
+        )
+    return len(items)
+
+
+def delete_opportunity_week(year: int, week: int) -> None:
+    with db() as conn:
+        conn.execute("DELETE FROM opportunities WHERE year=? AND week=?", (year, week))
+
+
+def opportunity_weeks() -> list[dict]:
+    """الأسابيع المحفوظة وعدد فرص كل منها، الأحدث أولاً.
+    The saved weeks and the number of opportunities in each, newest first."""
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT year, week, COUNT(*) n FROM opportunities "
+            "GROUP BY year, week ORDER BY year DESC, week DESC"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def recent_opportunities(weeks: int) -> list[dict]:
+    """فرص آخر weeks أسابيع محفوظة (لا آخر weeks أسابيع تقويمية).
+    The opportunities of the last `weeks` saved weeks (not calendar weeks)."""
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM opportunities WHERE (year, week) IN "
+            "(SELECT year, week FROM opportunities GROUP BY year, week "
+            " ORDER BY year DESC, week DESC LIMIT ?) ORDER BY year DESC, week DESC, position",
+            (max(weeks, 1),),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def opportunity_week_items(year: int, week: int) -> list[dict]:
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM opportunities WHERE year=? AND week=? ORDER BY position",
+            (year, week),
+        ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def _rollup_usage(conn) -> None:
