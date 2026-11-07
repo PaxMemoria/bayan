@@ -49,11 +49,19 @@ jobs:
     # environment, so transitive packages are checked too, not only the pins.
     - name: Install as in the container
       run: |
-        python -m pip install --upgrade pip
+        python -m pip install --upgrade pip setuptools
         pip install --index-url https://download.pytorch.org/whl/cpu \
           "$(grep '^torch==' requirements.txt)"
         pip install -r requirements.txt pip-audit
     - run: pip-audit
+    # بناء torch للمعالج (2.x+cpu) لا يُطابَق على PyPI فيُترك، فيُفحص torch
+    # بإصداره المثبّت وحده دون تنزيله
+    # The CPU build of torch (2.x+cpu) is not matched on PyPI and gets skipped,
+    # so torch is audited by its pinned version alone, without downloading it
+    - name: Audit torch by its pinned version
+      run: |
+        grep '^torch==' requirements.txt > /tmp/torch.txt
+        pip-audit -r /tmp/torch.txt --no-deps
 
   secrets:
     name: Secrets (gitleaks)
