@@ -396,6 +396,24 @@ def _latest_weekly(norm_q: str) -> dict | None:
     return max(weekly, key=lambda w: w[0])[1] if weekly else None
 
 
+# اختصار رقم الأسبوع: «فرص45» أو «فرص ٤٥» أو «الفرص 45» أو «فرص الأسبوع45»
+# Week-number shorthand: «فرص45», «فرص ٤٥», «الفرص 45» or «فرص الأسبوع45»
+_WEEK_SHORTHAND = re.compile(r"^(?:ال)?فرص\s*(?:هذا\s*)?(?:ال)?(?:اسبوع\s*)?(\d{1,2})\s*[؟?!.]*$")
+
+
+def _named_weekly(norm_q: str) -> dict | None:
+    """تصحيح «فرص الأسبوع N» إن كان السؤال اختصاراً برقم أسبوع، وإلا None.
+    The «فرص الأسبوع N» correction if the question is a week-number shorthand,
+    otherwise None."""
+    m = _WEEK_SHORTHAND.match(norm_q.strip())
+    if not m:
+        return None
+    week = int(m.group(1))
+    return next((c for c in store.corrections(active_only=True)
+                 if (w := _WEEKLY_Q.match(c["norm_question"] or "")) and int(w.group(1)) == week),
+                None)
+
+
 def match_corrections(question: str, q: np.ndarray | None) -> list[dict]:
     """التصحيحات المعتمدة التي يشبه سؤالُها سؤالَ السائل، الأقرب أولاً.
 
@@ -432,9 +450,9 @@ def match_corrections(question: str, q: np.ndarray | None) -> list[dict]:
     # On a tie the correction with the longer (more specific) question goes first,
     # then the most recently edited
     found.sort(key=lambda c: (-c["similarity"], -len(c["norm_question"] or "")))
-    if latest := _latest_weekly(norm_q):
-        latest.pop("vector", None)
-        found = [{**latest, "similarity": 1.0}] + [c for c in found if c["id"] != latest["id"]]
+    if weekly := _named_weekly(norm_q) or _latest_weekly(norm_q):
+        weekly.pop("vector", None)
+        found = [{**weekly, "similarity": 1.0}] + [c for c in found if c["id"] != weekly["id"]]
     return found[: config.CORRECTIONS_PER_QUESTION]
 
 
