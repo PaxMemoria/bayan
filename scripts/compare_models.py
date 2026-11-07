@@ -30,6 +30,11 @@ VARIANTS = [
     ("Haiku medium", "claude-haiku-5-5", "medium"),
 ]
 
+# المزوّد المحلي يُضاف إلى المقارنة حين يُضبط اسم نموذجه
+# The local provider joins the comparison when its model name is set
+if config.LOCAL_LLM_MODEL:
+    VARIANTS.append((f"محلي: {config.LOCAL_LLM_MODEL}", "local", "medium"))
+
 n = int(sys.argv[1]) if len(sys.argv) > 1 else 12
 questions = json.loads(
     (Path(__file__).resolve().parent / "calibration_questions.json").read_text(encoding="utf-8")
