@@ -498,7 +498,10 @@ def blocked_list() -> list[dict]:
 def first_time(event_id: str) -> bool:
     now = time.time()
     with db() as conn:
-        conn.execute("DELETE FROM seen_events WHERE ts < ?", (now - 86400,))
+        conn.execute(
+            "DELETE FROM seen_events WHERE ts < ? AND event_id NOT LIKE 'fb_comment:%'",
+            (now - 86400,),
+        )
         try:
             conn.execute(
                 "INSERT INTO seen_events(event_id, ts) VALUES(?,?)", (event_id, now)
