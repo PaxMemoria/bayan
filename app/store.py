@@ -63,6 +63,8 @@ CREATE TABLE IF NOT EXISTS messages (
     outcome    TEXT,      -- answered | refused_gate | refused_model | tool_list
     confidence REAL,
     sources    TEXT,
+    topic      TEXT,      -- الجزء الذي أُجيب منه / the part answered from (brain.TOPICS)
+    detail     TEXT,      -- تفصيله: slug تحقيق أو تصنيف أدوات / its detail: an investigation slug or a tool category
     ts         REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_messages_user ON messages(channel, user_id, ts);
@@ -115,6 +117,16 @@ CREATE TABLE IF NOT EXISTS usage_daily (
     questions INTEGER NOT NULL,
     users     INTEGER NOT NULL,   -- مستخدمون مختلفون في ذلك اليوم / distinct users that day
     PRIMARY KEY (day, channel)
+);
+
+-- مواضيع الأسئلة اليومية، أعداد فقط بلا نصوص ولا معرّفات. تبقى بعد حذف الرسائل.
+-- Daily question topics, counts only with no text and no identifiers. They outlive the messages.
+CREATE TABLE IF NOT EXISTS topic_daily (
+    day       TEXT NOT NULL,
+    topic     TEXT NOT NULL,
+    detail    TEXT NOT NULL DEFAULT '',
+    questions INTEGER NOT NULL,
+    PRIMARY KEY (day, topic, detail)
 );
 
 CREATE TABLE IF NOT EXISTS seen_events (
@@ -193,6 +205,17 @@ def db():
 def init() -> None:
     with db() as conn:
         conn.executescript(SCHEMA)
+        _migrate(conn)
+
+
+def _migrate(conn) -> None:
+    """أعمدة أُضيفت بعد إنشاء القاعدة: CREATE TABLE IF NOT EXISTS لا يضيفها لجدول قائم.
+    Columns added after the database was created: CREATE TABLE IF NOT EXISTS does
+    not add them to an existing table."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(messages)").fetchall()}
+    for col in ("topic", "detail"):
+        if col not in cols:
+            conn.execute(f"ALTER TABLE messages ADD COLUMN {col} TEXT")
 
 
 # ──────────────────────────────────────────────────── الفهرسة / Indexing
@@ -398,14 +421,15 @@ def remember(
     channel: str, user_id: str, role: str, content: str,
     outcome: str | None = None, confidence: float | None = None,
     sources: list[str] | None = None,
+    topic: str | None = None, detail: str | None = None,
 ) -> None:
     with db() as conn:
         conn.execute(
             "INSERT INTO messages(channel,user_id,role,content,outcome,"
-            "confidence,sources,ts) VALUES(?,?,?,?,?,?,?,?)",
+            "confidence,sources,topic,detail,ts) VALUES(?,?,?,?,?,?,?,?,?,?)",
             (
                 channel, user_id, role, content, outcome, confidence,
-                json.dumps(sources or [], ensure_ascii=False), time.time(),
+                json.dumps(sources or [], ensure_ascii=False), topic, detail, time.time(),
             ),
         )
         conn.execute(
@@ -501,6 +525,67 @@ def _rollup_usage(conn) -> None:
         "ON CONFLICT(day, channel) DO UPDATE SET "
         "questions=MAX(questions, excluded.questions), users=MAX(users, excluded.users)"
     )
+    conn.execute(
+        "INSERT INTO topic_daily(day, topic, detail, questions) "
+        "SELECT date(ts,'unixepoch'), topic, COALESCE(detail, ''), COUNT(*) "
+        "FROM messages WHERE role='user' AND topic IS NOT NULL "
+        "AND date(ts,'unixepoch') < date('now') GROUP BY 1, 2, 3 "
+        "ON CONFLICT(day, topic, detail) DO UPDATE SET "
+        "questions=MAX(questions, excluded.questions)"
+    )
+
+
+def _topic_tree(rows) -> dict:
+    """{موضوع: {"questions": n, "details": {تفصيل: n}}}"""
+    out: dict[str, dict] = {}
+    for r in rows:
+        t = out.setdefault(r["topic"], {"questions": 0, "details": {}})
+        t["questions"] += r["n"]
+        if r["detail"]:
+            t["details"][r["detail"]] = t["details"].get(r["detail"], 0) + r["n"]
+    return out
+
+
+def topic_stats(since: float) -> dict:
+    """مواضيع الأسئلة منذ since من الرسائل الموجودة.
+    Question topics since `since`, from the messages still present."""
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT topic, COALESCE(detail,'') detail, COUNT(*) n FROM messages "
+            "WHERE role='user' AND topic IS NOT NULL AND ts >= ? GROUP BY 1, 2",
+            (since,),
+        ).fetchall()
+    return _topic_tree(rows)
+
+
+def topic_totals() -> dict:
+    """مواضيع الأسئلة منذ البداية: الأيام المحفوظة مع اليوم الجاري.
+    Question topics since the start: the saved days plus today."""
+    with db() as conn:
+        _rollup_usage(conn)
+        rows = conn.execute(
+            "SELECT topic, detail, SUM(n) n FROM ("
+            "SELECT topic, detail, questions n FROM topic_daily "
+            "UNION ALL SELECT topic, COALESCE(detail,''), COUNT(*) FROM messages "
+            "WHERE role='user' AND topic IS NOT NULL AND date(ts,'unixepoch') >= date('now') "
+            "GROUP BY 1, 2) GROUP BY 1, 2"
+        ).fetchall()
+    return _topic_tree(rows)
+
+
+def investigation_titles() -> dict[str, str]:
+    """عنوان كل تحقيق مفهرس بحسب slug، لعرض تفصيل الموضوع باسمه.
+    Each indexed investigation's title by slug, to show a topic detail by name."""
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT title, meta FROM chunks WHERE type='investigation'"
+        ).fetchall()
+    out: dict[str, str] = {}
+    for r in rows:
+        slug = json.loads(r["meta"] or "{}").get("slug")
+        if slug and r["title"] and slug not in out:
+            out[slug] = r["title"]
+    return out
 
 
 def usage_totals() -> dict:

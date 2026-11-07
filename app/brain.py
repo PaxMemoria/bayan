@@ -24,6 +24,7 @@ Protection layers:
 import logging
 import re
 import time
+from collections import Counter
 
 import httpx
 from anthropic import Anthropic
@@ -610,20 +611,60 @@ def _ask_gemini(view: str, messages: list[dict], model: str, lang: str) -> tuple
     return "end_turn", text
 
 
+# مواضيع الأسئلة، بترتيب العرض في اللوحة. أعداد فقط: لا يُحفظ من السؤال إلا جزؤه.
+# Question topics, in dashboard order. Counts only: nothing of the question is
+# kept but its part.
+TOPICS = ("tools", "investigations", "opportunities", "about", "other", "unanswered")
+
+
+def topic_of(result: dict | None, outcome: str) -> tuple[str, str]:
+    """(الجزء الذي أُجيب منه، تفصيله): slug التحقيق، أو تصنيف الأدوات بالإنجليزية.
+    سؤال لم يُجَب موضوعه «بلا جواب»، لأن استرجاعه لم يطابق شيئاً يُعتدّ به.
+    (the part the answer came from, its detail): the investigation's slug, or
+    the tools category in English. An unanswered question's topic is
+    "unanswered", because its retrieval matched nothing worth counting."""
+    if outcome not in ("answered", "tool_list") or not result:
+        return "unanswered", ""
+    fixes = result.get("corrections") or []
+    if result.get("opportunities") or any(
+        retrieve._WEEKLY_Q.match(c.get("norm_question") or "") for c in fixes
+    ):
+        return "opportunities", ""
+    if result.get("tools"):
+        return "tools", result["tools"][0].get("category_en") or ""
+    if result.get("category_tools") and result.get("category"):
+        return "tools", result["category"].get("category_en") or ""
+    passages = result.get("passages") or []
+    kinds = Counter(p["type"] for p in passages)
+    if kinds:
+        kind = kinds.most_common(1)[0][0]
+        first = next(p for p in passages if p["type"] == kind)
+        meta = first.get("meta") or {}
+        if kind == "investigation":
+            return "investigations", meta.get("slug") or first.get("url", "").rstrip("/").rsplit("/", 1)[-1]
+        if kind == "about":
+            return "about", ""
+        return "tools", meta.get("category_en") or ""
+    return "other", ""
+
+
 def answer(question: str, channel: str, user_id: str) -> dict:
     question = question.strip()[: config.MAX_QUESTION_CHARS]
     lang = i18n.detect(question)
     refuse = i18n.msg("out_of_scope", lang)
     if not question:
         return {"text": refuse, "outcome": "refused_gate", "confidence": 0.0,
-                "sources": [], "retrieval": None, "lang": lang}
+                "sources": [], "retrieval": None, "lang": lang,
+                "topic": "unanswered", "detail": ""}
 
     result = retrieve.search(question, lang)
     confidence = result["confidence"]
 
     def done(text: str, outcome: str, sources: list[str] | None = None) -> dict:
+        topic, detail = topic_of(result, outcome)
         return {"text": text, "outcome": outcome, "confidence": confidence,
-                "sources": sources or [], "retrieval": result, "lang": lang}
+                "sources": sources or [], "retrieval": result, "lang": lang,
+                "topic": topic, "detail": detail}
 
     # ── الطبقة ١ / Layer 1 ─────────────────────────────────────
     if not result["has_any"] or confidence < threshold():
@@ -800,7 +841,7 @@ def handle(question: str, channel: str, user_id: str, lang_hint: str | None = No
     res = answer(question, channel, user_id)
     store.remember(channel, user_id, "user", question,
                    outcome=res["outcome"], confidence=res["confidence"],
-                   sources=res["sources"])
+                   sources=res["sources"], topic=res.get("topic"), detail=res.get("detail"))
     store.remember(channel, user_id, "assistant", res["text"])
     return res["text"]
 
@@ -841,6 +882,6 @@ def handle_comment(question: str, channel: str, user_id: str) -> str | None:
     store.record_question(channel, user_id)
     store.remember(channel, user_id, "user", text,
                    outcome=res["outcome"], confidence=res["confidence"],
-                   sources=res["sources"])
+                   sources=res["sources"], topic=res.get("topic"), detail=res.get("detail"))
     store.remember(channel, user_id, "assistant", res["text"])
     return res["text"]
