@@ -95,6 +95,16 @@ CREATE TABLE IF NOT EXISTS asked (
 );
 CREATE INDEX IF NOT EXISTS idx_asked ON asked(channel, user_id, ts);
 
+-- أعداد الاستخدام اليومية فقط: لا نصوص ولا معرّفات. تبقى بعد حذف الرسائل.
+-- Daily usage counts only: no text and no identifiers. They outlive the messages.
+CREATE TABLE IF NOT EXISTS usage_daily (
+    day       TEXT NOT NULL,      -- YYYY-MM-DD (UTC)
+    channel   TEXT NOT NULL,
+    questions INTEGER NOT NULL,
+    users     INTEGER NOT NULL,   -- مستخدمون مختلفون في ذلك اليوم / distinct users that day
+    PRIMARY KEY (day, channel)
+);
+
 CREATE TABLE IF NOT EXISTS seen_events (
     event_id TEXT PRIMARY KEY,
     ts       REAL NOT NULL
@@ -416,9 +426,45 @@ def questions_since(channel: str, user_id: str, since: float) -> list[float]:
     return [r["ts"] for r in rows]
 
 
+def _rollup_usage(conn) -> None:
+    """يحفظ أعداد الأيام المكتملة (قبل اليوم UTC) من الرسائل الموجودة. لا يُنقص عدداً
+    محفوظاً: يومٌ قُطع نصفه بالحذف يبقى بأكبر عدّين.
+    Saves the counts of completed days (before today, UTC) from the messages still
+    present. It never lowers a saved count: a day half-deleted keeps the larger."""
+    conn.execute(
+        "INSERT INTO usage_daily(day, channel, questions, users) "
+        "SELECT date(ts,'unixepoch'), channel, COUNT(*), COUNT(DISTINCT user_id) "
+        "FROM messages WHERE role='user' AND date(ts,'unixepoch') < date('now') "
+        "GROUP BY 1, 2 "
+        "ON CONFLICT(day, channel) DO UPDATE SET "
+        "questions=MAX(questions, excluded.questions), users=MAX(users, excluded.users)"
+    )
+
+
+def usage_totals() -> dict:
+    """الإجمالي منذ البداية: الأيام المحفوظة مع اليوم الجاري. المستخدمون هنا مجموع
+    المستخدمين اليوميين (من تكرر في يومين يُحسب مرتين)، لأن المعرّفات لا تُحفظ.
+    All-time totals: the saved days plus today. Users here is the sum of daily
+    users (someone seen on two days counts twice), because identifiers are not kept."""
+    with db() as conn:
+        _rollup_usage(conn)
+        rows = conn.execute(
+            "SELECT channel, SUM(questions) q, SUM(users) u, MIN(day) first "
+            "FROM (SELECT day, channel, questions, users FROM usage_daily "
+            "UNION ALL SELECT date(ts,'unixepoch'), channel, COUNT(*), COUNT(DISTINCT user_id) "
+            "FROM messages WHERE role='user' AND date(ts,'unixepoch') >= date('now') "
+            "GROUP BY 1, 2) GROUP BY channel"
+        ).fetchall()
+    return {r["channel"]: {"questions": r["q"], "users": r["u"], "first": r["first"]}
+            for r in rows}
+
+
 def purge_old_messages(days: int) -> int:
-    """يحذف الأسئلة والإجابات الأقدم من days يوماً، ويعيد عددها.
-    Deletes questions and answers older than days, and returns how many."""
+    """يحذف الأسئلة والإجابات الأقدم من days يوماً، ويعيد عددها. تُحفظ أعدادها أولاً.
+    Deletes questions and answers older than days, and returns how many. Their
+    counts are saved first."""
+    with db() as conn:
+        _rollup_usage(conn)
     if days <= 0:
         return 0
     with db() as conn:

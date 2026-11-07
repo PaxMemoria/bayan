@@ -298,6 +298,7 @@ r = client.post("/admin/login", data={"password": "correct horse battery"}, foll
 check("كلمة المرور الصحيحة تفتح جلسة", r.status_code == 303 and "bayan_admin" in r.cookies)
 r = client.get("/admin")
 check("نظرة عامة تعمل", r.status_code == 200 and "نظرة عامة" in r.text)
+check("اللوحة تعرض الأعداد منذ البداية", "منذ البداية (أعداد فقط)" in r.text and "المجموع" in r.text)
 check("ترويسة CSP تمنع كل سكربت", "default-src 'none'" in r.headers.get("content-security-policy", ""))
 r = client.get("/admin/messages")
 check("الأسئلة تُعرض", "ما أدوات Hunchly" in r.text)
@@ -773,6 +774,22 @@ with store.db() as c:
         "SELECT content FROM messages WHERE user_id='u-old'").fetchall()]
 check("الحذف التلقائي يزيل ما مضى عليه 30 يوماً ويبقي الأحدث",
       removed >= 1 and left == ["سؤال حديث"], (removed, left))
+# أعداد الاستخدام تبقى بعد حذف الرسائل بلا نص ولا معرّفات
+with store.db() as c:
+    for uid, days_ago in (("cnt-a", 40), ("cnt-a", 40), ("cnt-b", 40)):
+        c.execute("INSERT INTO messages(channel,user_id,role,content,ts) VALUES(?,?,?,?,?)",
+                  ("cnt-test", uid, "user", "نص يُحذف", time.time() - days_ago * 86400))
+store.purge_old_messages(30)
+tot = store.usage_totals().get("cnt-test", {})
+check("الأعداد تبقى بعد الحذف: 3 أسئلة ومستخدمان في اليوم",
+      tot.get("questions") == 3 and tot.get("users") == 2, tot)
+with store.db() as c:
+    left = c.execute("SELECT COUNT(*) FROM messages WHERE user_id LIKE 'cnt-%'").fetchone()[0]
+    cols = [r[1] for r in c.execute("PRAGMA table_info(usage_daily)").fetchall()]
+check("الرسائل حُذفت وجدول الأعداد بلا نص ولا معرّفات",
+      left == 0 and cols == ["day", "channel", "questions", "users"], (left, cols))
+store.purge_old_messages(30)
+check("إعادة الحذف لا تغيّر الأعداد", store.usage_totals()["cnt-test"]["questions"] == 3)
 with store.db() as c:
     check("الحذف الآمن مفعّل في القاعدة", c.execute("PRAGMA secure_delete").fetchone()[0] == 1)
 
