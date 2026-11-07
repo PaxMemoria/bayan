@@ -385,15 +385,46 @@ _WEEKLY_Q = re.compile(r"^فرص(?: هذا)? الاسبوع (\d{1,2})$")
 _OPPORTUNITY_WORDS = {"فرص", "الفرص"}
 
 
-def _latest_weekly(norm_q: str) -> dict | None:
-    """تصحيح أحدث أسبوع إن كان السؤال عاماً عن الفرص بلا رقم أسبوع، وإلا None.
-    The latest week's correction if the question is a general one about
-    opportunities with no week number, otherwise None."""
+def _weekly_corrections() -> dict[int, dict]:
+    """تصحيحات «فرص الأسبوع N» المفعّلة، برقم أسبوعها.
+    The active «فرص الأسبوع N» corrections, by week number."""
+    return {int(m.group(1)): c for c in store.corrections(active_only=True)
+            if (m := _WEEKLY_Q.match(c["norm_question"] or ""))}
+
+
+def _newest_weekly(weekly: dict[int, dict]) -> dict | None:
+    """تصحيح آخر قائمة منشورة: أحدث أسبوع (بسنته) في جدول الفرص إن كان له
+    تصحيح، وإلا أعلى رقم أسبوع. السنة تحسم أسبوع 1 بعد أسبوع 52.
+    The correction of the newest published list: the newest week (by year) in
+    the opportunities table when it has a correction, otherwise the highest
+    week number. The year settles week 1 coming after week 52."""
+    if not weekly:
+        return None
+    for w in store.opportunity_weeks():
+        if w["week"] in weekly:
+            return weekly[w["week"]]
+    return weekly[max(weekly)]
+
+
+# اختصار رقم الأسبوع: «فرص45» أو «فرص ٤٥» أو «الفرص 45» أو «فرص الأسبوع45»
+# Week-number shorthand: «فرص45», «فرص ٤٥», «الفرص 45» or «فرص الأسبوع45»
+_WEEK_SHORTHAND = re.compile(r"^(?:ال)?فرص\s*(?:هذا\s*)?(?:ال)?(?:اسبوع\s*)?(\d{1,2})\s*[؟?!.]*$")
+
+
+def _asked_weekly(norm_q: str) -> dict | None:
+    """قائمة الفرص التي يطلبها السؤال، أو None إن لم يكن سؤالاً عن الفرص.
+    عام بلا رقم («فرص»، «فرص الأسبوع») يعيد آخر قائمة منشورة. اختصار برقم
+    («فرص٤٥») يعيد ذلك الأسبوع، وإن لم تكن له قائمة فآخر قائمة منشورة.
+    The opportunity list the question asks for, or None if it is not about
+    opportunities. A general question with no number returns the newest
+    published list. A shorthand with a number returns that week, or the newest
+    published list when that week has none."""
+    if m := _WEEK_SHORTHAND.match(norm_q.strip()):
+        weekly = _weekly_corrections()
+        return weekly.get(int(m.group(1))) or _newest_weekly(weekly)
     if not _OPPORTUNITY_WORDS & set(norm_q.split()) or re.search(r"\d", norm_q):
         return None
-    weekly = [(int(m.group(1)), c) for c in store.corrections(active_only=True)
-              if (m := _WEEKLY_Q.match(c["norm_question"] or ""))]
-    return max(weekly, key=lambda w: w[0])[1] if weekly else None
+    return _newest_weekly(_weekly_corrections())
 
 
 def match_corrections(question: str, q: np.ndarray | None) -> list[dict]:
@@ -432,9 +463,9 @@ def match_corrections(question: str, q: np.ndarray | None) -> list[dict]:
     # On a tie the correction with the longer (more specific) question goes first,
     # then the most recently edited
     found.sort(key=lambda c: (-c["similarity"], -len(c["norm_question"] or "")))
-    if latest := _latest_weekly(norm_q):
-        latest.pop("vector", None)
-        found = [{**latest, "similarity": 1.0}] + [c for c in found if c["id"] != latest["id"]]
+    if weekly := _asked_weekly(norm_q):
+        weekly.pop("vector", None)
+        found = [{**weekly, "similarity": 1.0}] + [c for c in found if c["id"] != weekly["id"]]
     return found[: config.CORRECTIONS_PER_QUESTION]
 
 
