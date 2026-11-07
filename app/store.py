@@ -139,6 +139,30 @@ CREATE TABLE IF NOT EXISTS subscribers (
     PRIMARY KEY (channel, user_id)
 );
 
+-- الفريق: من يدخل اللوحة بحساب Google من النطاق، ودوره. لا كلمات مرور هنا.
+-- The team: who signs in to the dashboard with a Google account from the
+-- domain, and their role. No passwords here.
+CREATE TABLE IF NOT EXISTS members (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    email      TEXT NOT NULL UNIQUE,
+    name       TEXT NOT NULL DEFAULT '',
+    role       TEXT NOT NULL,          -- admin | editor | viewer
+    active     INTEGER NOT NULL DEFAULT 1,
+    created    REAL NOT NULL,
+    last_login REAL
+);
+
+-- سجلّ إجراءات الفريق في اللوحة: من فعل ماذا ومتى. لا نصوص أسئلة ولا معرّفات جمهور.
+-- The team's actions in the dashboard: who did what, when. No question text
+-- and no audience identifiers.
+CREATE TABLE IF NOT EXISTS audit (
+    id     INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts     REAL NOT NULL,
+    member TEXT NOT NULL,
+    action TEXT NOT NULL,
+    target TEXT
+);
+
 CREATE TABLE IF NOT EXISTS seen_events (
     event_id TEXT PRIMARY KEY,
     ts       REAL NOT NULL
@@ -226,6 +250,10 @@ def _migrate(conn) -> None:
     for col in ("topic", "detail"):
         if col not in cols:
             conn.execute(f"ALTER TABLE messages ADD COLUMN {col} TEXT")
+    for table in ("corrections", "ratings"):
+        cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        if "author" not in cols:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN author TEXT")
 
 
 # ──────────────────────────────────────────────────── الفهرسة / Indexing
@@ -687,6 +715,84 @@ def block(channel: str, user_id: str, reason: str) -> None:
         conn.execute("DELETE FROM subscribers WHERE channel=? AND user_id=?", (channel, user_id))
 
 
+# ──────────────────────────────────────────────── الفريق / Team members
+ROLES = ("admin", "editor", "viewer")
+
+
+def members() -> list[dict]:
+    with db() as conn:
+        rows = conn.execute("SELECT * FROM members ORDER BY created").fetchall()
+    return [dict(r) for r in rows]
+
+
+def member(member_id: int) -> dict | None:
+    with db() as conn:
+        r = conn.execute("SELECT * FROM members WHERE id=?", (member_id,)).fetchone()
+    return dict(r) if r else None
+
+
+def member_by_email(email: str) -> dict | None:
+    with db() as conn:
+        r = conn.execute("SELECT * FROM members WHERE email=?", (email.lower(),)).fetchone()
+    return dict(r) if r else None
+
+
+def add_member(email: str, role: str, name: str = "") -> int:
+    """يضيف عضواً أو يعيد رقمه إن كان موجوداً. / Adds a member, or returns the
+    existing one's id."""
+    if role not in ROLES:
+        raise ValueError(role)
+    with db() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO members(email,name,role,active,created) VALUES(?,?,?,1,?)",
+            (email.lower(), name, role, time.time()),
+        )
+        return conn.execute(
+            "SELECT id FROM members WHERE email=?", (email.lower(),)
+        ).fetchone()["id"]
+
+
+def set_member(member_id: int, role: str | None = None, active: bool | None = None,
+               name: str | None = None) -> None:
+    with db() as conn:
+        if role is not None:
+            if role not in ROLES:
+                raise ValueError(role)
+            conn.execute("UPDATE members SET role=? WHERE id=?", (role, member_id))
+        if active is not None:
+            conn.execute("UPDATE members SET active=? WHERE id=?", (int(active), member_id))
+        if name is not None:
+            conn.execute("UPDATE members SET name=? WHERE id=?", (name, member_id))
+
+
+def delete_member(member_id: int) -> None:
+    with db() as conn:
+        conn.execute("DELETE FROM members WHERE id=?", (member_id,))
+
+
+def touch_login(member_id: int, name: str) -> None:
+    with db() as conn:
+        conn.execute("UPDATE members SET last_login=?, name=? WHERE id=?",
+                     (time.time(), name, member_id))
+
+
+def audit(member_name: str, action: str, target: str | None = None) -> None:
+    """يسجّل إجراءً في اللوحة. target وصف قصير (رقم تصحيح، بريد عضو)، لا نص سؤال.
+    Records a dashboard action. target is a short label (a correction id, a
+    member's email), never question text."""
+    with db() as conn:
+        conn.execute("INSERT INTO audit(ts,member,action,target) VALUES(?,?,?,?)",
+                     (time.time(), member_name, action, target))
+        conn.execute("DELETE FROM audit WHERE id NOT IN "
+                     "(SELECT id FROM audit ORDER BY id DESC LIMIT 2000)")
+
+
+def audit_log(limit: int = 100) -> list[dict]:
+    with db() as conn:
+        rows = conn.execute("SELECT * FROM audit ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+    return [dict(r) for r in rows]
+
+
 # ──────────────────────────────────── المشتركون في الفرص / Opportunities subscribers
 def subscribe(channel: str, user_id: str) -> bool:
     """يسجّل الاشتراك ويعيد True إن كان جديداً.
@@ -870,7 +976,7 @@ def questions(outcome: str = "", channel: str = "", before: int = 0,
             "SELECT u.*, (SELECT a.content FROM messages a WHERE a.channel=u.channel "
             "AND a.user_id=u.user_id AND a.role='assistant' AND a.id>u.id "
             "ORDER BY a.id LIMIT 1) AS reply, "
-            "r.rating AS rating, r.reason AS rating_reason, r.note AS rating_note "
+            "r.rating AS rating, r.reason AS rating_reason, r.note AS rating_note, r.author AS rating_author "
             "FROM messages u LEFT JOIN ratings r ON r.message_id=u.id "
             f"WHERE {' AND '.join(where)} ORDER BY {order} LIMIT ?",
             (*args, limit),
@@ -895,7 +1001,8 @@ def question_text(message_id: int) -> tuple[str, str | None] | None:
 RATING_REASONS = ("wrong", "missing", "refused_wrongly", "should_refuse", "format", "other")
 
 
-def set_rating(message_id: int, rating: int, reason: str = "", note: str = "") -> bool:
+def set_rating(message_id: int, rating: int, reason: str = "", note: str = "",
+               author: str | None = None) -> bool:
     """يحفظ تقييم إجابة السؤال، ويستبدل تقييماً سابقاً. False إن لم يوجد السؤال.
     Saves the rating of the question's answer, replacing an earlier one.
     False if the question does not exist."""
@@ -904,11 +1011,11 @@ def set_rating(message_id: int, rating: int, reason: str = "", note: str = "") -
                             (message_id,)).fetchone():
             return False
         conn.execute(
-            "INSERT OR REPLACE INTO ratings (message_id, rating, reason, note, ts) "
-            "VALUES (?,?,?,?,?)",
+            "INSERT OR REPLACE INTO ratings (message_id, rating, reason, note, author, ts) "
+            "VALUES (?,?,?,?,?,?)",
             (message_id, 1 if rating > 0 else -1,
              reason if reason in RATING_REASONS else None, note.strip() or None,
-             time.time()),
+             author, time.time()),
         )
     return True
 
@@ -934,23 +1041,23 @@ def _vector_blob(vector: list[float] | None) -> bytes | None:
 
 def save_correction(question: str, answer: str, url: str | None, active: bool,
                     vector: list[float] | None, embed_model: str | None,
-                    correction_id: int = 0) -> int:
+                    correction_id: int = 0, author: str | None = None) -> int:
     """يضيف تصحيحاً أو يعدّله (correction_id)، ويعيد رقمه.
     Adds a correction, or edits one (correction_id), and returns its number."""
     now = time.time()
     values = (question, normalize_ar(question), answer, url or None, int(active),
-              _vector_blob(vector), embed_model if vector is not None else None, now)
+              _vector_blob(vector), embed_model if vector is not None else None, now, author)
     with db() as conn:
         if correction_id:
             conn.execute(
                 "UPDATE corrections SET question=?, norm_question=?, answer=?, url=?, "
-                "active=?, embedding=?, embed_model=?, updated=? WHERE id=?",
+                "active=?, embedding=?, embed_model=?, updated=?, author=? WHERE id=?",
                 (*values, correction_id),
             )
             return correction_id
         return conn.execute(
             "INSERT INTO corrections (question, norm_question, answer, url, active, "
-            "embedding, embed_model, updated, created) VALUES (?,?,?,?,?,?,?,?,?)",
+            "embedding, embed_model, updated, author, created) VALUES (?,?,?,?,?,?,?,?,?,?)",
             (*values, now),
         ).lastrowid
 

@@ -262,6 +262,20 @@ DAILY_LIMIT = int(os.getenv("DAILY_LIMIT", "10"))
 # Opportunities: how many weeks Bayan searches, and how many it sends the model
 OPPORTUNITY_WEEKS = int(os.getenv("OPPORTUNITY_WEEKS", "4"))
 OPPORTUNITIES_PER_QUESTION = int(os.getenv("OPPORTUNITIES_PER_QUESTION", "6"))
+# الدخول إلى اللوحة بحساب Google من نطاق المنظمة. Google تتولى كلمات المرور
+# والتحقق بخطوتين ومفاتيح المرور، وبيان يحفظ قائمة الفريق وأدواره فقط.
+# ADMIN_EMAILS: بريد يدخل مديراً دون أن يضيفه أحد (للمدير الأول).
+# Dashboard sign-in with a Google account from the organisation's domain.
+# Google handles passwords, two-step verification and passkeys; Bayan keeps
+# only the team list and its roles. ADMIN_EMAILS: addresses that sign in as
+# admins without being added by anyone (for the first admin).
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
+ALLOWED_EMAIL_DOMAIN = os.getenv("ALLOWED_EMAIL_DOMAIN", "paxmemoria.org").lower()
+ADMIN_EMAILS = {
+    a.strip().lower() for a in os.getenv("ADMIN_EMAILS", "").split(",") if a.strip()
+}
+
 # قنوات بثّ قائمة الفرص للمشتركين. تيليغرام يسمح بالرسائل الاستباقية بلا قيود؛
 # واتساب يشترط قوالب رسائل معتمدة، وماسنجر إشعارات متكررة بموافقة Meta، فيُضافان
 # هنا بعد الموافقة. الاشتراك نفسه يُسجَّل على كل القنوات.
