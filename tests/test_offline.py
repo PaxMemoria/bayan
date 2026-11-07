@@ -979,6 +979,19 @@ tg.httpx.AsyncClient = lambda **kw: real_async(transport=httpx.MockTransport(tg_
 asyncio.run(tg.send("5", "**مرحبا**"))
 check("تيليغرام يُرسل بوضع HTML", tg_calls[-1].get("parse_mode") == "HTML"
       and tg_calls[-1]["text"] == f"{R}<b>مرحبا</b>", tg_calls[-1])
+import app.channels.messenger as msgr  # noqa: E402
+like_calls = []
+tg_client = msgr.httpx.AsyncClient
+msgr.httpx.AsyncClient = lambda **kw: real_async(
+    transport=httpx.MockTransport(lambda r: like_calls.append(str(r.url)) or httpx.Response(200, json={"success": True})), **kw)
+msgr.config.MESSENGER_PAGE_TOKEN = "t"
+asyncio.run(msgr.like_comment("123_456"))
+check("الإعجاب بالتعليق يُرسل إلى likes بتعليقه", like_calls and "/123_456/likes" in like_calls[-1], like_calls)
+msgr.httpx.AsyncClient = lambda **kw: real_async(
+    transport=httpx.MockTransport(lambda r: httpx.Response(403, json={"error": {}})), **kw)
+asyncio.run(msgr.like_comment("123_456"))
+check("فشل الإعجاب لا يرفع خطأً", True)
+msgr.httpx.AsyncClient = tg_client
 asyncio.run(tg.send("5", "**رفض** هنا"))
 check("رفض التنسيق يعيد الرسالة نصاً عادياً",
       "parse_mode" not in tg_calls[-1] and tg_calls[-1]["text"] == f"{R}رفض هنا", tg_calls[-1])

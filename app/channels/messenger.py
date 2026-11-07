@@ -115,6 +115,24 @@ async def send_private_reply(comment_id: str, text: str) -> None:
             log.info("أُرسل رد خاص على التعليق %s", comment_id)
 
 
+async def like_comment(comment_id: str) -> None:
+    """يضع إعجاب الصفحة على التعليق قبل الرد عليه. فشله لا يمنع الرد.
+
+    يحتاج الإذن pages_manage_engagement في تطبيق Meta.
+    Likes a comment as the Page before replying to it. A failure never stops
+    the reply. Needs the pages_manage_engagement permission in the Meta app.
+    """
+    url = f"https://graph.facebook.com/{config.META_GRAPH_VERSION}/{comment_id}/likes"
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.post(url, params={"access_token": config.MESSENGER_PAGE_TOKEN})
+    except Exception:
+        log.exception("تعذّر الإعجاب بالتعليق %s", comment_id)
+        return
+    if r.status_code >= 300:
+        log.warning("فشل الإعجاب بالتعليق %s: %s", comment_id, r.text[:300])
+
+
 async def fetch_recent_comments() -> list[tuple[str, str, str, str]]:
     """يجلب أحدث التعليقات من آخر منشورات الصفحة عبر Graph API.
 

@@ -175,6 +175,7 @@ async def _reply_comment(user_id: str, comment_id: str, text: str) -> None:
         return
     if not reply:
         return
+    await messenger.like_comment(comment_id)
     try:
         await messenger.send_private_reply(comment_id, reply)
     except Exception:
