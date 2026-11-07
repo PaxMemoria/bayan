@@ -25,7 +25,7 @@ from collections import Counter
 
 import numpy as np
 
-from . import config, embed, i18n, overview, store
+from . import config, embed, i18n, opportunities, overview, store
 from .arabic import fts_query, normalize_ar, tokens, weighted_overlap
 
 log = logging.getLogger("retrieve")
@@ -43,6 +43,7 @@ LIST_INTENT = re.compile(
 STRUCTURED_CONFIDENCE = 0.95
 # أنواع المقاطع التي لها نسختان بلغتين (slug الإنجليزية = العربية + "-en")
 # Passage types that come in two language versions (English slug = Arabic + "-en")
+OPPORTUNITY_CONFIDENCE = 0.6
 TWIN_TYPES = ("investigation", "about")
 
 
@@ -347,6 +348,7 @@ def search(question: str, lang: str | None = None) -> dict:
     q = _query_vector(question)
     passages, confidence, used_vectors = semantic(question, lang, q)
     fixes = match_corrections(question, q)
+    opps = opportunities.match(question)
 
     if struct["tools"] or struct["category_tools"]:
         confidence = max(confidence, STRUCTURED_CONFIDENCE)
@@ -355,14 +357,21 @@ def search(question: str, lang: str | None = None) -> dict:
     # its similarity
     if fixes:
         confidence = max(confidence, fixes[0]["similarity"])
+    # سؤال فيه نيّة فرصة ووُجدت فرص: يجيزه من البوابة، فهو من قاعدة بيان
+    # A question with opportunity intent that found opportunities passes the gate:
+    # they come from Bayan's own database
+    if opps:
+        confidence = max(confidence, OPPORTUNITY_CONFIDENCE)
 
     return {
         "passages": passages,
         "confidence": confidence,
         "used_vectors": used_vectors,
         "corrections": fixes,
+        "opportunities": opps,
         **struct,
-        "has_any": bool(passages or struct["tools"] or struct["category_tools"] or fixes),
+        "has_any": bool(passages or struct["tools"] or struct["category_tools"]
+                        or fixes or opps),
     }
 
 

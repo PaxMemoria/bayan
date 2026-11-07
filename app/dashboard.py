@@ -25,6 +25,7 @@ cannot be reversed to their number, and blocking is done by message
 number, not by ID.
 """
 import asyncio
+import datetime
 import hashlib
 import hmac
 import html
@@ -34,7 +35,7 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
-from . import brain, config, embed, ingest, retrieve, store
+from . import brain, config, embed, ingest, opportunities, retrieve, store
 
 router = APIRouter()
 
@@ -352,10 +353,27 @@ TEXT: dict[str, tuple[str, str]] = {
                         "so for now it only matches the same question. It is produced again "
                         "when the server restarts."),
     "flash_fix_deleted": ("حُذف التصحيح.", "Correction deleted."),
+    "nav_opps": ("الفرص", "Opportunities"),
+    "opp_title": ("الفرص الأسبوعية", "Weekly opportunities"),
+    "opp_help": ("الصق قائمة الأسبوع (بنود مرقّمة، وتحت كل بند رابطه). تُقسَّم إلى فرصة لكل بند وتُحفظ برقم أسبوعها، ويبحث بيان فيها حين يُسأل عن زمالة أو منحة أو جائزة أو تدريب، في آخر {n} أسابيع فقط. ويُحفظ معها تصحيح «فرص الأسبوع N» ليبقى الجواب على «فرص» قائمة الأسبوع الأحدث. إعادة لصق أسبوع تستبدل قائمته.",
+                 "Paste the week's list (numbered items, each with its link below). It is split into one opportunity per item and saved with its week number. Bayan searches them when asked for a fellowship, grant, award or training, in the last {n} weeks only. A «فرص الأسبوع N» correction is saved too, so «فرص» answers with the newest week's list. Pasting a week again replaces its list."),
+    "opp_new": ("إضافة قائمة أسبوع", "Add a week's list"),
+    "opp_week": ("رقم الأسبوع (ISO)", "Week number (ISO)"),
+    "opp_year": ("السنة", "Year"),
+    "opp_paste": ("القائمة", "The list"),
+    "opp_save": ("احفظ القائمة", "Save the list"),
+    "opp_none": ("لا قوائم بعد.", "No lists yet."),
+    "opp_count": ("{n} فرص", "{n} opportunities"),
+    "opp_delete": ("احذف الأسبوع", "Delete the week"),
+    "err_opp": ("تأكد من رقم الأسبوع (1–53) والسنة، ومن أن القائمة فيها بند واحد على الأقل: سطر «1. العنوان» ورابطه.",
+                "Check the week number (1–53) and the year, and that the list has at least one item: a «1. Title» line and its link."),
+    "flash_opp_saved": ("حُفظت قائمة الأسبوع، ويبحث فيها بيان من الآن.",
+                        "The week's list is saved. Bayan searches it from now on."),
+    "flash_opp_deleted": ("حُذفت قائمة الأسبوع.", "The week's list was deleted."),
 }
 FLASH_KIND = {"reindex": "ok", "busy": "warn", "saved": "ok", "blocked": "ok",
               "unblocked": "ok", "rated": "ok", "fix_saved": "ok", "fix_novec": "warn",
-              "fix_deleted": "ok"}
+              "fix_deleted": "ok", "opp_saved": "ok", "opp_deleted": "ok"}
 RATINGS = ("up", "down", "none")
 # نموذج التصحيح أكبر من غيره: الحرف العربي 6 بايتات بعد ترميز الرابط
 # The correction form is larger than the others: an Arabic character takes
@@ -580,6 +598,7 @@ NAV = [
     ("/admin/messages", "nav_messages", "messages"),
     ("/admin/try", "nav_try", "try"),
     ("/admin/corrections", "nav_corrections", "corrections"),
+    ("/admin/opportunities", "nav_opps", "opportunities"),
     ("/admin/settings", "nav_settings", "settings"),
     ("/admin/blocked", "nav_blocked", "blocked"),
 ]
@@ -1214,6 +1233,78 @@ async def correction_delete(request: Request):
     if (form.get("id") or "").isdigit():
         store.delete_correction(int(form["id"]))
     return _back("/admin/corrections", msg="fix_deleted")
+
+
+# ─────────────────────────────────────────────────────── الفرص / Opportunities
+def _opp_form(T, c: dict, error: str = "") -> str:
+    err = f'<div class="alert bad">{e(error)}</div>' if error else ""
+    return f"""{err}<div class="card"><form method="post" action="/admin/opportunities/save">
+<label for="ow">{T("opp_week")}</label>
+<input id="ow" name="week" type="number" min="1" max="53" required value="{e(str(c['week']))}">
+<label for="oy">{T("opp_year")}</label>
+<input id="oy" name="year" type="number" min="2000" max="2100" required value="{e(str(c['year']))}">
+<label for="ot">{T("opp_paste")}</label>
+<textarea id="ot" name="text" rows="14" dir="auto" required>{e(c.get('text') or '')}</textarea>
+<p><button type="submit">{T("opp_save")}</button></p></form></div>"""
+
+
+@router.get("/admin/opportunities")
+async def opportunities_list(request: Request, msg: str = ""):
+    if denied := _gate(request):
+        return denied
+    T = tr(req_lang(request))
+    iso = datetime.date.today().isocalendar()
+    cards = []
+    for w in store.opportunity_weeks():
+        items = "".join(
+            f'<li>{e(i["title"])} <a href="{e(i["url"])}" rel="noreferrer" dir="ltr">{e(i["url"][:60])}</a></li>'
+            for i in store.opportunity_week_items(w["year"], w["week"]))
+        cards.append(f"""<div class="card"><div class="meta"><span>{w['year']} · {T("opp_week")} {w['week']}</span>
+<span>{T("opp_count", n=w['n'])}</span></div><details><summary>{T("opp_paste")}</summary><ol>{items}</ol></details>
+<form method="post" action="/admin/opportunities/delete">
+<input type="hidden" name="year" value="{w['year']}"><input type="hidden" name="week" value="{w['week']}">
+<button class="danger small" type="submit">{T("opp_delete")}</button></form></div>""")
+    body = (f'<p class="help">{T("opp_help", n=config.OPPORTUNITY_WEEKS)}</p>'
+            + _opp_form(T, {"week": iso[1], "year": iso[0]})
+            + ("".join(cards) or f'<div class="card muted">{T("opp_none")}</div>'))
+    return page(request, T("opp_title"), body, "opportunities", flash=msg)
+
+
+@router.post("/admin/opportunities/save")
+async def opportunities_save(request: Request):
+    denied, form = await _post_gate(request, FIX_FORM_BYTES)
+    if denied:
+        return denied
+    T = tr(req_lang(request))
+    text = (form.get("text") or "").strip()
+    try:
+        week, year = int(form.get("week") or ""), int(form.get("year") or "")
+    except ValueError:
+        week = year = 0
+    items = opportunities.parse_list(text) if text else []
+    if not (1 <= week <= 53 and 2000 <= year <= 2100) or not items or len(text) > FIX_ANSWER_CHARS:
+        c = {"week": form.get("week") or "", "year": form.get("year") or "", "text": text}
+        return page(request, T("opp_title"), _opp_form(T, c, T("err_opp")),
+                    "opportunities", status=400)
+    store.save_opportunity_week(year, week, items)
+    # تصحيح «فرص الأسبوع N» ليجيب «فرص» بالقائمة كاملة، ويُحدَّث إن وُجد
+    # The «فرص الأسبوع N» correction, so «فرص» answers with the whole list; updated if it exists
+    question = f"فرص الأسبوع {week}"
+    existing = next((c for c in store.corrections() if c["question"] == question), None)
+    vector, model = await asyncio.to_thread(retrieve.embed_correction, question)
+    store.save_correction(question, text, "", True, vector, model,
+                          existing["id"] if existing else 0)
+    return _back("/admin/opportunities", msg="opp_saved")
+
+
+@router.post("/admin/opportunities/delete")
+async def opportunities_delete(request: Request):
+    denied, form = await _post_gate(request)
+    if denied:
+        return denied
+    if (form.get("year") or "").isdigit() and (form.get("week") or "").isdigit():
+        store.delete_opportunity_week(int(form["year"]), int(form["week"]))
+    return _back("/admin/opportunities", msg="opp_deleted")
 
 
 # ─────────────────────────────────────────────────────── الإعدادات / Settings

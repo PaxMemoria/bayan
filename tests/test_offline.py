@@ -392,6 +392,27 @@ check("تعديل التصحيح وإطفاؤه", store.correction(cid)["answer"
       and not store.correction(cid)["active"])
 client.post("/admin/corrections/delete", data={"id": str(cid)})
 check("حذف التصحيح", store.correction(cid) is None)
+# صفحة الفرص في اللوحة: لصق قائمة أسبوع يحفظ فرصها وتصحيح «فرص الأسبوع N»
+r = client.get("/admin/opportunities")
+check("صفحة الفرص تفتح وفيها نموذج اللصق", r.status_code == 200 and "الفرص الأسبوعية" in r.text)
+r = client.post("/admin/opportunities/save", data={"week": "99", "year": "2026", "text": "x"})
+check("رقم أسبوع أو قائمة غير صالحة تُرفض", r.status_code == 400 and not store.opportunity_weeks())
+r = client.post("/admin/opportunities/save", follow_redirects=False, data={
+    "week": "45", "year": "2026",
+    "text": "قائمة:\n1. زمالة اليمن\n   https://yhms-ye.org/f/\n2. منحة دافوس https://ijp.org/a.pdf"})
+fx = [c for c in store.corrections() if c["question"] == "فرص الأسبوع 45"]
+check("لصق الأسبوع يحفظ فرصتين وتصحيح «فرص الأسبوع 45»",
+      r.status_code == 303 and "opp_saved" in r.headers["location"]
+      and [w["n"] for w in store.opportunity_weeks()] == [2] and len(fx) == 1, r.headers.get("location"))
+client.post("/admin/opportunities/save", data={
+    "week": "45", "year": "2026", "text": "1. منحة وحيدة https://ijp.org/b.pdf"})
+check("إعادة لصق الأسبوع تستبدل قائمته ولا تكرّر تصحيحه",
+      [w["n"] for w in store.opportunity_weeks()] == [1]
+      and len([c for c in store.corrections() if c["question"] == "فرص الأسبوع 45"]) == 1)
+client.post("/admin/opportunities/delete", data={"year": "2026", "week": "45"})
+check("حذف الأسبوع", store.opportunity_weeks() == [])
+for c in store.corrections():
+    store.delete_correction(c["id"])
 check("الإنجليزية في صفحة التصحيحات", "Approved corrections" in
       client.get("/admin/corrections?lang=en").text)
 client.get("/admin?lang=ar")
@@ -656,6 +677,46 @@ check("إعادة توليد متجهات التصحيحات بعد تغيّر �
       retrieve.refresh_correction_vectors() == 1
       and matches("ما قوائم الأدوات المتوفرة في الدليل؟") == [cid])
 store.delete_correction(cid)
+# ── الفرص: الجزء الثالث / Opportunities: the third part ──
+from app import opportunities  # noqa: E402
+LIST = """قائمة الفرص المتاحة لهذا الأسبوع:
+
+1. زمالة الصحافة الاستقصائية | اليمن (آخر موعد 15 نوفمبر)
+   https://yhms-ye.org/investigative-fellowship/
+
+2. شفافية مصايد الأسماك
+   https://informedstories.org/en/earth/opportunities/fisheries-transparency-virtual-workshop/
+
+3. Earth Care Awards https://earthcareawards.com/communicators-for-climate-action/
+
+بالتوفيق."""
+parsed = opportunities.parse_list(LIST)
+check("القائمة تُقسَّم إلى ثلاث فرص برابطها",
+      len(parsed) == 3 and parsed[0]["url"].startswith("https://yhms-ye.org")
+      and parsed[2]["url"].startswith("https://earthcareawards.com"), parsed)
+store.save_opportunity_week(2026, 44, parsed[:2])
+store.save_opportunity_week(2026, 45, [parsed[2]])
+check("الأسابيع محفوظة وأحدثها أولاً",
+      [(w["week"], w["n"]) for w in store.opportunity_weeks()] == [(45, 1), (44, 2)])
+check("سؤال بلا نيّة فرصة لا يُرجع فرصاً", opportunities.match("ما أدوات تتبع الطيران؟") == [])
+m = opportunities.match("هل توجد زمالة للصحفيين في اليمن؟")
+check("«زمالة ... اليمن» تجد زمالة اليمن أولاً",
+      m and "اليمن" in m[0]["title"] and m[0]["week"] == 44, m)
+check("سؤال عام عن الفرص يعيد أحدث أسبوع أولاً",
+      opportunities.match("ما الفرص المتاحة؟")[0]["week"] == 45)
+res = retrieve.search("هل توجد زمالة للصحفيين في اليمن؟")
+ctx, ctx_urls = brain.build_context(res, "ar")
+check("الفرصة تدخل سياق النموذج برابطها وتجيز السؤال من البوابة",
+      res["has_any"] and res["confidence"] >= 0.6 and "<فرصة" in ctx
+      and "https://yhms-ye.org" in ctx, ctx[:200])
+store.save_opportunity_week(2026, 46, [parsed[1]])
+store.save_opportunity_week(2026, 47, [parsed[1]])
+store.save_opportunity_week(2026, 48, [parsed[1]])
+store.save_opportunity_week(2026, 49, [parsed[1]])
+check("البحث في آخر 4 أسابيع فقط",
+      all(o["week"] >= 46 for o in store.recent_opportunities(config.OPPORTUNITY_WEEKS)))
+for w in (44, 45, 46, 47, 48, 49):
+    store.delete_opportunity_week(2026, w)
 # قوائم الفرص الأسبوعية: بلا رقم أحدث أسبوع، وبرقم ذلك الأسبوع
 w1 = store.save_correction("فرص الأسبوع 9", "قائمة 9", "", True, None, None)
 w2 = store.save_correction("فرص الأسبوع 45", "قائمة 45", "", True, None, None)
