@@ -1,0 +1,70 @@
+# فحوص الأمان الثابتة: Bandit للشيفرة، وpip-audit للمكتبات، وgitleaks للأسرار
+# في تاريخ المستودع. تعمل مع كل دفع وطلب دمج، وأسبوعياً لأن إعلانات الثغرات
+# تصدر بعد تثبيت الإصدارات. CodeQL غير متاح لأن المستودع خاص.
+#
+# Static security checks: Bandit for the code, pip-audit for the dependencies
+# and gitleaks for secrets in the repository's history. They run on every push
+# and pull request, and weekly, because advisories appear after the pins were
+# set. CodeQL is not available because the repository is private.
+
+name: Security scans
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  schedule:
+    - cron: "17 4 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  code:
+    name: Code (Bandit)
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    - run: pip install bandit==1.9.4
+    # متوسط فأعلى في الخطورة والثقة؛ الاستثناءات وأسبابها في bandit.yaml
+    # Medium and above in severity and confidence; the exemptions and their
+    # reasons are in bandit.yaml
+    - run: bandit -c bandit.yaml -r app scripts -ll -ii
+
+  dependencies:
+    name: Dependencies (pip-audit)
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    # نثبّت المكتبات كما في الحاوية (torch للمعالج وحده) ثم نفحص البيئة كلها،
+    # فتُفحص المكتبات التابعة أيضاً لا المثبّتة في requirements.txt وحدها.
+    # Install as in the container (CPU-only torch), then audit the whole
+    # environment, so transitive packages are checked too, not only the pins.
+    - name: Install as in the container
+      run: |
+        python -m pip install --upgrade pip
+        pip install --index-url https://download.pytorch.org/whl/cpu \
+          "$(grep '^torch==' requirements.txt)"
+        pip install -r requirements.txt pip-audit
+    - run: pip-audit
+
+  secrets:
+    name: Secrets (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    # يفحص التاريخ كله لا آخر commit وحده: سرّ حُذف لاحقاً يبقى في التاريخ
+    # Scans the whole history, not only the last commit: a secret removed later
+    # is still in the history
+    - run: >
+        docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.24.3
+        git /repo --no-banner --redact -v

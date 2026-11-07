@@ -1,0 +1,9 @@
+# إعدادات Bandit لفحص الشيفرة في .github/workflows/security-sast.yml.
+# Bandit settings for the code scan in .github/workflows/security-sast.yml.
+#
+# B608: استعلامات SQL تُبنى من قوائم أعمدة ثابتة وعلامات «?»، لا من مدخلات.
+# B613: علامات الاتجاه (RLM وLRM والعزل الاتجاهي) مقصودة في تنسيق العربية.
+# B608: SQL built from constant column lists and "?" placeholders, never input.
+# B613: the bidi marks (RLM, LRM and isolates) are deliberate Arabic formatting.
+skips: ['B608', 'B613']
+exclude_dirs: ['tests']

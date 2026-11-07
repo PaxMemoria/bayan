@@ -87,7 +87,9 @@ def load(path: Path, threads: int = 0):
 
         if threads:
             torch.set_num_threads(threads)
-        tok = AutoTokenizer.from_pretrained(str(path), local_files_only=True)
+        # مراجعة النموذج تُفحص قبل هذا في fetch_model / The model's revision is
+        # checked before this, in fetch_model
+        tok = AutoTokenizer.from_pretrained(str(path), local_files_only=True)  # nosec B615
         model = Qwen3BidirectionalModel.from_pretrained(
             str(path), local_files_only=True, dtype=torch.float32,
             attn_implementation="sdpa",
