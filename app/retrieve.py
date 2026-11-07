@@ -367,6 +367,26 @@ def search(question: str, lang: str | None = None) -> dict:
 
 
 # ──────────────────────────────────────── التصحيحات المعتمدة / Approved corrections
+# قوائم الفرص الأسبوعية: تصحيح لكل أسبوع سؤاله «فرص الأسبوع 45». السؤال العام
+# عن الفرص بلا رقم يعيد أحدث أسبوع، وبرقم يعيد ذلك الأسبوع.
+# Weekly opportunity lists: one correction per week, its question «فرص الأسبوع 45».
+# A general question about opportunities without a number returns the latest
+# week, and with a number returns that week.
+_WEEKLY_Q = re.compile(r"^فرص(?: هذا)? الاسبوع (\d{1,2})$")
+_OPPORTUNITY_WORDS = {"فرص", "الفرص"}
+
+
+def _latest_weekly(norm_q: str) -> dict | None:
+    """تصحيح أحدث أسبوع إن كان السؤال عاماً عن الفرص بلا رقم أسبوع، وإلا None.
+    The latest week's correction if the question is a general one about
+    opportunities with no week number, otherwise None."""
+    if not _OPPORTUNITY_WORDS & set(norm_q.split()) or re.search(r"\d", norm_q):
+        return None
+    weekly = [(int(m.group(1)), c) for c in store.corrections(active_only=True)
+              if (m := _WEEKLY_Q.match(c["norm_question"] or ""))]
+    return max(weekly, key=lambda w: w[0])[1] if weekly else None
+
+
 def match_corrections(question: str, q: np.ndarray | None) -> list[dict]:
     """التصحيحات المعتمدة التي يشبه سؤالُها سؤالَ السائل، الأقرب أولاً.
 
@@ -399,7 +419,13 @@ def match_corrections(question: str, q: np.ndarray | None) -> list[dict]:
             continue
         if sim >= config.CORRECTION_MIN_SIMILARITY:
             found.append({**c, "similarity": sim})
-    found.sort(key=lambda c: -c["similarity"])
+    # عند التعادل يتقدّم التصحيح الأطول سؤالاً (الأخصّ)، ثم الأحدث تعديلاً
+    # On a tie the correction with the longer (more specific) question goes first,
+    # then the most recently edited
+    found.sort(key=lambda c: (-c["similarity"], -len(c["norm_question"] or "")))
+    if latest := _latest_weekly(norm_q):
+        latest.pop("vector", None)
+        found = [{**latest, "similarity": 1.0}] + [c for c in found if c["id"] != latest["id"]]
     return found[: config.CORRECTIONS_PER_QUESTION]
 
 
