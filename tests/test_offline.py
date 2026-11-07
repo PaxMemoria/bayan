@@ -972,6 +972,101 @@ r = client.post("/admin/opportunities/send", data={"year": "2026", "week": "45"}
 check("زر الإرسال يبدأ البثّ ويعود للصفحة", r.status_code == 303 and "opp_sent" in r.headers["location"])
 store.delete_opportunity_week(2026, 45)
 
+# ── الفريق والدخول بحساب Google / Team and Google sign-in ──
+from urllib.parse import parse_qs, urlsplit  # noqa: E402
+from app import dashboard as dash  # noqa: E402
+config.GOOGLE_CLIENT_ID, config.GOOGLE_CLIENT_SECRET = "cid", "sec"
+config.PUBLIC_URL = "http://bayan.test"
+config.ALLOWED_EMAIL_DOMAIN = "paxmemoria.org"
+config.ADMIN_EMAILS = {"boss@paxmemoria.org"}
+GOOGLE_USER: dict = {}
+
+
+def google_api(request):
+    if request.url.path == "/token":
+        return httpx.Response(200, json={"access_token": "at"})
+    return httpx.Response(200, json=GOOGLE_USER)
+
+
+real_dash_async = dash.httpx.AsyncClient
+dash.httpx.AsyncClient = lambda **kw: real_dash_async(transport=httpx.MockTransport(google_api), **kw)
+
+
+def google_login(c, user: dict, state_override: str | None = None):
+    GOOGLE_USER.clear()
+    GOOGLE_USER.update(user)
+    r = c.get("/admin/auth/google", follow_redirects=False)
+    state = parse_qs(urlsplit(r.headers["location"]).query)["state"][0]
+    return c.get(f"/admin/auth/google/callback?code=abc&state={state_override or state}",
+                 follow_redirects=False)
+
+
+anon = TestClient(server.app)
+check("صفحة الدخول تعرض زر Google ونطاق المنظمة",
+      "/admin/auth/google" in anon.get("/admin/login").text and "@paxmemoria.org" in anon.get("/admin/login").text)
+r = anon.get("/admin/auth/google", follow_redirects=False)
+check("البداية تحوّل إلى Google مع hd والحالة", r.status_code == 303 and "accounts.google.com" in r.headers["location"]
+      and "hd=paxmemoria.org" in r.headers["location"] and "bayan_oauth" in r.cookies)
+r = google_login(anon, {"email": "x@gmail.com", "email_verified": True, "name": "X"})
+check("حساب من خارج النطاق يُرفض", "error=domain" in r.headers["location"], r.headers.get("location"))
+r = google_login(anon, {"email": "new@paxmemoria.org", "email_verified": True, "hd": "paxmemoria.org", "name": "New"})
+check("حساب من النطاق غير مضاف يُرفض", "error=unknown" in r.headers["location"], r.headers.get("location"))
+r = google_login(anon, {"email": "boss@paxmemoria.org", "email_verified": True, "hd": "paxmemoria.org", "name": "Boss"},
+                 state_override="wrong")
+check("حالة خاطئة تُرفض", "error=google" in r.headers["location"], r.headers.get("location"))
+r = google_login(anon, {"email": "boss@paxmemoria.org", "email_verified": True, "hd": "paxmemoria.org", "name": "Boss"})
+boss = store.member_by_email("boss@paxmemoria.org")
+check("بريد ADMIN_EMAILS يدخل مديراً ويُنشأ عضواً", r.status_code == 303 and r.headers["location"] == "/admin"
+      and boss and boss["role"] == "admin" and boss["name"] == "Boss", boss)
+r = anon.get("/admin")
+check("الترويسة تعرض اسم العضو ودوره", r.status_code == 200 and "Boss" in r.text and "مدير" in r.text)
+r = anon.post("/admin/team/add", data={"email": "ed@paxmemoria.org", "role": "editor", "name": ""}, follow_redirects=False)
+check("المدير يضيف محرراً", "member_saved" in r.headers["location"] and store.member_by_email("ed@paxmemoria.org")["role"] == "editor")
+r = anon.post("/admin/team/add", data={"email": "ed@gmail.com", "role": "editor"}, follow_redirects=False)
+check("بريد من خارج النطاق لا يُضاف", "error=member" in r.headers["location"] and store.member_by_email("ed@gmail.com") is None)
+anon.post("/admin/team/add", data={"email": "vw@paxmemoria.org", "role": "viewer"})
+ed = TestClient(server.app)
+google_login(ed, {"email": "ed@paxmemoria.org", "email_verified": True, "hd": "paxmemoria.org", "name": "Ed"})
+check("المحرر يدخل ويرى الأسئلة", ed.get("/admin/messages").status_code == 200)
+check("المحرر لا يفتح الفريق ولا الإعدادات",
+      ed.get("/admin/team").status_code == 403 and ed.get("/admin/settings").status_code == 403)
+r = ed.post("/admin/corrections/save", follow_redirects=False,
+            data={"question": "ما أداة Hunchly؟", "answer": "توثّق الصفحات.", "url": "", "active": "1"})
+fx = [c for c in store.corrections() if c["question"] == "ما أداة Hunchly؟"]
+check("تصحيح المحرر يُنسب إليه ويظهر في القائمة",
+      r.status_code == 303 and fx and fx[0]["author"] == "Ed" and "بواسطة Ed" in anon.get("/admin/corrections").text, fx and fx[0].get("author"))
+for c in fx:
+    store.delete_correction(c["id"])
+vw = TestClient(server.app)
+google_login(vw, {"email": "vw@paxmemoria.org", "email_verified": True, "hd": "paxmemoria.org", "name": "Vee"})
+check("المشاهد يقرأ ولا يغيّر", vw.get("/admin/messages").status_code == 200
+      and vw.post("/admin/corrections/save", data={"question": "س", "answer": "ج", "active": "1"}).status_code == 403)
+me_id = boss["id"]
+r = anon.post("/admin/team/update", data={"id": str(me_id), "role": "viewer"}, follow_redirects=False)
+check("المدير لا يخفض دوره", "error=self" in r.headers["location"] and store.member(me_id)["role"] == "admin")
+ed_id = store.member_by_email("ed@paxmemoria.org")["id"]
+anon.post("/admin/team/update", data={"id": str(ed_id), "active": "0"})
+check("تعطيل العضو يُسقط جلسته", not store.member(ed_id)["active"]
+      and ed.get("/admin", follow_redirects=False).status_code == 303)
+r = google_login(ed, {"email": "ed@paxmemoria.org", "email_verified": True, "hd": "paxmemoria.org", "name": "Ed"})
+check("العضو المعطّل لا يدخل", "error=inactive" in r.headers["location"])
+acts = [a["action"] for a in store.audit_log(50)]
+check("سجلّ الإجراءات يحوي الدخول والإضافة والتصحيح والتعطيل",
+      {"login", "member_add", "correction_add", "member_deactivate", "login_denied_unknown"} <= set(acts), acts[:12])
+r = anon.get("/admin/team")
+check("صفحة الفريق تعرض الأعضاء والسجلّ", "ed@paxmemoria.org" in r.text and "سجلّ الإجراءات" in r.text and "member_add" in r.text)
+anon.post("/admin/team/delete", data={"id": str(ed_id)})
+check("حذف عضو", store.member(ed_id) is None)
+check("المالك بكلمة المرور ما زال يدخل مديراً",
+      client.get("/admin/team").status_code == 200 and "المالك" in client.get("/admin").text)
+config.GOOGLE_CLIENT_ID = ""
+check("بلا عميل Google تبقى صفحة الدخول بكلمة المرور وحدها", "/admin/auth/google" not in anon.get("/admin/login").text)
+dash.httpx.AsyncClient = real_dash_async
+config.PUBLIC_URL = ""
+with store.db() as c:
+    c.execute("DELETE FROM members")
+    c.execute("DELETE FROM audit")
+
 r = client.get("/privacy")
 check("صفحة الخصوصية تعمل باللغتين",
       r.status_code == 200 and "سياسة الخصوصية لبيان" in r.text and "Bayan privacy policy" in r.text)

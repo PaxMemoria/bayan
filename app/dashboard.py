@@ -28,16 +28,20 @@ import asyncio
 import datetime
 import hashlib
 import json
+import logging
+import secrets
 import hmac
 import html
 import time
 from urllib.parse import parse_qs, urlencode, urlsplit
 
+import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from . import brain, broadcast, config, embed, ingest, opportunities, retrieve, store
 
+log = logging.getLogger("dashboard")
 router = APIRouter()
 
 COOKIE = "bayan_admin"
@@ -396,12 +400,60 @@ TEXT: dict[str, tuple[str, str]] = {
     "opp_send": ("أرسل للمشتركين", "Send to subscribers"),
     "last_broadcast": ("آخر بثّ: الأسبوع {w}، {when}. أُرسل إلى {s}، فشل {f}، تُرك {k} على قنوات بلا بث.",
                        "Last broadcast: week {w}, {when}. Sent to {s}, failed {f}, skipped {k} on channels without broadcast."),
+    "nav_team": ("الفريق", "Team"),
+    "owner_label": ("المالك", "Owner"),
+    "role_admin": ("مدير", "Admin"),
+    "role_editor": ("محرر", "Editor"),
+    "role_viewer": ("مشاهد", "Viewer"),
+    "login_google": ("الدخول بحساب Google لباكس ميموريا", "Sign in with your Pax Memoria Google account"),
+    "login_google_help": ("للفريق: حساب @{d}. التحقق بخطوتين ومفاتيح المرور تديرها Google.",
+                          "For the team: an @{d} account. Two-step verification and passkeys are managed by Google."),
+    "login_owner": ("أو بكلمة مرور المالك", "Or with the owner password"),
+    "login_domain": ("هذا الحساب ليس من نطاق {d}.", "That account is not on the {d} domain."),
+    "login_unknown": ("حسابك من النطاق لكنه غير مضاف إلى الفريق. اطلب من مدير أن يضيفك.",
+                      "Your account is on the domain but not on the team. Ask an admin to add you."),
+    "login_inactive": ("حسابك معطّل في الفريق.", "Your team account is deactivated."),
+    "login_google_fail": ("تعذّر الدخول بحساب Google. حاول مجدداً.", "Google sign-in failed. Try again."),
+    "forbidden": ("ليس لدورك صلاحية هذا الإجراء", "Your role does not allow this action"),
+    "team_title": ("الفريق", "Team"),
+    "team_help": ("من يدخل اللوحة ودوره. المدير يرى كل شيء ويدير الفريق والإعدادات، والمحرر يكتب التصحيحات والفرص ويقيّم ويحظر، والمشاهد يقرأ فقط. يدخل كل عضو بحساب Google من نطاق {d}، فلا كلمات مرور هنا.",
+                  "Who signs in to the dashboard and their role. An admin sees everything and manages the team and settings, an editor writes corrections and opportunities, rates and blocks, and a viewer only reads. Everyone signs in with a Google account on the {d} domain, so no passwords live here."),
+    "team_add": ("إضافة عضو", "Add a member"),
+    "team_email": ("البريد", "Email"),
+    "team_name": ("الاسم (اختياري، يُحدَّث من Google عند الدخول)", "Name (optional, updated from Google on sign-in)"),
+    "team_role": ("الدور", "Role"),
+    "th_email": ("البريد", "Email"),
+    "th_name": ("الاسم", "Name"),
+    "th_role": ("الدور", "Role"),
+    "th_last_login": ("آخر دخول", "Last sign-in"),
+    "th_when": ("الوقت", "When"),
+    "th_action": ("الإجراء", "Action"),
+    "th_target": ("على", "Target"),
+    "m_active": ("مفعّل", "Active"),
+    "m_inactive": ("معطّل", "Deactivated"),
+    "m_you": ("أنت", "you"),
+    "team_save": ("احفظ", "Save"),
+    "team_deactivate": ("عطّل", "Deactivate"),
+    "team_activate": ("فعّل", "Activate"),
+    "team_delete": ("احذف", "Delete"),
+    "team_none": ("لا أعضاء بعد. المالك يدخل بكلمة المرور، وعناوين ADMIN_EMAILS تدخل مديرين مباشرة.",
+                  "No members yet. The owner signs in with the password, and ADMIN_EMAILS sign in as admins directly."),
+    "audit_h": ("سجلّ الإجراءات", "Action log"),
+    "audit_help": ("آخر 100 إجراء في اللوحة: من فعل ماذا ومتى. لا يحوي نصوص أسئلة ولا معرّفات الجمهور.",
+                   "The last 100 dashboard actions: who did what, when. No question text and no audience identifiers."),
+    "err_member": ("البريد غير صالح أو ليس من نطاق {d}.", "The email is invalid or not on the {d} domain."),
+    "err_self": ("لا يمكنك تعطيل نفسك أو خفض دورك.", "You cannot deactivate yourself or lower your own role."),
+    "flash_member_saved": ("حُفظ العضو.", "Member saved."),
+    "flash_member_deleted": ("حُذف العضو.", "Member deleted."),
+    "by": ("بواسطة {who}", "by {who}"),
+    "th_by": ("بواسطة", "By"),
     "flash_opp_sent": ("بدأ إرسال قائمة الأسبوع إلى المشتركين على القنوات المفعّلة، والنتيجة تظهر هنا بعد اكتماله.",
                        "The week's list is being sent to subscribers on the enabled channels; the result appears here once it is done."),
 }
 FLASH_KIND = {"reindex": "ok", "busy": "warn", "saved": "ok", "blocked": "ok",
               "unblocked": "ok", "rated": "ok", "fix_saved": "ok", "fix_novec": "warn",
-              "fix_deleted": "ok", "opp_saved": "ok", "opp_deleted": "ok", "opp_sent": "ok"}
+              "fix_deleted": "ok", "opp_saved": "ok", "opp_deleted": "ok", "opp_sent": "ok",
+              "member_saved": "ok", "member_deleted": "ok"}
 RATINGS = ("up", "down", "none")
 # نموذج التصحيح أكبر من غيره: الحرف العربي 6 بايتات بعد ترميز الرابط
 # The correction form is larger than the others: an Arabic character takes
@@ -446,23 +498,56 @@ def _sign(value: str) -> str:
     ).hexdigest()
 
 
-def _new_session() -> str:
+def _new_session(member_id: int = 0) -> str:
+    """جلسة موقّعة تحمل رقم العضو (0 للمالك). / A signed session carrying the
+    member's id (0 for the owner)."""
     exp = str(int(time.time()) + SESSION_HOURS * 3600)
-    return f"{exp}.{_sign('session:' + exp)}"
+    return f"{exp}.{member_id}.{_sign(f'session:{exp}:{member_id}')}"
+
+
+def google_enabled() -> bool:
+    return bool(config.GOOGLE_CLIENT_ID and config.GOOGLE_CLIENT_SECRET
+                and config.PUBLIC_URL.startswith("http"))
+
+
+def current_member(request: Request) -> dict | None:
+    """العضو صاحب الجلسة، أو None. المالك {id: 0, role: admin}؛ العضو المعطّل لا جلسة له.
+    The session's member, or None. The owner is {id: 0, role: admin}; a
+    deactivated member has no session."""
+    if not configured():
+        return None
+    parts = (request.cookies.get(COOKIE) or "").split(".")
+    if len(parts) != 3:
+        return None
+    exp, mid, sig = parts
+    if not exp.isdigit() or not mid.isdigit() or int(exp) < time.time():
+        return None
+    if not hmac.compare_digest(sig, _sign(f"session:{exp}:{mid}")):
+        return None
+    if mid == "0":
+        return {"id": 0, "email": "", "name": "", "role": "admin", "active": 1}
+    m = store.member(int(mid))
+    return m if m and m["active"] else None
 
 
 def is_admin(request: Request) -> bool:
-    if not configured():
-        return False
-    exp, _, sig = (request.cookies.get(COOKIE) or "").partition(".")
-    if not exp.isdigit() or int(exp) < time.time():
-        return False
-    return hmac.compare_digest(sig, _sign("session:" + exp))
+    """هل الطلب من عضو داخل (بأي دور). / Whether the request is from a signed-in
+    member, of any role."""
+    return current_member(request) is not None
 
 
-def _gate(request: Request) -> Response | None:
-    """None إن كان الطلب من مسؤول، وإلا الرد المناسب.
-    None if the request comes from an admin, otherwise the appropriate response."""
+def who(request: Request) -> str:
+    """اسم صاحب الطلب للسجلّ والنسبة: الاسم، وإلا البريد، وإلا «المالك».
+    The requester's name for the log and attribution: the name, else the
+    email, else the owner."""
+    m = getattr(request.state, "member", None) or current_member(request) or {}
+    return m.get("name") or m.get("email") or tr(req_lang(request))("owner_label")
+
+
+def _gate(request: Request, role: str = "viewer") -> Response | None:
+    """None إن كان الطلب من عضو بدور كافٍ، وإلا الرد المناسب.
+    None if the request comes from a member with a sufficient role, otherwise
+    the appropriate response."""
     if not configured():
         T = tr(req_lang(request))
         return page(
@@ -472,8 +557,12 @@ def _gate(request: Request) -> Response | None:
             "</p></div>",
             nav=False, status=503,
         )
-    if not is_admin(request):
+    m = current_member(request)
+    if m is None:
         return RedirectResponse("/admin/login", status_code=303)
+    if RANK.get(m["role"], -1) < RANK[role]:
+        return _plain("forbidden", 403)
+    request.state.member = m
     return None
 
 
@@ -499,9 +588,12 @@ async def _form(request: Request, limit: int = MAX_FORM_BYTES) -> dict[str, str]
     return {k: v[0] for k, v in parse_qs(body, keep_blank_values=True).items()}
 
 
-async def _post_gate(request: Request,
-                     limit: int = MAX_FORM_BYTES) -> tuple[Response | None, dict]:
-    denied = _gate(request)
+async def _post_gate(request: Request, limit: int = MAX_FORM_BYTES,
+                     role: str = "editor") -> tuple[Response | None, dict]:
+    """بوابة الطلبات التي تغيّر شيئاً: المحرر فأعلى، إلا ما يطلب مديراً.
+    The gate for requests that change something: editor and above, unless
+    admin is required."""
+    denied = _gate(request, role)
     if denied:
         return denied, {}
     if not _same_origin(request):
@@ -629,7 +721,13 @@ NAV = [
     ("/admin/opportunities", "nav_opps", "opportunities"),
     ("/admin/settings", "nav_settings", "settings"),
     ("/admin/blocked", "nav_blocked", "blocked"),
+    ("/admin/team", "nav_team", "team"),
 ]
+RANK = {"viewer": 0, "editor": 1, "admin": 2}
+OAUTH_COOKIE = "bayan_oauth"
+GOOGLE_AUTH = "https://accounts.google.com/o/oauth2/v2/auth"
+GOOGLE_TOKEN = "https://oauth2.googleapis.com/token"
+GOOGLE_USERINFO = "https://openidconnect.googleapis.com/v1/userinfo"
 
 HEADERS = {
     "Content-Security-Policy": (
@@ -665,6 +763,10 @@ def page(request: Request, title: str, body: str, active: str = "", nav: bool = 
     links += (f'<a class="lang" href="{e(_lang_link(request, other))}" '
               f'lang="{other}">{T("other_lang")}</a>')
     if nav:
+        m = current_member(request)
+        if m:
+            label = m.get("name") or m.get("email") or T("owner_label")
+            links += f'<span class="muted who">{e(label)} · {T("role_" + m["role"])}</span>'
         links += ('<form method="post" action="/admin/logout">'
                   f'<button class="ghost" type="submit">{T("logout")}</button></form>')
     note = ""
@@ -723,14 +825,34 @@ async def login_form(request: Request, error: str = ""):
     if is_admin(request):
         return RedirectResponse("/admin", status_code=303)
     T = tr(req_lang(request))
-    msg = {"bad": T("login_bad"), "slow": T("login_slow")}.get(error, "")
-    body = f"""<div class="card" style="max-width:420px">
-{f'<div class="alert bad">{e(msg)}</div>' if msg else ''}
-<form method="post" action="/admin/login">
+    d = config.ALLOWED_EMAIL_DOMAIN
+    msg = {"bad": T("login_bad"), "slow": T("login_slow"), "domain": T("login_domain", d=d),
+           "unknown": T("login_unknown"), "inactive": T("login_inactive"),
+           "google": T("login_google_fail")}.get(error, "")
+    pw_form = f"""<form method="post" action="/admin/login">
 <label for="pw">{T("password")}</label>
-<input id="pw" name="password" type="password" autocomplete="current-password" required autofocus>
-<p><button type="submit">{T("login_btn")}</button></p></form></div>"""
+<input id="pw" name="password" type="password" autocomplete="current-password" required>
+<p><button type="submit">{T("login_btn")}</button></p></form>"""
+    if google_enabled():
+        body = f"""<div class="card" style="max-width:420px">
+{f'<div class="alert bad">{e(msg)}</div>' if msg else ''}
+<p><a class="btn" href="/admin/auth/google">{T("login_google")}</a></p>
+<p class="help">{e(T("login_google_help", d=d))}</p>
+<details><summary>{T("login_owner")}</summary>{pw_form}</details></div>"""
+    else:
+        body = f"""<div class="card" style="max-width:420px">
+{f'<div class="alert bad">{e(msg)}</div>' if msg else ''}{pw_form}</div>"""
     return page(request, T("login_title"), body, nav=False)
+
+
+def _session_response(member_id: int, to: str = "/admin") -> RedirectResponse:
+    resp = RedirectResponse(to, status_code=303)
+    resp.set_cookie(
+        COOKIE, _new_session(member_id), max_age=SESSION_HOURS * 3600, httponly=True,
+        samesite="strict", path="/admin",
+        secure=config.PUBLIC_URL.startswith("https://"),
+    )
+    return resp
 
 
 @router.post("/admin/login")
@@ -746,18 +868,95 @@ async def login(request: Request):
     if not hmac.compare_digest(
         (form.get("password") or "").encode(), config.ADMIN_PASSWORD.encode()
     ):
+        store.audit("?", "login_failed", "owner password")
         return _back("/admin/login", error="bad")
-    resp = RedirectResponse("/admin", status_code=303)
-    resp.set_cookie(
-        COOKIE, _new_session(), max_age=SESSION_HOURS * 3600, httponly=True,
-        samesite="strict", path="/admin",
-        secure=config.PUBLIC_URL.startswith("https://"),
-    )
+    store.audit(tr("ar")("owner_label"), "login", "owner password")
+    return _session_response(0)
+
+
+# ─────────────────────────────── الدخول بحساب Google / Google sign-in
+@router.get("/admin/auth/google")
+async def google_start(request: Request):
+    if not configured():
+        return _gate(request)
+    if not google_enabled():
+        return _back("/admin/login", error="google")
+    state = secrets.token_urlsafe(24)
+    exp = int(time.time()) + 600
+    params = urlencode({
+        "client_id": config.GOOGLE_CLIENT_ID,
+        "redirect_uri": _google_redirect(),
+        "response_type": "code",
+        "scope": "openid email profile",
+        "state": state,
+        "hd": config.ALLOWED_EMAIL_DOMAIN,
+        "prompt": "select_account",
+    })
+    resp = RedirectResponse(f"{GOOGLE_AUTH}?{params}", status_code=303)
+    # Lax لا Strict: الكوكي يجب أن يصل مع الرجوع من Google
+    # Lax, not Strict: the cookie must come back with the redirect from Google
+    resp.set_cookie(OAUTH_COOKIE, f"{exp}.{state}.{_sign(f'oauth:{exp}:{state}')}",
+                    max_age=600, httponly=True, samesite="lax", path="/admin",
+                    secure=config.PUBLIC_URL.startswith("https://"))
+    return resp
+
+
+def _google_redirect() -> str:
+    return config.PUBLIC_URL.rstrip("/") + "/admin/auth/google/callback"
+
+
+@router.get("/admin/auth/google/callback")
+async def google_callback(request: Request, code: str = "", state: str = "", error: str = ""):
+    if not configured():
+        return _gate(request)
+    parts = (request.cookies.get(OAUTH_COOKIE) or "").split(".")
+    ok = (len(parts) == 3 and parts[0].isdigit() and int(parts[0]) >= time.time()
+          and hmac.compare_digest(parts[1], state or "-")
+          and hmac.compare_digest(parts[2], _sign(f"oauth:{parts[0]}:{parts[1]}")))
+    if not ok or error or not code or not google_enabled():
+        return _back("/admin/login", error="google")
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            tok = await client.post(GOOGLE_TOKEN, data={
+                "code": code, "client_id": config.GOOGLE_CLIENT_ID,
+                "client_secret": config.GOOGLE_CLIENT_SECRET,
+                "redirect_uri": _google_redirect(), "grant_type": "authorization_code",
+            })
+            access = tok.json().get("access_token") if tok.status_code == 200 else None
+            if not access:
+                log.warning("رفض Google تبادل الرمز: %s", tok.text[:200])
+                return _back("/admin/login", error="google")
+            info = await client.get(GOOGLE_USERINFO, headers={"Authorization": f"Bearer {access}"})
+    except Exception:  # noqa: BLE001
+        log.exception("تعذّر الاتصال بـ Google للدخول")
+        return _back("/admin/login", error="google")
+    data = info.json() if info.status_code == 200 else {}
+    email = (data.get("email") or "").lower()
+    domain = email.rpartition("@")[2]
+    hd = (data.get("hd") or "").lower()
+    if not data.get("email_verified") or domain != config.ALLOWED_EMAIL_DOMAIN or (hd and hd != domain):
+        store.audit("?", "login_denied_domain", email or "?")
+        return _back("/admin/login", error="domain")
+    m = store.member_by_email(email)
+    if m is None and email in config.ADMIN_EMAILS:
+        m = store.member(store.add_member(email, "admin", data.get("name") or ""))
+    if m is None:
+        store.audit("?", "login_denied_unknown", email)
+        return _back("/admin/login", error="unknown")
+    if not m["active"]:
+        store.audit(email, "login_denied_inactive", email)
+        return _back("/admin/login", error="inactive")
+    store.touch_login(m["id"], data.get("name") or m["name"])
+    store.audit(data.get("name") or email, "login", "google")
+    resp = _session_response(m["id"])
+    resp.delete_cookie(OAUTH_COOKIE, path="/admin")
     return resp
 
 
 @router.post("/admin/logout")
-async def logout():
+async def logout(request: Request):
+    if current_member(request):
+        store.audit(who(request), "logout")
     resp = RedirectResponse("/admin/login", status_code=303)
     resp.delete_cookie(COOKIE, path="/admin")
     return resp
@@ -904,9 +1103,10 @@ async def overview(request: Request, msg: str = ""):
 
 @router.post("/admin/reindex-now")
 async def reindex_now(request: Request):
-    denied, _ = await _post_gate(request)
+    denied, _ = await _post_gate(request, role="admin")
     if denied:
         return denied
+    store.audit(who(request), "reindex")
     state = ingest.start_background(pull=True)
     return _back("/admin", msg="reindex" if state == "started" else "busy")
 
@@ -1004,6 +1204,8 @@ def _rating_html(m: dict, here: str, T) -> str:
             parts.append(f'<span>{T("rr_" + m["rating_reason"])}</span>')
         if m.get("rating_note"):
             parts.append(f'<span>{e(m["rating_note"])}</span>')
+        if m.get("rating_author"):
+            parts.append(f'<span>{e(T("by", who=m["rating_author"]))}</span>')
         shown = f'<div class="meta rated">{"".join(parts)}</div>'
     options = "".join(
         f'<option value="{r}" {"selected" if m.get("rating_reason") == r else ""}>'
@@ -1039,7 +1241,7 @@ async def rate(request: Request):
             store.clear_rating(int(mid))
         elif choice in ("up", "down"):
             store.set_rating(int(mid), 1 if choice == "up" else -1,
-                             form.get("reason", ""), (form.get("note") or "")[:300])
+                             form.get("reason", ""), (form.get("note") or "")[:300], author=who(request))
     sep = "&" if "?" in nxt else "?"
     return RedirectResponse(f"{nxt}{sep}msg=rated#m{mid if mid.isdigit() else ''}",
                             status_code=303)
@@ -1055,6 +1257,7 @@ async def block(request: Request):
         if (form.get("msg_id") or "").isdigit() else None
     if owner:
         store.block(*owner, BLOCK_REASON)
+        store.audit(who(request), "block")
     sep = "&" if "?" in nxt else "?"
     return RedirectResponse(f"{nxt}{sep}msg=blocked", status_code=303)
 
@@ -1095,6 +1298,7 @@ async def unblock(request: Request):
                 and hmac.compare_digest(fingerprint(b["channel"], b["user_id"]),
                                         form.get("fp", ""))):
             store.unblock(b["channel"], b["user_id"])
+            store.audit(who(request), "unblock")
     return _back("/admin/blocked", msg="unblocked")
 
 
@@ -1185,7 +1389,8 @@ async def corrections_list(request: Request, msg: str = ""):
         link = (f'<a href="{e(c["url"])}" rel="noreferrer">{e(c["url"])}</a>'
                 if c["url"] else "")
         cards.append(f"""<div class="card">
-<div class="meta">{state}{novec}<span>{T("fix_updated", when=when(c['updated']))}</span></div>
+<div class="meta">{state}{novec}<span>{T("fix_updated", when=when(c['updated']))}</span>
+{f'<span>{e(T("by", who=c["author"]))}</span>' if c.get("author") else ''}</div>
 <div class="q">{e(c['question'])}</div>
 <details><summary>{T("fix_a")}</summary><div class="reply">{e(c['answer'])}</div>{link}</details>
 <p class="row"><a class="btn" href="/admin/corrections/edit?id={c['id']}">{T("fix_edit")}</a>
@@ -1276,8 +1481,9 @@ async def correction_save(request: Request):
     if cid and not store.correction(cid):
         return _back("/admin/corrections")
     vector, model = await asyncio.to_thread(retrieve.embed_correction, c["question"])
-    store.save_correction(c["question"], c["answer"], c["url"], c["active"],
-                          vector, model, cid)
+    saved = store.save_correction(c["question"], c["answer"], c["url"], c["active"],
+                                  vector, model, cid, author=who(request))
+    store.audit(who(request), "correction_edit" if cid else "correction_add", str(saved))
     return _back("/admin/corrections", msg="fix_saved" if vector is not None else "fix_novec")
 
 
@@ -1288,6 +1494,7 @@ async def correction_delete(request: Request):
         return denied
     if (form.get("id") or "").isdigit():
         store.delete_correction(int(form["id"]))
+        store.audit(who(request), "correction_delete", form["id"])
     return _back("/admin/corrections", msg="fix_deleted")
 
 
@@ -1365,13 +1572,14 @@ async def opportunities_save(request: Request):
         return page(request, T("opp_title"), _opp_form(T, c, T("err_opp")),
                     "opportunities", status=400)
     store.save_opportunity_week(year, week, items)
+    store.audit(who(request), "opportunities_save", f"{year}-W{week}")
     # تصحيح «فرص الأسبوع N» ليجيب «فرص» بالقائمة كاملة، ويُحدَّث إن وُجد
     # The «فرص الأسبوع N» correction, so «فرص» answers with the whole list; updated if it exists
     question = f"فرص الأسبوع {week}"
     existing = next((c for c in store.corrections() if c["question"] == question), None)
     vector, model = await asyncio.to_thread(retrieve.embed_correction, question)
     store.save_correction(question, text, "", True, vector, model,
-                          existing["id"] if existing else 0)
+                          existing["id"] if existing else 0, author=who(request))
     return _back("/admin/opportunities", msg="opp_saved")
 
 
@@ -1384,6 +1592,7 @@ async def opportunities_send(request: Request):
         # البثّ قد يستغرق دقائق مع مشتركين كثر، فيجري في الخلفية والنتيجة في الصفحة
         # With many subscribers the broadcast can take minutes, so it runs in
         # the background and the result shows on the page
+        store.audit(who(request), "opportunities_send", f"{form['year']}-W{form['week']}")
         asyncio.create_task(broadcast.send_week(int(form["year"]), int(form["week"])))
     return _back("/admin/opportunities", msg="opp_sent")
 
@@ -1395,7 +1604,120 @@ async def opportunities_delete(request: Request):
         return denied
     if (form.get("year") or "").isdigit() and (form.get("week") or "").isdigit():
         store.delete_opportunity_week(int(form["year"]), int(form["week"]))
+        store.audit(who(request), "opportunities_delete", f"{form['year']}-W{form['week']}")
     return _back("/admin/opportunities", msg="opp_deleted")
+
+
+# ─────────────────────────────────────────────────────── الفريق / Team
+def _valid_member_email(email: str) -> bool:
+    local, at, domain = email.partition("@")
+    return bool(at and local and domain == config.ALLOWED_EMAIL_DOMAIN
+                and not any(ch in email for ch in " \n\r\t<>\""))
+
+
+@router.get("/admin/team")
+async def team(request: Request, msg: str = "", error: str = ""):
+    if denied := _gate(request, "admin"):
+        return denied
+    T = tr(req_lang(request))
+    me = request.state.member
+    d = config.ALLOWED_EMAIL_DOMAIN
+    err = {"member": T("err_member", d=d), "self": T("err_self")}.get(error, "")
+    err_html = f'<div class="alert bad">{e(err)}</div>' if err else ""
+
+    def role_opts(cur: str) -> str:
+        return "".join(
+            f'<option value="{r}" {"selected" if r == cur else ""}>{T("role_" + r)}</option>'
+            for r in store.ROLES)
+
+    add = f"""<div class="card"><h2>{T("team_add")}</h2><form method="post" action="/admin/team/add">
+<label for="te">{T("team_email")}</label>
+<input id="te" name="email" type="email" dir="ltr" required placeholder="name@{e(d)}">
+<label for="tn">{T("team_name")}</label><input id="tn" name="name" type="text" maxlength="80">
+<label for="tr">{T("team_role")}</label><select id="tr" name="role">{role_opts("editor")}</select>
+<p><button type="submit">{T("team_add")}</button></p></form></div>"""
+    rows = []
+    for m in store.members():
+        is_me = m["id"] == me.get("id")
+        state = (f'<span class="badge ok">{T("m_active")}</span>' if m["active"]
+                 else f'<span class="badge muted">{T("m_inactive")}</span>')
+        you = f' <small>({T("m_you")})</small>' if is_me else ""
+        rows.append(f"""<tr><td dir="ltr">{e(m['email'])}{you}</td><td>{e(m['name'])}</td>
+<td><form method="post" action="/admin/team/update" class="row"><input type="hidden" name="id" value="{m['id']}">
+<select name="role">{role_opts(m['role'])}</select> <button class="small" type="submit">{T("team_save")}</button></form></td>
+<td>{state}</td><td>{when(m['last_login'])}</td>
+<td class="row"><form method="post" action="/admin/team/update"><input type="hidden" name="id" value="{m['id']}">
+<input type="hidden" name="active" value="{0 if m['active'] else 1}">
+<button class="small" type="submit">{T("team_deactivate") if m['active'] else T("team_activate")}</button></form>
+<form method="post" action="/admin/team/delete"><input type="hidden" name="id" value="{m['id']}">
+<button class="danger small" type="submit">{T("team_delete")}</button></form></td></tr>""")
+    table = (f'<div class="card"><table><tr><th>{T("th_email")}</th><th>{T("th_name")}</th>'
+             f'<th>{T("th_role")}</th><th>{T("th_state")}</th><th>{T("th_last_login")}</th><th></th></tr>'
+             f'{"".join(rows)}</table></div>' if rows else f'<div class="card muted">{T("team_none")}</div>')
+    log_rows = "".join(
+        f'<tr><td>{when(a["ts"])}</td><td>{e(a["member"])}</td><td>{e(a["action"])}</td>'
+        f'<td dir="ltr">{e(a["target"] or "")}</td></tr>'
+        for a in store.audit_log(100)
+    ) or f'<tr><td colspan="4" class="muted">{T("none_yet")}</td></tr>'
+    audit_html = (f'<h2>{T("audit_h")}</h2><p class="help">{T("audit_help")}</p>'
+                  f'<div class="card"><table><tr><th>{T("th_when")}</th><th>{T("th_by")}</th>'
+                  f'<th>{T("th_action")}</th><th>{T("th_target")}</th></tr>{log_rows}</table></div>')
+    body = err_html + f'<p class="help">{e(T("team_help", d=d))}</p>' + add + table + audit_html
+    return page(request, T("team_title"), body, "team", flash=msg)
+
+
+@router.post("/admin/team/add")
+async def team_add(request: Request):
+    denied, form = await _post_gate(request, role="admin")
+    if denied:
+        return denied
+    email = (form.get("email") or "").strip().lower()
+    role = form.get("role") or "editor"
+    name = (form.get("name") or "").strip()[:80]
+    if not _valid_member_email(email) or role not in store.ROLES:
+        return _back("/admin/team", error="member")
+    store.add_member(email, role, name)
+    store.audit(who(request), "member_add", f"{email} ({role})")
+    return _back("/admin/team", msg="member_saved")
+
+
+@router.post("/admin/team/update")
+async def team_update(request: Request):
+    denied, form = await _post_gate(request, role="admin")
+    if denied:
+        return denied
+    mid = int(form["id"]) if (form.get("id") or "").isdigit() else 0
+    m = store.member(mid)
+    if not m:
+        return _back("/admin/team")
+    role, active = form.get("role"), form.get("active")
+    # المدير لا يعطّل نفسه ولا يخفض دوره، كي لا تبقى اللوحة بلا مدير
+    # An admin cannot deactivate themselves or lower their own role, so the
+    # dashboard is never left without an admin
+    if mid == request.state.member.get("id") and ((role and role != m["role"]) or active == "0"):
+        return _back("/admin/team", error="self")
+    if role in store.ROLES and role != m["role"]:
+        store.set_member(mid, role=role)
+        store.audit(who(request), "member_role", f"{m['email']} → {role}")
+    if active in ("0", "1") and bool(int(active)) != bool(m["active"]):
+        store.set_member(mid, active=active == "1")
+        store.audit(who(request), "member_activate" if active == "1" else "member_deactivate", m["email"])
+    return _back("/admin/team", msg="member_saved")
+
+
+@router.post("/admin/team/delete")
+async def team_delete(request: Request):
+    denied, form = await _post_gate(request, role="admin")
+    if denied:
+        return denied
+    mid = int(form["id"]) if (form.get("id") or "").isdigit() else 0
+    if mid == request.state.member.get("id"):
+        return _back("/admin/team", error="self")
+    m = store.member(mid)
+    if m:
+        store.delete_member(mid)
+        store.audit(who(request), "member_delete", m["email"])
+    return _back("/admin/team", msg="member_deleted")
 
 
 # ─────────────────────────────────────────────────────── الإعدادات / Settings
@@ -1418,7 +1740,7 @@ def _channel_state(T) -> str:
 
 @router.get("/admin/settings")
 async def settings(request: Request, msg: str = "", error: str = ""):
-    if denied := _gate(request):
+    if denied := _gate(request, "admin"):
         return denied
     lang = req_lang(request)
     T = tr(lang)
@@ -1463,7 +1785,7 @@ value="{brain.daily_limit()}" style="max-width:140px">
 
 @router.post("/admin/settings")
 async def save_settings(request: Request):
-    denied, form = await _post_gate(request)
+    denied, form = await _post_gate(request, role="admin")
     if denied:
         return denied
     limit = (form.get("daily_limit") or "").strip()
@@ -1482,4 +1804,5 @@ async def save_settings(request: Request):
             return _back("/admin/settings", error="threshold")
         store.set_setting("min_relevance", f"{thr:.2f}")
     store.set_setting("paused", "1" if form.get("paused") else "0")
+    store.audit(who(request), "settings")
     return _back("/admin/settings", msg="saved")
