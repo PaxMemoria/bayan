@@ -33,7 +33,8 @@ COPY requirements.txt .
 # لا يحتاجها خادم بلا بطاقة رسوميات.
 # CPU-only torch: the default build on Linux pulls in several GB of CUDA
 # libraries that a server without a graphics card does not need.
-RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu \
+RUN pip install --no-cache-dir --upgrade pip setuptools \
+ && pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu \
     torch==2.14.1 \
  && pip install --no-cache-dir -r requirements.txt
 

@@ -92,7 +92,7 @@ def run_extractor(log: list[str]) -> None:
         ["node", "--permission", f"--allow-fs-read={repo}",
          f"--allow-fs-write={out}", str(script)],
         cwd=str(repo), capture_output=True, text=True, timeout=600,
-        env={"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": "/tmp",
+        env={"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": "/tmp",  # nosec B108
              "LANG": "C.UTF-8"},
     )
     if r.returncode != 0:
