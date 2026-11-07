@@ -8,6 +8,7 @@ import hashlib
 import hmac
 import logging
 import threading
+import time
 
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
@@ -84,16 +85,24 @@ async def _keep_warm_loop() -> None:
 
 
 async def _comment_poll_loop() -> None:
+    seeded = False
     while True:
-        await asyncio.sleep(20)
         if not config.MESSENGER_PAGE_TOKEN:
+            await asyncio.sleep(15)
             continue
         try:
-            for event_id, user_id, comment_id, text in await messenger.fetch_recent_comments():
-                if store.first_time(event_id):
-                    await _reply_comment(user_id, comment_id, text)
+            comments = await messenger.fetch_recent_comments()
+            if not seeded:
+                for event_id, _, _, _ in comments:
+                    store.first_time(event_id)
+                seeded = True
+            else:
+                for event_id, user_id, comment_id, text in comments:
+                    if store.first_time(event_id):
+                        await _reply_comment(user_id, comment_id, text)
         except Exception:  # noqa: BLE001
             log.exception("تعذّر فحص تعليقات فيسبوك الدورية")
+        await asyncio.sleep(15)
 
 
 async def _retention_loop() -> None:

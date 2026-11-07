@@ -2,6 +2,7 @@
 
 Facebook Messenger: Messenger Platform.
 """
+from datetime import datetime
 import logging
 
 import httpx
@@ -109,7 +110,9 @@ async def send_private_reply(comment_id: str, text: str) -> None:
             },
         )
         if r.status_code >= 300:
-            log.error("فشل إرسال الرد الخاص على التعليق: %s", r.text[:300])
+            log.error("فشل إرسال الرد الخاص على التعليق %s: %s", comment_id, r.text[:300])
+        else:
+            log.info("أُرسل رد خاص على التعليق %s", comment_id)
 
 
 async def fetch_recent_comments() -> list[tuple[str, str, str, str]]:
@@ -124,22 +127,35 @@ async def fetch_recent_comments() -> list[tuple[str, str, str, str]]:
     if not config.MESSENGER_PAGE_TOKEN:
         return []
     url = f"https://graph.facebook.com/{config.META_GRAPH_VERSION}/me/published_posts"
-    params = {
-        "access_token": config.MESSENGER_PAGE_TOKEN,
-        "fields": "id,comments.limit(15){id,message,from,created_time}",
-        "limit": 5,
-    }
+    field_queries = [
+        "id,comments.filter(stream).order(reverse_chronological).limit(50){id,message,from,created_time}",
+        "id,comments.order(reverse_chronological).limit(50){id,message,from,created_time}",
+        "id,comments.limit(100){id,message,from,created_time}",
+    ]
+    data = None
     try:
         async with httpx.AsyncClient(timeout=15) as client:
-            r = await client.get(url, params=params)
-        if r.status_code != 200:
-            return []
-        data = r.json()
+            for fq in field_queries:
+                r = await client.get(
+                    url,
+                    params={
+                        "access_token": config.MESSENGER_PAGE_TOKEN,
+                        "fields": fq,
+                        "limit": 5,
+                    },
+                )
+                if r.status_code == 200:
+                    data = r.json()
+                    break
+            else:
+                log.error("فشل جلب تعليقات فيسبوك: %s", r.text[:300])
+                return []
     except Exception:  # noqa: BLE001
+        log.exception("خطأ أثناء جلب تعليقات فيسبوك")
         return []
 
     out = []
-    for post in data.get("data") or []:
+    for post in (data or {}).get("data") or []:
         page_id = str(post.get("id") or "").split("_", 1)[0]
         for cm in (post.get("comments") or {}).get("data") or []:
             cid = cm.get("id")
