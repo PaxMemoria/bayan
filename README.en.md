@@ -2,6 +2,8 @@
 
 # Bayan: the Pax Memoria assistant
 
+[![Security scans](https://github.com/PaxMemoria/bayan/actions/workflows/security-sast.yml/badge.svg?branch=main)](https://github.com/PaxMemoria/bayan/actions/workflows/security-sast.yml) [![Offline tests](https://github.com/PaxMemoria/bayan/actions/workflows/python-app.yml/badge.svg?branch=main)](https://github.com/PaxMemoria/bayan/actions/workflows/python-app.yml)
+
 A bot that answers the public's questions about Pax Memoria's **open-source
 tools guide** and its **published investigations**, and goes no further than
 those two. It answers in the asker's language, Arabic or English, and runs on

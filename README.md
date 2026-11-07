@@ -2,6 +2,8 @@
 
 # بيان — مساعد باكس ميموريا
 
+[![Security scans](https://github.com/PaxMemoria/bayan/actions/workflows/security-sast.yml/badge.svg?branch=main)](https://github.com/PaxMemoria/bayan/actions/workflows/security-sast.yml) [![Offline tests](https://github.com/PaxMemoria/bayan/actions/workflows/python-app.yml/badge.svg?branch=main)](https://github.com/PaxMemoria/bayan/actions/workflows/python-app.yml)
+
 بوت يجيب الجمهور عن **دليل أدوات المصادر المفتوحة** و**التحقيقات المنشورة**
 في باكس ميموريا، ولا يخرج عنهما. يجيب بلغة السائل، العربية أو الإنجليزية،
 ويعمل على تيليغرام وواتساب وفيسبوك ماسنجر بنفس العقل وقاعدة المعرفة.
