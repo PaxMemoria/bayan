@@ -298,6 +298,8 @@ r = client.post("/admin/login", data={"password": "correct horse battery"}, foll
 check("كلمة المرور الصحيحة تفتح جلسة", r.status_code == 303 and "bayan_admin" in r.cookies)
 r = client.get("/admin")
 check("نظرة عامة تعمل", r.status_code == 200 and "نظرة عامة" in r.text)
+check("اللوحة تعرض بطاقة «بلا جواب» وقسم المواضيع",
+      "بلا جواب، آخر 7 أيام" in r.text and "مواضيع الأسئلة" in r.text and "الأكثر سؤالاً" in r.text)
 check("اللوحة تعرض الأعداد منذ البداية", "منذ البداية (أعداد فقط)" in r.text and "المجموع" in r.text)
 check("ترويسة CSP تمنع كل سكربت", "default-src 'none'" in r.headers.get("content-security-policy", ""))
 r = client.get("/admin/messages")
@@ -709,6 +711,7 @@ ctx, ctx_urls = brain.build_context(res, "ar")
 check("الفرصة تدخل سياق النموذج برابطها وتجيز السؤال من البوابة",
       res["has_any"] and res["confidence"] >= 0.6 and "<فرصة" in ctx
       and "https://yhms-ye.org" in ctx, ctx[:200])
+check("موضوع سؤال الزمالة «الفرص»", brain.topic_of(res, "answered") == ("opportunities", ""))
 store.save_opportunity_week(2026, 46, [parsed[1]])
 store.save_opportunity_week(2026, 47, [parsed[1]])
 store.save_opportunity_week(2026, 48, [parsed[1]])
@@ -856,6 +859,49 @@ check("الرسائل حُذفت وجدول الأعداد بلا نص ولا م
       left == 0 and cols == ["day", "channel", "questions", "users"], (left, cols))
 store.purge_old_messages(30)
 check("إعادة الحذف لا تغيّر الأعداد", store.usage_totals()["cnt-test"]["questions"] == 3)
+# ── مواضيع الأسئلة / Question topics ──
+inv = {"type": "investigation", "meta": {"slug": "floods-hodeidah-yemen"}, "url": "u", "text": ""}
+tool = {"type": "tool", "meta": {"category_en": "Geolocation"}, "url": "u", "text": ""}
+base = {"tools": [], "category_tools": [], "category": None, "corrections": [], "opportunities": [], "passages": []}
+check("رفض → بلا جواب", brain.topic_of({**base, "passages": [inv]}, "refused_gate") == ("unanswered", ""))
+check("أداة بالاسم → الأدوات وتصنيفها",
+      brain.topic_of({**base, "tools": [{"category_en": "Notes & Documentation"}]}, "answered")
+      == ("tools", "Notes & Documentation"))
+check("مقاطع تحقيق → التحقيقات وslug", brain.topic_of({**base, "passages": [inv, inv, tool]}, "answered")
+      == ("investigations", "floods-hodeidah-yemen"))
+check("مقاطع أدوات → الأدوات وتصنيفها", brain.topic_of({**base, "passages": [tool, inv]}, "answered")
+      == ("tools", "Geolocation"))
+check("تصحيح «فرص الأسبوع 44» → الفرص",
+      brain.topic_of({**base, "corrections": [{"norm_question": "فرص الاسبوع 44"}]}, "answered")
+      == ("opportunities", ""))
+check("تصحيح عادي بلا مقاطع → أخرى",
+      brain.topic_of({**base, "corrections": [{"norm_question": "ما اداة hunchly"}]}, "answered") == ("other", ""))
+with store.db() as c:
+    c.execute("ALTER TABLE messages DROP COLUMN topic")
+    c.execute("ALTER TABLE messages DROP COLUMN detail")
+store.init()
+with store.db() as c:
+    cols = {r[1] for r in c.execute("PRAGMA table_info(messages)").fetchall()}
+check("الترقية تضيف عمودي الموضوع والتفصيل لقاعدة قائمة", {"topic", "detail"} <= cols, cols)
+for d in (40, 40, 2):
+    store.remember("tp-test", "tp-u", "user", "س", outcome="answered", topic="investigations",
+                   detail="floods-hodeidah-yemen")
+    with store.db() as c:
+        c.execute("UPDATE messages SET ts=? WHERE channel='tp-test' AND ts > ?",
+                  (time.time() - d * 86400, time.time() - 1))
+store.remember("tp-test", "tp-u", "user", "س", outcome="refused_gate", topic="unanswered", detail="")
+wk = store.topic_stats(time.time() - 7 * 86400)
+check("مواضيع الأسبوع: تحقيق واحد وسؤال بلا جواب",
+      wk.get("investigations", {}).get("questions") == 1 and wk.get("unanswered", {}).get("questions") == 1
+      and wk["investigations"]["details"] == {"floods-hodeidah-yemen": 1}, wk)
+store.purge_old_messages(30)
+tot = store.topic_totals()
+check("أعداد المواضيع تبقى بعد الحذف: 3 تحقيقات",
+      tot.get("investigations", {}).get("questions") == 3
+      and tot["investigations"]["details"].get("floods-hodeidah-yemen") == 3, tot)
+with store.db() as c:
+    c.execute("DELETE FROM messages WHERE channel='tp-test'")
+    c.execute("DELETE FROM topic_daily")
 with store.db() as c:
     check("الحذف الآمن مفعّل في القاعدة", c.execute("PRAGMA secure_delete").fetchone()[0] == 1)
 

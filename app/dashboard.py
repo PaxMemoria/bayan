@@ -370,6 +370,22 @@ TEXT: dict[str, tuple[str, str]] = {
     "flash_opp_saved": ("حُفظت قائمة الأسبوع، ويبحث فيها بيان من الآن.",
                         "The week's list is saved. Bayan searches it from now on."),
     "flash_opp_deleted": ("حُذفت قائمة الأسبوع.", "The week's list was deleted."),
+    "c_unanswered": ("بلا جواب، آخر 7 أيام", "Unanswered, last 7 days"),
+    "c_unanswered_d": ("رفضتها البوابة: {g}، رفضها النموذج: {m}. افتحها لتكتب لها تصحيحات معتمدة.",
+                       "Refused by the gate: {g}, by the model: {m}. Open them to write approved corrections."),
+    "topics_h": ("مواضيع الأسئلة", "Question topics"),
+    "topics_help": ("الجزء الذي أجاب منه بيان، وأكثر ما سُئل عنه. أعداد فقط تبقى بعد حذف الرسائل، ولا تحمل نصاً ولا معرّفات.",
+                    "The part Bayan answered from, and what was asked about most. Counts only, kept after messages are deleted, with no text and no identifiers."),
+    "th_topic": ("الموضوع", "Topic"),
+    "th_week": ("آخر 7 أيام", "Last 7 days"),
+    "th_all": ("منذ البداية", "Since the start"),
+    "top_h": ("الأكثر سؤالاً، آخر 7 أيام", "Most asked about, last 7 days"),
+    "tp_tools": ("الأدوات", "Tools"),
+    "tp_investigations": ("التحقيقات", "Investigations"),
+    "tp_opportunities": ("الفرص", "Opportunities"),
+    "tp_about": ("من نحن", "About"),
+    "tp_other": ("أخرى", "Other"),
+    "tp_unanswered": ("بلا جواب", "Unanswered"),
 }
 FLASH_KIND = {"reindex": "ok", "busy": "warn", "saved": "ok", "blocked": "ok",
               "unblocked": "ok", "rated": "ok", "fix_saved": "ok", "fix_novec": "warn",
@@ -791,6 +807,9 @@ async def overview(request: Request, msg: str = ""):
 <div class="card stat"><span>{T("c_ratings")}</span>
 <b><a href="/admin/messages?rating=down">{rates.get('down', 0)}</a></b>
 <span>{T("c_ratings_d", up=rates.get('up', 0), down=rates.get('down', 0), fixes=fixes)}</span></div>
+<div class="card stat"><span>{T("c_unanswered")}</span>
+<b><a href="/admin/messages?outcome=refused_gate">{outcomes.get('refused_gate', 0) + outcomes.get('refused_model', 0)}</a></b>
+<span>{T("c_unanswered_d", g=outcomes.get('refused_gate', 0), m=outcomes.get('refused_model', 0))}</span></div>
 </div>"""
 
     rows = ""
@@ -813,6 +832,31 @@ async def overview(request: Request, msg: str = ""):
 {rows}</table></div>
 <div class="card"><table><tr><th>{T("th_channel")}</th><th>{T("th_questions")}</th>
 <th>{T("th_users")}</th></tr>{ch_rows}</table></div></div>"""
+
+    # مواضيع الأسئلة: الأسبوع ومنذ البداية، ثم أكثر التفاصيل سؤالاً هذا الأسبوع
+    # Question topics: the week and since the start, then the week's most asked details
+    tw, ta = store.topic_stats(week), store.topic_totals()
+    tw_total = sum(v["questions"] for v in tw.values())
+    tp_rows = "".join(
+        f'<tr><td>{T("tp_" + t)}</td><td>{tw.get(t, {}).get("questions", 0)}</td>'
+        f'<td>{pct(tw.get(t, {}).get("questions", 0), tw_total)}</td>'
+        f'<td>{ta.get(t, {}).get("questions", 0)}</td></tr>'
+        for t in brain.TOPICS
+    )
+    titles = store.investigation_titles()
+    top = sorted(
+        ((n, t, d) for t, v in tw.items() for d, n in v["details"].items()),
+        key=lambda x: -x[0],
+    )[:8]
+    top_rows = "".join(
+        f'<tr><td>{T("tp_" + t)}</td><td>{e(titles.get(d, d))}</td><td>{n}</td></tr>'
+        for n, t, d in top
+    ) or f'<tr><td colspan="3" class="muted">{T("none_yet")}</td></tr>'
+    activity += f"""<h2>{T("topics_h")}</h2><p class="help">{T("topics_help")}</p>
+<div class="grid"><div class="card"><table><tr><th>{T("th_topic")}</th><th>{T("th_week")}</th>
+<th>{T("th_share")}</th><th>{T("th_all")}</th></tr>{tp_rows}</table></div>
+<div class="card"><h3>{T("top_h")}</h3><table><tr><th>{T("th_topic")}</th><th></th>
+<th>{T("th_count")}</th></tr>{top_rows}</table></div></div>"""
 
     totals = store.usage_totals()
     tt_rows = "".join(
