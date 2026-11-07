@@ -27,6 +27,7 @@ number, not by ID.
 import asyncio
 import datetime
 import hashlib
+import json
 import hmac
 import html
 import time
@@ -35,7 +36,7 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
-from . import brain, config, embed, ingest, opportunities, retrieve, store
+from . import brain, broadcast, config, embed, ingest, opportunities, retrieve, store
 
 router = APIRouter()
 
@@ -386,10 +387,21 @@ TEXT: dict[str, tuple[str, str]] = {
     "tp_about": ("من نحن", "About"),
     "tp_other": ("أخرى", "Other"),
     "tp_unanswered": ("بلا جواب", "Unanswered"),
+    "sub_h": ("المشتركون في قائمة الفرص", "Opportunities subscribers"),
+    "sub_help": ("يشترك المستخدم بكتابة /subscribe في أي قناة، ويلغي بـ /unsubscribe. تُبثّ القائمة على القنوات المفعّلة في BROADCAST_CHANNELS فقط؛ واتساب وماسنجر ينتظران موافقة Meta، ويبقى مشتركوهما مسجّلين حتى تُفعَّل.",
+                 "A user subscribes by sending /subscribe on any channel, and leaves with /unsubscribe. The list is broadcast only on the channels enabled in BROADCAST_CHANNELS; WhatsApp and Messenger await Meta's approval, and their subscribers stay recorded until they are enabled."),
+    "sub_on": ("مفعّلة للبث", "broadcast enabled"),
+    "sub_off": ("بلا بث بعد", "no broadcast yet"),
+    "th_state": ("الحالة", "State"),
+    "opp_send": ("أرسل للمشتركين", "Send to subscribers"),
+    "last_broadcast": ("آخر بثّ: الأسبوع {w}، {when}. أُرسل إلى {s}، فشل {f}، تُرك {k} على قنوات بلا بث.",
+                       "Last broadcast: week {w}, {when}. Sent to {s}, failed {f}, skipped {k} on channels without broadcast."),
+    "flash_opp_sent": ("بدأ إرسال قائمة الأسبوع إلى المشتركين على القنوات المفعّلة، والنتيجة تظهر هنا بعد اكتماله.",
+                       "The week's list is being sent to subscribers on the enabled channels; the result appears here once it is done."),
 }
 FLASH_KIND = {"reindex": "ok", "busy": "warn", "saved": "ok", "blocked": "ok",
               "unblocked": "ok", "rated": "ok", "fix_saved": "ok", "fix_novec": "warn",
-              "fix_deleted": "ok", "opp_saved": "ok", "opp_deleted": "ok"}
+              "fix_deleted": "ok", "opp_saved": "ok", "opp_deleted": "ok", "opp_sent": "ok"}
 RATINGS = ("up", "down", "none")
 # نموذج التصحيح أكبر من غيره: الحرف العربي 6 بايتات بعد ترميز الرابط
 # The correction form is larger than the others: an Arabic character takes
@@ -1305,11 +1317,33 @@ async def opportunities_list(request: Request, msg: str = ""):
             for i in store.opportunity_week_items(w["year"], w["week"]))
         cards.append(f"""<div class="card"><div class="meta"><span>{w['year']} · {T("opp_week")} {w['week']}</span>
 <span>{T("opp_count", n=w['n'])}</span></div><details><summary>{T("opp_paste")}</summary><ol>{items}</ol></details>
+<p class="row"><form method="post" action="/admin/opportunities/send">
+<input type="hidden" name="year" value="{w['year']}"><input type="hidden" name="week" value="{w['week']}">
+<button class="small" type="submit">{T("opp_send")}</button></form>
 <form method="post" action="/admin/opportunities/delete">
 <input type="hidden" name="year" value="{w['year']}"><input type="hidden" name="week" value="{w['week']}">
-<button class="danger small" type="submit">{T("opp_delete")}</button></form></div>""")
+<button class="danger small" type="submit">{T("opp_delete")}</button></form></p></div>""")
+    subs = store.subscriber_counts()
+    sub_rows = "".join(
+        f'<tr><td>{e(channel_name(c, T))}</td><td>{subs.get(c, 0)}</td>'
+        f'<td>{T("sub_on") if c in config.BROADCAST_CHANNELS else T("sub_off")}</td></tr>'
+        for c in CHANNELS
+    )
+    last_html = ""
+    try:
+        lb = json.loads(store.setting("last_broadcast", "") or "null")
+    except ValueError:
+        lb = None
+    if lb:
+        line = T("last_broadcast", w=lb.get("week"), when=when(lb.get("ts", 0)),
+                 s=lb.get("sent", 0), f=lb.get("failed", 0), k=lb.get("skipped", 0))
+        last_html = f'<p class="muted">{e(line)}</p>'
+    sub_card = f"""<h2>{T("sub_h")}</h2><p class="help">{T("sub_help")}</p>
+<div class="card"><table><tr><th>{T("th_channel")}</th><th>{T("th_users")}</th><th>{T("th_state")}</th></tr>
+{sub_rows}</table>{last_html}</div>"""
     body = (f'<p class="help">{T("opp_help", n=config.OPPORTUNITY_WEEKS)}</p>'
             + _opp_form(T, {"week": iso[1], "year": iso[0]})
+            + sub_card
             + ("".join(cards) or f'<div class="card muted">{T("opp_none")}</div>'))
     return page(request, T("opp_title"), body, "opportunities", flash=msg)
 
@@ -1339,6 +1373,19 @@ async def opportunities_save(request: Request):
     store.save_correction(question, text, "", True, vector, model,
                           existing["id"] if existing else 0)
     return _back("/admin/opportunities", msg="opp_saved")
+
+
+@router.post("/admin/opportunities/send")
+async def opportunities_send(request: Request):
+    denied, form = await _post_gate(request)
+    if denied:
+        return denied
+    if (form.get("year") or "").isdigit() and (form.get("week") or "").isdigit():
+        # البثّ قد يستغرق دقائق مع مشتركين كثر، فيجري في الخلفية والنتيجة في الصفحة
+        # With many subscribers the broadcast can take minutes, so it runs in
+        # the background and the result shows on the page
+        asyncio.create_task(broadcast.send_week(int(form["year"]), int(form["week"])))
+    return _back("/admin/opportunities", msg="opp_sent")
 
 
 @router.post("/admin/opportunities/delete")

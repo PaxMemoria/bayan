@@ -76,6 +76,42 @@ def _messages() -> dict[str, dict[str, str]]:
         "reset": {"ar": "حُذفت محادثتك المحفوظة، وبدأت محادثة جديدة. اكتب سؤالك.",
                   "en": "Your saved conversation was deleted and a new one started. "
                         "Ask your question."},
+        "subscribed": {
+            "ar": "اشتركت في قائمة الفرص الأسبوعية، وستصلك هنا كل أسبوع حين تُنشر.\n"
+                  "لإلغاء الاشتراك في أي وقت اكتب /unsubscribe",
+            "en": "You are subscribed to the weekly opportunities list. It will reach "
+                  "you here every week when it is published.\n"
+                  "To unsubscribe at any time, send /unsubscribe",
+        },
+        "subscribed_later": {
+            "ar": "سُجّل اشتراكك في قائمة الفرص الأسبوعية. الإرسال على هذه القناة لم "
+                  "يُفعَّل بعد، وستصلك القائمة حين يُفعَّل. حتى ذلك الحين اكتب «فرص» في "
+                  "أي وقت لتصلك آخر قائمة.\nلإلغاء الاشتراك اكتب /unsubscribe",
+            "en": "Your subscription to the weekly opportunities list is recorded. "
+                  "Sending on this channel is not enabled yet, and the list will reach "
+                  "you once it is. Until then, write \"فرص\" at any time to get the "
+                  "latest list.\nTo unsubscribe, send /unsubscribe",
+        },
+        "already_subscribed": {
+            "ar": "أنت مشترك في قائمة الفرص الأسبوعية من قبل. لإلغاء الاشتراك اكتب /unsubscribe",
+            "en": "You are already subscribed to the weekly opportunities list. "
+                  "To unsubscribe, send /unsubscribe",
+        },
+        "unsubscribed": {
+            "ar": "أُلغي اشتراكك، ولن تصلك قائمة الفرص بعد الآن. للاشتراك مجدداً اكتب /subscribe",
+            "en": "You are unsubscribed, and the opportunities list will no longer be "
+                  "sent to you. To subscribe again, send /subscribe",
+        },
+        "not_subscribed": {
+            "ar": "لست مشتركاً في قائمة الفرص. للاشتراك اكتب /subscribe",
+            "en": "You are not subscribed to the opportunities list. To subscribe, "
+                  "send /subscribe",
+        },
+        "broadcast_footer": {
+            "ar": "وصلتك هذه القائمة لأنك مشترك. لإلغاء الاشتراك اكتب /unsubscribe",
+            "en": "You received this list because you subscribed. To unsubscribe, "
+                  "send /unsubscribe",
+        },
     }
 
 
@@ -88,6 +124,8 @@ def welcome(lang: str | None, limit: int) -> str:
         if limit > 0:
             lines.append(f"Limit: {limit} questions every 24 hours." if code == "en"
                          else f"حدّ الأسئلة: {limit} في كل 24 ساعة.")
+        lines.append("Weekly opportunities list: /subscribe" if code == "en"
+                     else "الاشتراك في قائمة الفرص الأسبوعية: /subscribe")
         lines.append("Privacy policy: /privacy" if code == "en" else "سياسة الخصوصية: /privacy")
         return base + "\n" + "\n".join(lines)
     if lang in ("ar", "en"):

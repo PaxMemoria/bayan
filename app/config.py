@@ -262,6 +262,16 @@ DAILY_LIMIT = int(os.getenv("DAILY_LIMIT", "10"))
 # Opportunities: how many weeks Bayan searches, and how many it sends the model
 OPPORTUNITY_WEEKS = int(os.getenv("OPPORTUNITY_WEEKS", "4"))
 OPPORTUNITIES_PER_QUESTION = int(os.getenv("OPPORTUNITIES_PER_QUESTION", "6"))
+# قنوات بثّ قائمة الفرص للمشتركين. تيليغرام يسمح بالرسائل الاستباقية بلا قيود؛
+# واتساب يشترط قوالب رسائل معتمدة، وماسنجر إشعارات متكررة بموافقة Meta، فيُضافان
+# هنا بعد الموافقة. الاشتراك نفسه يُسجَّل على كل القنوات.
+# Channels that broadcast the opportunities list to subscribers. Telegram allows
+# proactive messages freely; WhatsApp needs approved message templates and
+# Messenger recurring notifications approved by Meta, so they are added here
+# once approved. Subscribing itself is recorded on every channel.
+BROADCAST_CHANNELS = {
+    c.strip() for c in os.getenv("BROADCAST_CHANNELS", "telegram").split(",") if c.strip()
+}
 MESSAGE_RETENTION_DAYS = int(os.getenv("MESSAGE_RETENTION_DAYS", "30"))
 PRIVACY_CONTACT = os.getenv("PRIVACY_CONTACT", "GDPR@paxmemoria.org")
 HISTORY_TURNS = int(os.getenv("HISTORY_TURNS", "4"))

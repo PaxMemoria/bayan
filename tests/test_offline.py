@@ -921,6 +921,57 @@ check("/privacy بواجهة إنجليزية بالإنجليزية",
       "Bayan's privacy policy" in brain.handle("/privacy", "telegram", "u-p", "en"))
 check("الترحيب يذكر سياسة الخصوصية", "/privacy" in brain.handle("/start", "telegram", "u-p", "ar"))
 
+# ── الاشتراك في قائمة الفرص / Opportunities subscription ──
+import asyncio  # noqa: E402
+from app import broadcast, privacy as privacy_mod  # noqa: E402
+r1 = brain.handle("/subscribe", "telegram", "u-sub", "ar")
+check("/subscribe يسجّل المشترك ويؤكد بالعربية",
+      store.is_subscribed("telegram", "u-sub") and "اشتركت" in r1 and "/unsubscribe" in r1, r1)
+r1b = brain.handle("اشتراك", "telegram", "u-sub")
+check("تكرار الاشتراك لا يضيف ثانية", "من قبل" in r1b and store.subscriber_counts().get("telegram") == 1, r1b)
+r2 = brain.handle("subscribe", "whatsapp", "u-sub2")
+check("الاشتراك على قناة بلا بث يُسجَّل ويوضّح ذلك بالإنجليزية",
+      store.is_subscribed("whatsapp", "u-sub2") and "not enabled yet" in r2, r2)
+r2b = brain.handle("/subscribe", "messenger", "u-sub3")
+check("/subscribe بلا لغة معروفة يرد باللغتين", "سُجّل اشتراكك" in r2b and "is recorded" in r2b, r2b)
+r3 = brain.handle("إلغاء الاشتراك", "telegram", "u-sub")
+check("إلغاء الاشتراك", "أُلغي" in r3 and not store.is_subscribed("telegram", "u-sub"), r3)
+check("إلغاء بلا اشتراك", "لست مشتركاً" in brain.handle("إلغاء الاشتراك", "telegram", "u-sub"))
+check("الترحيب يذكر /subscribe", "/subscribe" in brain.handle("/start", "telegram", "u-p", "ar"))
+check("سياسة الخصوصية تذكر الاشتراك وإلغاءه",
+      privacy_mod.page().body.decode().count("/unsubscribe") == 4)
+store.subscribe("telegram", "u-b1")
+store.subscribe("telegram", "u-b2")
+store.save_opportunity_week(2026, 45, [{"title": "زمالة", "url": "https://x.example/f"}])
+sent = []
+
+
+async def fake_send(uid, text):
+    sent.append((uid, text))
+
+
+real_tg = broadcast.SENDERS["telegram"]
+broadcast.SENDERS["telegram"] = fake_send
+res = asyncio.run(broadcast.send_week(2026, 45))
+broadcast.SENDERS["telegram"] = real_tg
+check("البثّ يصل مشتركي تيليغرام ويترك القنوات بلا بث",
+      res == {"sent": 2, "failed": 0, "skipped": 2} and "https://x.example/f" in sent[0][1]
+      and "/unsubscribe" in sent[0][1], (res, sent[:1]))
+check("نتيجة البثّ محفوظة للوحة", '"week": 45' in store.setting("last_broadcast", ""))
+check("أسبوع بلا قائمة لا يُبثّ", asyncio.run(broadcast.send_week(2026, 1)) == {"sent": 0, "failed": 0, "skipped": 0})
+store.block("telegram", "u-b1", "x")
+check("الحظر يلغي الاشتراك", not store.is_subscribed("telegram", "u-b1"))
+store.unblock("telegram", "u-b1")
+r = client.get("/admin/opportunities")
+check("صفحة الفرص تعرض المشتركين وزر الإرسال ونتيجة آخر بثّ",
+      "المشتركون في قائمة الفرص" in r.text and "أرسل للمشتركين" in r.text and "آخر بثّ: الأسبوع 45" in r.text)
+with store.db() as c:
+    c.execute("DELETE FROM subscribers")
+# بلا مشتركين فلا يُرسل الزر شيئاً فعلياً / With no subscribers the button sends nothing real
+r = client.post("/admin/opportunities/send", data={"year": "2026", "week": "45"}, follow_redirects=False)
+check("زر الإرسال يبدأ البثّ ويعود للصفحة", r.status_code == 303 and "opp_sent" in r.headers["location"])
+store.delete_opportunity_week(2026, 45)
+
 r = client.get("/privacy")
 check("صفحة الخصوصية تعمل باللغتين",
       r.status_code == 200 and "سياسة الخصوصية لبيان" in r.text and "Bayan privacy policy" in r.text)
