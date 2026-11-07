@@ -17,8 +17,8 @@ from fastapi.responses import HTMLResponse
 
 from . import brain, config
 
-UPDATED_AR = "24 تشرين الأول/أكتوبر 2026"
-UPDATED_EN = "24 October 2026"
+UPDATED_AR = "8 تشرين الثاني/نوفمبر 2026"
+UPDATED_EN = "8 November 2026"
 GENERAL_POLICY = "https://paxmemoria.org/privacy-policy"
 
 CSS = """
@@ -63,6 +63,8 @@ def _arabic(days: int, limit: int, turns: int, contact: str) -> str:
 يمنحه واتساب لمحادثتك معنا (ورقم هاتفك إن لم يرسل واتساب هذا المعرّف)، أو المعرّف
 الذي تمنحه فيسبوك لمحادثتك مع صفحتنا في ماسنجر.</li>
 <li>وقت كل رسالة، وهل أُجيبت أم رُفضت.</li>
+<li>إن اشتركت في قائمة الفرص الأسبوعية بكتابة /subscribe: معرّفك في تلك القناة ووقت
+اشتراكك، حتى تلغي الاشتراك.</li>
 </ul>
 <p>لا نطلب اسمك ولا نحفظه، ولا نحفظ الصور أو الملفات أو الرسائل الصوتية، فبيان لا
 يقرؤها أصلاً. نستعمل لغة واجهة تيليغرام لاختيار لغة الترحيب، ولا نحفظها.</p>
@@ -72,6 +74,7 @@ def _arabic(days: int, limit: int, turns: int, contact: str) -> str:
 <li>للإجابة عن سؤالك.</li>
 <li>لتذكّر آخر {turns} أسئلة في محادثتك، كي يفهم بيان السؤال الذي يتبع سؤالاً سابقاً.</li>
 {limit_line}
+<li>لإرسال قائمة الفرص الأسبوعية إلى من اشترك فيها، على القنوات التي تتيح ذلك.</li>
 <li>لمراجعة جودة الإجابات وتحسينها. يرى فريقنا في لوحة التحكم الأسئلة والإجابات
 دون أي معرّف، فكل مستخدم يظهر ببصمة لا تُعكس إلى رقمه، وقد يقيّم إجابة بيان
 على سؤالك. التقييم يُحذف مع الرسالة.</li>
@@ -92,6 +95,7 @@ def _arabic(days: int, limit: int, turns: int, contact: str) -> str:
 <h2>مدة الحفظ</h2>
 <ul>
 <li>الأسئلة والإجابات: {days} يوماً، ثم تُحذف تلقائياً.</li>
+<li>اشتراكك في قائمة الفرص: حتى تلغيه بكتابة /unsubscribe، ولا يُحذف مع الرسائل.</li>
 <li>أوقات أسئلتك لتطبيق الحدّ اليومي: 24 ساعة.</li>
 <li>سجلّ منع الرسائل المكررة: 24 ساعة، وسجلّ منع الإرسال السريع: ساعة واحدة.</li>
 <li>إن حُظر مستخدم لإساءة الاستعمال، يبقى معرّفه في قائمة الحظر ما دام الحظر قائماً.</li>
@@ -101,6 +105,7 @@ def _arabic(days: int, limit: int, turns: int, contact: str) -> str:
 <h2>حقوقك</h2>
 <ul>
 <li>اكتب /reset أو «مسح» لحذف محادثتك المحفوظة فوراً.</li>
+<li>اكتب /unsubscribe لإلغاء اشتراكك في قائمة الفرص فوراً.</li>
 <li>للاطلاع على بياناتك أو حذفها أو لأي طلب آخر، راسلنا على
 <a href="mailto:{contact}">{contact}</a>.</li>
 </ul>
@@ -133,6 +138,9 @@ the ID WhatsApp assigns to your conversation with us (or your phone number, if
 WhatsApp does not send that ID), or the ID Facebook assigns to your
 conversation with our page on Messenger.</li>
 <li>The time of each message, and whether it was answered or refused.</li>
+<li>If you subscribe to the weekly opportunities list by sending /subscribe:
+your identifier on that channel and the time you subscribed, until you
+unsubscribe.</li>
 </ul>
 <p>We do not ask for or store your name, and we do not store photos, files or
 voice messages: Bayan does not read them at all. We use your Telegram
@@ -144,6 +152,8 @@ interface language to choose the language of the welcome, and do not store it.</
 <li>To remember the last {turns} questions in your conversation, so Bayan
 understands a question that follows an earlier one.</li>
 {limit_line}
+<li>To send the weekly opportunities list to those who subscribed to it, on
+the channels that allow it.</li>
 <li>To review and improve the quality of answers. In the dashboard our team
 sees questions and answers without any identifier: each user appears as a
 fingerprint that cannot be traced back to their number. The team may rate
@@ -170,6 +180,8 @@ other than the above.</p>
 <h2>How long we keep it</h2>
 <ul>
 <li>Questions and answers: {days} days, then deleted automatically.</li>
+<li>Your subscription to the opportunities list: until you cancel it by
+sending /unsubscribe; it is not deleted with the messages.</li>
 <li>The times of your questions, for the daily limit: 24 hours.</li>
 <li>The record that prevents duplicate messages: 24 hours; the record that
 prevents rapid-fire sending: one hour.</li>
@@ -181,6 +193,7 @@ for as long as the block lasts.</li>
 <h2>Your rights</h2>
 <ul>
 <li>Send /reset to delete your saved conversation immediately.</li>
+<li>Send /unsubscribe to leave the opportunities list immediately.</li>
 <li>To see or delete your data, or for any other request, write to
 <a href="mailto:{contact}">{contact}</a>.</li>
 </ul>

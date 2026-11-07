@@ -129,6 +129,16 @@ CREATE TABLE IF NOT EXISTS topic_daily (
     PRIMARY KEY (day, topic, detail)
 );
 
+-- المشتركون في قائمة الفرص الأسبوعية: معرّف القناة ووقت الاشتراك، حتى يُلغى.
+-- Subscribers to the weekly opportunities list: the channel identifier and the
+-- time of subscribing, until they unsubscribe.
+CREATE TABLE IF NOT EXISTS subscribers (
+    channel TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    ts      REAL NOT NULL,
+    PRIMARY KEY (channel, user_id)
+);
+
 CREATE TABLE IF NOT EXISTS seen_events (
     event_id TEXT PRIMARY KEY,
     ts       REAL NOT NULL
@@ -673,6 +683,51 @@ def block(channel: str, user_id: str, reason: str) -> None:
             "INSERT OR REPLACE INTO blocked(channel,user_id,reason,ts) VALUES(?,?,?,?)",
             (channel, user_id, reason, time.time()),
         )
+        # المحظور لا تصله قائمة الفرص / A blocked user gets no opportunities list
+        conn.execute("DELETE FROM subscribers WHERE channel=? AND user_id=?", (channel, user_id))
+
+
+# ──────────────────────────────────── المشتركون في الفرص / Opportunities subscribers
+def subscribe(channel: str, user_id: str) -> bool:
+    """يسجّل الاشتراك ويعيد True إن كان جديداً.
+    Records the subscription and returns True if it is new."""
+    with db() as conn:
+        cur = conn.execute(
+            "INSERT OR IGNORE INTO subscribers(channel,user_id,ts) VALUES(?,?,?)",
+            (channel, user_id, time.time()),
+        )
+        return cur.rowcount > 0
+
+
+def unsubscribe(channel: str, user_id: str) -> bool:
+    """يلغي الاشتراك ويعيد True إن كان قائماً.
+    Removes the subscription and returns True if there was one."""
+    with db() as conn:
+        cur = conn.execute(
+            "DELETE FROM subscribers WHERE channel=? AND user_id=?", (channel, user_id)
+        )
+        return cur.rowcount > 0
+
+
+def is_subscribed(channel: str, user_id: str) -> bool:
+    with db() as conn:
+        return conn.execute(
+            "SELECT 1 FROM subscribers WHERE channel=? AND user_id=?", (channel, user_id)
+        ).fetchone() is not None
+
+
+def subscribers() -> list[dict]:
+    with db() as conn:
+        rows = conn.execute("SELECT channel, user_id FROM subscribers ORDER BY ts").fetchall()
+    return [dict(r) for r in rows]
+
+
+def subscriber_counts() -> dict[str, int]:
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT channel, COUNT(*) n FROM subscribers GROUP BY channel"
+        ).fetchall()
+    return {r["channel"]: r["n"] for r in rows}
 
 
 def unblock(channel: str, user_id: str) -> None:

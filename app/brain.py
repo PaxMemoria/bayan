@@ -775,6 +775,26 @@ def _is_greeting(text: str) -> bool:
     return " ".join(normalize_ar(_NOT_LETTERS.sub(" ", text)).split()) in GREETINGS
 
 
+SUBSCRIBE_CMDS = ("/subscribe", "subscribe", "اشتراك", "اشترك", "اشتركني")
+UNSUBSCRIBE_CMDS = ("/unsubscribe", "unsubscribe", "stop", "إلغاء الاشتراك", "الغاء الاشتراك",
+                    "إلغاء", "الغاء")
+
+
+def _cmd_lang(cmd: str, hint: str | None) -> str | None:
+    """لغة الرد على أمر: كلمة عربية تعني العربية، وإنجليزية الإنجليزية، وأمر بشرطة
+    لغة واجهة السائل، وإن لم تُعرف فاللغتان (None).
+    The language of a command's reply: an Arabic word means Arabic, an English
+    one English, a slash command the asker's interface language, and both
+    (None) if that is unknown."""
+    if cmd.startswith("/"):
+        return hint
+    return "ar" if any("\u0600" <= ch <= "\u06ff" for ch in cmd) else "en"
+
+
+def _reply_in(key: str, lang: str | None) -> str:
+    return i18n.msg(key, lang) if lang else i18n.both(key)
+
+
 def handle(question: str, channel: str, user_id: str, lang_hint: str | None = None) -> str:
     """نقطة الدخول الموحّدة لكل القنوات.
 
@@ -828,6 +848,20 @@ def handle(question: str, channel: str, user_id: str, lang_hint: str | None = No
         else:
             pl = hint
         return i18n.privacy(pl)
+    # الاشتراك في قائمة الفرص الأسبوعية، على كل القنوات. يُبثّ على القنوات المفعّلة
+    # في BROADCAST_CHANNELS وحدها، ويُقال ذلك للمشترك على قناة لم تُفعَّل بعد.
+    # Subscribing to the weekly opportunities list, on every channel. It is
+    # broadcast only on the channels in BROADCAST_CHANNELS, and a subscriber on
+    # a channel not yet enabled is told so.
+    if cmd in SUBSCRIBE_CMDS:
+        if store.subscribe(channel, user_id):
+            key = "subscribed" if channel in config.BROADCAST_CHANNELS else "subscribed_later"
+        else:
+            key = "already_subscribed"
+        return _reply_in(key, _cmd_lang(cmd, hint))
+    if cmd in UNSUBSCRIBE_CMDS:
+        key = "unsubscribed" if store.unsubscribe(channel, user_id) else "not_subscribed"
+        return _reply_in(key, _cmd_lang(cmd, hint))
     if _is_greeting(question):
         return i18n.welcome(lang, daily_limit())
 
