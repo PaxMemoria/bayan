@@ -766,8 +766,20 @@ ctx, urls = brain.build_context(
     {"tools": [], "category": None, "category_tools": [],
      "passages": [{"type": "tool", "url": "u", "meta": {},
                    "text": "الأداة: X\nدرجة التحقق في تدقيق OTVS: direct"}]}, "ar")
-check("رمز درجة التحقق الخام يُستبدل بصياغته",
-      "direct" not in ctx and "روجِعت بدليل مباشر" in ctx, ctx)
+check("رمز درجة التحقق الخام يُستبدل بصياغته: متحقق من وجودها ووصفها، لا حكم أمان",
+      "direct" not in ctx and "متحقق من وجودها ووصفها" in ctx and "لم تُجرَّب الأداة" in ctx
+      and "آمنة" not in ctx, ctx)
+ctx_en, _ = brain.build_context(
+    {"tools": [], "category": None, "category_tools": [],
+     "passages": [{"type": "tool", "url": "u", "meta": {},
+                   "text": "درجة التحقق في تدقيق OTVS: direct"}]}, "en")
+check("وبالإنجليزية: confirmed to exist، بلا safe ولا verified",
+      "confirmed to exist and to match its description" in ctx_en
+      and "not tried" in ctx_en and "safe" not in ctx_en.lower()
+      and "verified" not in ctx_en.lower(), ctx_en)
+check("القاعدة ١ تمنع «آمنة للاستخدام» وتشرح معنى الدرجة",
+      "آمنة للاستخدام" in brain.SYSTEM_PROMPT and "safe to use" in brain.SYSTEM_PROMPT
+      and "لم تُجرَّب" in brain.SYSTEM_PROMPT)
 ctx, _ = brain.build_context(
     {"tools": [], "category": None, "category_tools": [],
      "passages": [{"type": "tool", "url": "u", "meta": {},

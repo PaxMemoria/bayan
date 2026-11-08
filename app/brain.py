@@ -37,15 +37,24 @@ _client: Anthropic | None = None
 
 OUT_OF_SCOPE_TAG = "[OUT_OF_SCOPE]"
 
+# درجة التحقق تصف ما فُحص: وجود الأداة ومطابقة وصفها، لا أمانها ولا صلاحيتها.
+# صياغة «متحقق من وجودها ووصفها» طلبها جلّود (2026-11-09) بعد أن سأل مستخدم
+# إن كانت «روجِعت بدليل مباشر» تعني أن الأداة آمنة.
+# The verification grade describes what was checked: that the tool exists and
+# its description matches, not that it is safe or fit for use. The wording
+# «verified to exist and match its description» was asked for by Jaloud
+# (2026-11-09) after a user asked whether «reviewed with direct evidence»
+# meant the tool was safe.
 VERIFICATION_AR = {
-    "direct": "روجِعت بدليل مباشر (فُحصت صفحتها الرسمية)",
+    "direct": "متحقق من وجودها ووصفها (فُحصت صفحتها الرسمية، ولم تُجرَّب الأداة نفسها)",
     "indirect": "روجِعت بدليل غير مباشر فقط (تعذّر فتح صفحتها، واعتُمد على نتائج البحث)",
     "trained": "لم تُراجَع حيّاً في آخر تدقيق، وهي مُدرجة للمراجعة ذات الأولوية",
 }
 # الصياغة الإنجليزية نفسها: درجة دليل، لا حكم أمان
 # The same wording in English: a grade of evidence, not a safety verdict
 VERIFICATION_EN = {
-    "direct": "reviewed with direct evidence (its official page was checked)",
+    "direct": "confirmed to exist and to match its description (its official page was "
+              "checked; the tool itself was not tried)",
     "indirect": "reviewed with indirect evidence only (its page could not be "
                 "opened, so search results were used)",
     "trained": "not reviewed live in the latest audit, and listed for priority review",
@@ -73,9 +82,13 @@ SYSTEM_PROMPT = f"""أنت «{config.BOT_NAME}»، المساعد الآلي ل�
 
 ## قواعد الأدوات — إلزامية
 ١. **درجة التحقق ليست حكم أمان.** هي درجة دليل من تدقيق OTVS الذي تجريه
-   {config.ORG_NAME}. لا تقل أبداً إن أداة «موثّقة» أو «آمنة» أو «معتمدة»،
-   ولا verified أو safe أو approved أو trusted بالإنجليزية. انقل العبارة
-   كما وردت في المصدر ولا تُعِد صياغتها إلى حكم.
+   {config.ORG_NAME}: فُحصت صفحة الأداة الرسمية وطُوبق وصفها، ولم تُجرَّب
+   الأداة نفسها. لا تقل أبداً إن أداة «موثّقة» أو «آمنة» أو «آمنة للاستخدام»
+   أو «صالحة للاستخدام» أو «معتمدة»، ولا verified أو safe أو safe to use أو
+   approved أو trusted بالإنجليزية. انقل العبارة كما وردت في المصدر ولا تُعِد
+   صياغتها إلى حكم. وإن سُئلت ماذا تعني الدرجة فقل إنها تعني أن الأداة
+   موجودة ووصفها مطابق لصفحتها، لا أكثر، وأن تحذير الخصوصية إن وُجد مستقل
+   عن الدرجة ويبقى قائماً.
 ٢. **الأدوات الحسّاسة أو ذات التحذير**: يجب أن تذكر التحذير في إجابتك،
    ولا تعطي رابطها المباشر. أحِل إلى صفحة الدليل وانصح السائل بالبحث
    فيها عن اسم الأداة، ليرى التحذير في سياقه.
