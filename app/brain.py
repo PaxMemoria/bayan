@@ -611,6 +611,46 @@ def _ask_gemini(view: str, messages: list[dict], model: str, lang: str) -> tuple
     return "end_turn", text
 
 
+_THINK = re.compile(r"<think>.*?</think>\s*", re.S)
+
+
+def _ask_local(view: str, messages: list[dict], lang: str) -> tuple[str, str]:
+    """يستدعي مزوّداً محلياً بواجهة OpenAI (chat/completions) ويعيد (حالة التوقف، النص).
+
+    تعليمات النظام والنظرة العامة في رسالة system واحدة. أجزاء التفكير التي
+    تكتبها نماذج Qwen3 بين <think> و</think> تُزال، وfinish_reason «length»
+    يُعامل كقطع عند الحدّ و«content_filter» كرفض، مثل المزوّدين الآخرين.
+
+    Calls a local OpenAI-compatible provider (chat/completions) and returns
+    (stop state, text). The system prompt and the overview go in one system
+    message. The thinking Qwen3 models write between <think> and </think> is
+    removed; finish_reason "length" is a cut at the cap and "content_filter"
+    a refusal, as with the other providers.
+    """
+    system = SYSTEM_PROMPT + (f"\n\n{view}" if view else "")
+    payload = {
+        "model": config.LOCAL_LLM_MODEL or "default",
+        "messages": [{"role": "system", "content": system}] + messages,
+        "max_tokens": config.MAX_OUTPUT_TOKENS,
+        "temperature": 0.2,
+        "stream": False,
+    }
+    headers = {"Authorization": f"Bearer {config.LOCAL_LLM_KEY}"} if config.LOCAL_LLM_KEY else {}
+    with httpx.Client(timeout=config.LOCAL_LLM_TIMEOUT) as http:
+        r = http.post(f"{config.LOCAL_LLM_URL}/chat/completions", json=payload, headers=headers)
+    if r.status_code != 200:
+        raise RuntimeError(f"local LLM {r.status_code}: {r.text[:300]}")
+    choice = ((r.json().get("choices") or [{}])[0]) or {}
+    finish = choice.get("finish_reason") or ""
+    text = _THINK.sub("", (choice.get("message") or {}).get("content") or "").strip()
+    if finish == "content_filter":
+        log.info("رفض المزوّد المحلي الطلب (content_filter) | %s", lang)
+        return "refusal", ""
+    if finish == "length":
+        return "max_tokens", ""
+    return "end_turn", text
+
+
 # مواضيع الأسئلة، بترتيب العرض في اللوحة. أعداد فقط: لا يُحفظ من السؤال إلا جزؤه.
 # Question topics, in dashboard order. Counts only: nothing of the question is
 # kept but its part.
@@ -705,7 +745,16 @@ def answer(question: str, channel: str, user_id: str) -> dict:
         _client is None and not config.ANTHROPIC_API_KEY and bool(config.GEMINI_API_KEY)
     )
     try:
-        if use_gemini_primary:
+        if config.ANSWER_MODEL == "local":
+            try:
+                stop_reason, text = _ask_local(view, messages, lang)
+            except Exception:
+                if not config.GEMINI_API_KEY:
+                    raise
+                log.warning("تعذّر استدعاء النموذج المحلي — التحويل التلقائي إلى Gemini (%s)",
+                            config.GEMINI_MODEL, exc_info=True)
+                stop_reason, text = _ask_gemini(view, messages, config.GEMINI_MODEL, lang)
+        elif use_gemini_primary:
             gmodel = (config.ANSWER_MODEL if config.ANSWER_MODEL.startswith("gemini")
                       else config.GEMINI_MODEL)
             stop_reason, text = _ask_gemini(view, messages, gmodel, lang)

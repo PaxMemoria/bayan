@@ -66,6 +66,17 @@ ANSWER_FALLBACK = os.getenv("ANSWER_FALLBACK", "default").strip().lower()
 # ANTHROPIC_API_KEY is unset or ANSWER_MODEL is set to a gemini-* model).
 # The key is sent in the x-goog-api-key header so it never appears in the
 # request URL or logs.
+# مزوّد محلي بواجهة متوافقة مع OpenAI (llama.cpp server أو Ollama أو vLLM)، يُستعمل
+# أساسياً حين ANSWER_MODEL=local. بلا تكلفة لكل سؤال، لكنه يحتاج خادماً يحمل النموذج.
+# إن تعذّر، يُحوَّل إلى Gemini إن كان له مفتاح. LOCAL_LLM_KEY اختياري.
+# A local provider with an OpenAI-compatible API (llama.cpp server, Ollama or
+# vLLM), used as primary when ANSWER_MODEL=local. No cost per question, but it
+# needs a server that holds the model. If it fails, Gemini takes over when it
+# has a key. LOCAL_LLM_KEY is optional.
+LOCAL_LLM_URL = os.getenv("LOCAL_LLM_URL", "http://127.0.0.1:8080/v1").rstrip("/")
+LOCAL_LLM_MODEL = os.getenv("LOCAL_LLM_MODEL", "")
+LOCAL_LLM_KEY = os.getenv("LOCAL_LLM_KEY", "")
+LOCAL_LLM_TIMEOUT = int(os.getenv("LOCAL_LLM_TIMEOUT", "120"))
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 GEMINI_ENDPOINT = os.getenv(

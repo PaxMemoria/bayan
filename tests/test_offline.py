@@ -812,6 +812,61 @@ check("مفتاح Gemini يُرسل في الترويسة x-goog-api-key لا ف
 check("تعليمات النظام والنظرة العامة تُرسل إلى Gemini في system_instruction",
       len(greq["system_instruction"]["parts"]) == 2)
 
+# ── المزوّد المحلي بواجهة OpenAI / The local OpenAI-compatible provider ──
+local_sent = []
+local_reply: dict = {}
+
+
+def fake_local(request):
+    if request.url.path.endswith("/chat/completions"):
+        local_sent.append(request)
+        if local_reply.get("down"):
+            raise httpx.ConnectError("connection refused")
+        return httpx.Response(200, json=local_reply)
+    return fake_gemini(request)
+
+
+brain.httpx.Client = lambda **kw: real_client(transport=httpx.MockTransport(fake_local), **kw)
+old_model, old_key = config.ANSWER_MODEL, config.GEMINI_API_KEY
+config.ANSWER_MODEL, config.LOCAL_LLM_MODEL, config.LOCAL_LLM_KEY = "local", "qwen-test", "k-local"
+local_reply.update(choices=[{"finish_reason": "stop", "message": {
+    "role": "assistant",
+    "content": "<think>أفكر هنا</think>Hunchly أداة توثيق محلية.\n[SOURCES: 1]"}}])
+res = brain.answer("ما هي أداة Hunchly؟", "admin", "console")
+lreq = json.loads(local_sent[-1].content)
+check("ANSWER_MODEL=local يسأل المزوّد المحلي ويجيب",
+      res["outcome"] == "answered" and "أداة توثيق محلية" in res["text"], res)
+check("أجزاء <think> وسطر [SOURCES] لا تصل للسائل",
+      "أفكر" not in res["text"] and "SOURCES" not in res["text"], res["text"])
+check("الطلب بصيغة OpenAI: system أولاً ثم المحادثة، والنموذج والمفتاح في مكانهما",
+      lreq["model"] == "qwen-test" and lreq["messages"][0]["role"] == "system"
+      and "المصادر" in lreq["messages"][-1]["content"] and lreq["stream"] is False
+      and local_sent[-1].headers.get("authorization") == "Bearer k-local"
+      and str(local_sent[-1].url).endswith("/v1/chat/completions"), lreq["messages"][0]["role"])
+local_reply.clear()
+local_reply.update(choices=[{"finish_reason": "length", "message": {"content": "نص مقطوع"}}])
+res = brain.answer("ما هي أداة Hunchly؟", "admin", "console")
+check("قطع المزوّد المحلي عند الحدّ لا يُرسل ناقصاً", res["outcome"] == "error", res["outcome"])
+local_reply.clear()
+local_reply.update(choices=[{"finish_reason": "content_filter", "message": {"content": ""}}])
+res = brain.answer("ما هي أداة Hunchly؟", "admin", "console")
+check("رفض المزوّد المحلي يصير «رفضه النموذج»", res["outcome"] == "refused_model", res["outcome"])
+local_reply.clear()
+local_reply["down"] = True
+gemini_reply.clear()
+gemini_reply.update(candidates=[{"finishReason": "STOP", "content": {"role": "model", "parts": [
+    {"text": "إجابة Gemini بديلة عن المحلي.\n[SOURCES: 1]"}]}}])
+res = brain.answer("ما هي أداة Hunchly؟", "admin", "console")
+check("توقف الخادم المحلي يحوّل إلى Gemini تلقائياً",
+      res["outcome"] == "answered" and "بديلة عن المحلي" in res["text"], res)
+config.GEMINI_API_KEY = ""
+res = brain.answer("ما هي أداة Hunchly؟", "admin", "console")
+check("بلا مفتاح Gemini يكون توقف المحلي خطأً صريحاً", res["outcome"] == "error", res["outcome"])
+config.ANSWER_MODEL, config.GEMINI_API_KEY = old_model, old_key
+config.LOCAL_LLM_MODEL = config.LOCAL_LLM_KEY = ""
+local_reply.clear()
+brain.httpx.Client = lambda **kw: real_client(transport=httpx.MockTransport(fake_gemini), **kw)
+
 gemini_reply.clear()
 gemini_reply.update(candidates=[{"finishReason": "SAFETY"}])
 res = brain.answer("How do I hack someone else's account with Hunchly?", "admin", "console")
