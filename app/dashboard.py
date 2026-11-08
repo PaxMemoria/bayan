@@ -139,8 +139,8 @@ TEXT: dict[str, tuple[str, str]] = {
     "vec_on": ("تعمل", "On"),
     "vec_off": ("معطّلة", "Off"),
     "c_chunks": ("مقاطع قاعدة المعرفة", "Knowledge base passages"),
-    "c_chunks_d": ("التحقيقات: {i}، الأدوات: {t}، الأدوات المُزالة: {r}.",
-                   "Investigations: {i}, tools: {t}, removed tools: {r}."),
+    "c_chunks_d": ("التحقيقات: {i}، الأدوات: {t}، الأدوات المُزالة: {r}، السلامة الرقمية: {s}.",
+                   "Investigations: {i}, tools: {t}, removed tools: {r}, digital safety: {s}."),
     "c_tools": ("أدوات الدليل", "Guide tools"),
     "c_tools_d": ("الحسّاسة: {s}، المُزالة: {r}.", "Sensitive: {s}, removed: {r}."),
     "c_vec": ("المتجهات ({p})", "Vectors ({p})"),
@@ -388,6 +388,7 @@ TEXT: dict[str, tuple[str, str]] = {
     "tp_tools": ("الأدوات", "Tools"),
     "tp_investigations": ("التحقيقات", "Investigations"),
     "tp_opportunities": ("الفرص", "Opportunities"),
+    "tp_safety": ("السلامة الرقمية", "Digital safety"),
     "tp_about": ("من نحن", "About"),
     "tp_other": ("أخرى", "Other"),
     "tp_unanswered": ("بلا جواب", "Unanswered"),
@@ -1008,7 +1009,7 @@ async def overview(request: Request, msg: str = ""):
     cards = f"""<div class="grid">
 <div class="card stat"><span>{T("c_chunks")}</span><b>{counts['_chunks']}</b>
 <span>{T("c_chunks_d", i=counts.get('investigation', 0), t=counts.get('tool', 0),
-          r=counts.get('tool_removed', 0))}</span></div>
+          r=counts.get('tool_removed', 0), s=counts.get('safety', 0))}</span></div>
 <div class="card stat"><span>{T("c_tools")}</span><b>{counts['_tools']}</b>
 <span>{T("c_tools_d", s=counts['_tools_sensitive'], r=counts['_tools_removed'])}</span></div>
 <div class="card stat"><span>{e(T("c_vec", p=_provider_label(T)))}</span><b>{vec_ok}</b>

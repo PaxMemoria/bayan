@@ -115,11 +115,38 @@ def _messages() -> dict[str, dict[str, str]]:
     }
 
 
-def welcome(lang: str | None, limit: int) -> str:
-    """الترحيب بلغة السائل، أو باللغتين إن لم تُعرف لغته.
-    The welcome in the asker's language, or in both if it is not known."""
+# ردّ التحية بمثلها، بالنص بعد التطبيع (أ←ا، ة←ه). ما ليس هنا يُجاب بـ«أهلاً وسهلاً».
+# A greeting answered in kind, keyed by the normalized text (أ to ا, ة to ه).
+# Anything else gets "أهلاً وسهلاً".
+GREETING_REPLIES = {
+    "السلام عليكم": "وعليكم السلام ورحمة الله وبركاته 👋",
+    "سلام": "وعليكم السلام 👋",
+    "صباح الخير": "صباح النور 👋",
+    "مساء الخير": "مساء النور 👋",
+    "good morning": "Good morning 👋",
+    "good evening": "Good evening 👋",
+}
+OPENERS = {"ar": "أهلاً بك 👋", "en": "Hello 👋"}
+
+
+def greeting_reply(key: str, lang: str) -> str:
+    """الرسالة الأولى بعد تحية: مثلها إن عُرفت، وإلا ترحيب عام بلغتها.
+    The first message after a greeting: in kind if known, else a general
+    welcome in its language."""
+    return GREETING_REPLIES.get(key) or ("Hello 👋" if lang == "en" else "أهلاً وسهلاً 👋")
+
+
+def welcome(lang: str | None, limit: int, opener: str | None = None) -> str:
+    """الترحيب بلغة السائل، أو باللغتين إن لم تُعرف لغته. opener السطر الأول:
+    None يعني «أهلاً بك» بلغته، و"" يعني بلا سطر أول (جاء ردّ التحية قبله).
+    The welcome in the asker's language, or in both if it is not known. opener
+    is the first line: None means "أهلاً بك" in its language, and "" means no
+    first line (the greeting reply came before it)."""
     def one(code: str) -> str:
         base = config.WELCOME_MESSAGE_EN if code == "en" else config.WELCOME_MESSAGE_AR
+        first = OPENERS[code] if opener is None else opener
+        if first:
+            base = f"{first}\n\n{base}"
         lines = []
         if limit > 0:
             lines.append(f"Limit: {limit} questions every 24 hours." if code == "en"

@@ -17,8 +17,8 @@ from fastapi.responses import HTMLResponse
 
 from . import brain, config
 
-UPDATED_AR = "8 تشرين الثاني/نوفمبر 2026"
-UPDATED_EN = "8 November 2026"
+UPDATED_AR = "9 تشرين الثاني/نوفمبر 2026"
+UPDATED_EN = "9 November 2026"
 GENERAL_POLICY = "https://paxmemoria.org/privacy-policy"
 
 CSS = """
@@ -52,7 +52,10 @@ def _arabic(days: int, limit: int, turns: int, contact: str) -> str:
 <h1>سياسة الخصوصية لبيان</h1>
 <p class="muted">آخر تحديث: {UPDATED_AR}</p>
 <p>بيان مساعد آلي تديره باكس ميموريا، يجيب عن دليل أدوات المصادر المفتوحة
-والتحقيقات المنشورة عبر تطبيقات المراسلة (تيليغرام وواتساب). تشرح هذه الصفحة ما
+والتحقيقات المنشورة وفرص الأسبوع عبر تطبيقات المراسلة (تيليغرام وواتساب)، ويقدّم
+إرشادات عامة في السلامة الرقمية من مصدرين مفتوحي الرخصة هما «عدّة الأمان»
+(Security in a Box، CC BY-SA 4.0) و«عدّة الإسعاف الأولي الرقمي» (Digital First
+Aid Kit، CC BY 4.0)، ولا يرسل إليهما شيئاً من أسئلتك. تشرح هذه الصفحة ما
 يحفظه بيان من بياناتك وما يفعله بها، وتكمّل
 <a href="{GENERAL_POLICY}">سياسة الخصوصية العامة لباكس ميموريا</a>.</p>
 
@@ -125,8 +128,11 @@ def _english(days: int, limit: int, turns: int, contact: str) -> str:
 <h1>Bayan privacy policy</h1>
 <p class="muted">Last updated: {UPDATED_EN}</p>
 <p>Bayan is an automated assistant run by Pax Memoria. It answers questions
-about our open-source tools guide and our published investigations through
-messaging apps (Telegram and WhatsApp). This page explains what Bayan stores about
+about our open-source tools guide, our published investigations and the weekly
+opportunities through messaging apps (Telegram and WhatsApp), and gives general
+digital-safety guidance from two openly licensed sources, Security in a Box
+(CC BY-SA 4.0) and the Digital First Aid Kit (CC BY 4.0), to which none of your
+questions is sent. This page explains what Bayan stores about
 you and what it does with it, and supplements
 <a href="{GENERAL_POLICY}">Pax Memoria's general privacy policy</a>.</p>
 
