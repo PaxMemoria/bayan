@@ -39,3 +39,30 @@ services:
       interval: 60s
       timeout: 10s
       retries: 3
+
+  # النموذج المحلي لردود تعليقات فيسبوك (COMMENT_ANSWER_MODEL=local في .env، مع
+  # LOCAL_LLM_URL=http://llm:8080/v1). ملف GGUF في ./models، ولا يعمل إلا بالملف
+  # الشخصي llm: ضع COMPOSE_PROFILES=llm في .env أو شغّله بـ --profile llm.
+  # الذاكرة: نحو 2 GB للنموذج وأقل من 1 GB لسياق 8192. المنفذ داخلي فقط.
+  # The local model for Facebook comment replies (COMMENT_ANSWER_MODEL=local in
+  # .env, with LOCAL_LLM_URL=http://llm:8080/v1). The GGUF file lives in
+  # ./models, and the service runs only under the llm profile: put
+  # COMPOSE_PROFILES=llm in .env or start it with --profile llm. Memory: about
+  # 2 GB for the model and under 1 GB for the 8192 context. Internal port only.
+  llm:
+    image: ghcr.io/ggml-org/llama.cpp:server
+    profiles: [llm]
+    restart: unless-stopped
+    command: >
+      -m /models/${LOCAL_LLM_FILE:-tiny-aya-global-q4_k_m.gguf}
+      --host 0.0.0.0 --port 8080 --ctx-size 8192 --jinja
+      --threads ${LLM_THREADS:-4} --parallel 1
+    volumes:
+      - ./models:/models:ro
+    mem_limit: ${LLM_MEM:-4g}
+    cpus: ${LLM_CPUS:-3}
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

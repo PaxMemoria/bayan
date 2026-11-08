@@ -77,6 +77,14 @@ LOCAL_LLM_URL = os.getenv("LOCAL_LLM_URL", "http://127.0.0.1:8080/v1").rstrip("/
 LOCAL_LLM_MODEL = os.getenv("LOCAL_LLM_MODEL", "")
 LOCAL_LLM_KEY = os.getenv("LOCAL_LLM_KEY", "")
 LOCAL_LLM_TIMEOUT = int(os.getenv("LOCAL_LLM_TIMEOUT", "120"))
+# مزوّد الردود الخاصة على تعليقات فيسبوك وحدها: local، أو gemini-…، أو فارغ فيُستعمل
+# المزوّد العام. الرد على التعليق لا ينتظره أحد على الشاشة، فيحتمل بطء النموذج
+# المحلي (نحو دقيقة ونصف على الخادم)، والمحادثات تبقى على المزوّد العام.
+# The provider for private replies to Facebook comments only: local, gemini-…,
+# or empty for the general provider. Nobody waits on screen for a comment
+# reply, so it can bear the local model's slowness (about a minute and a half
+# on the server), while chats stay on the general provider.
+COMMENT_ANSWER_MODEL = os.getenv("COMMENT_ANSWER_MODEL", "").strip()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 GEMINI_ENDPOINT = os.getenv(
