@@ -296,7 +296,12 @@ store.remember("whatsapp", "966500000001", "assistant", "رد <b>تجريبي</b
 
 r = client.post("/admin/login", data={"password": "correct horse battery"}, follow_redirects=False)
 check("كلمة المرور الصحيحة تفتح جلسة", r.status_code == 303 and "bayan_admin" in r.cookies)
+# الافتراضي الإنجليزية؛ هذه الاختبارات تقرأ النصوص العربية فتختارها أولاً
+# The default is English; these tests read the Arabic texts, so they pick it first
 r = client.get("/admin")
+check("بلا كوكي تُعرض اللوحة بالإنجليزية", r.status_code == 200 and 'dir="ltr"' in r.text
+      and "Overview" in r.text and 'class="side"' in r.text)
+r = client.get("/admin?lang=ar")
 check("نظرة عامة تعمل", r.status_code == 200 and "نظرة عامة" in r.text)
 check("اللوحة تعرض بطاقة «بلا جواب» وقسم المواضيع",
       "بلا جواب، آخر 7 أيام" in r.text and "مواضيع الأسئلة" in r.text and "الأكثر سؤالاً" in r.text)
@@ -319,7 +324,10 @@ check("رابط العودة إلى العربية في الشريط", "lang=ar"
 r = client.get("/admin/messages?lang=ar")
 check("?lang=ar يعيد العربية ومن اليمين",
       "أسئلة الجمهور" in r.text and 'dir="rtl"' in r.text)
-check("قيمة لغة غير معروفة لا تُقبل", 'dir="rtl"' in client.get("/admin?lang=fr").text)
+check("قيمة لغة غير معروفة لا تُقبل: تبقى لغة الكوكي", 'dir="rtl"' in client.get("/admin?lang=fr").text)
+check("الشريط الجانبي: زر اللغة الأخرى وخروج والصفحة الفعّالة",
+      'class="lang"' in r.text and "English" in r.text and "/admin/logout" in r.text
+      and 'class="on"' in r.text, r.text[:200])
 
 msg_id = store.questions()[0]["id"]
 r = client.post("/admin/block", data={"msg_id": str(msg_id), "next": "/admin/messages"},
@@ -1142,8 +1150,8 @@ r = google_login(anon, {"email": "boss@paxmemoria.org", "email_verified": True, 
 boss = store.member_by_email("boss@paxmemoria.org")
 check("بريد ADMIN_EMAILS يدخل مديراً ويُنشأ عضواً", r.status_code == 303 and r.headers["location"] == "/admin"
       and boss and boss["role"] == "admin" and boss["name"] == "Boss", boss)
-r = anon.get("/admin")
-check("الترويسة تعرض اسم العضو ودوره", r.status_code == 200 and "Boss" in r.text and "مدير" in r.text)
+r = anon.get("/admin?lang=ar")
+check("الشريط الجانبي يعرض اسم العضو ودوره", r.status_code == 200 and "Boss" in r.text and "مدير" in r.text)
 r = anon.post("/admin/team/add", data={"email": "ed@paxmemoria.org", "role": "editor", "name": ""}, follow_redirects=False)
 check("المدير يضيف محرراً", "member_saved" in r.headers["location"] and store.member_by_email("ed@paxmemoria.org")["role"] == "editor")
 r = anon.post("/admin/team/add", data={"email": "ed@gmail.com", "role": "editor"}, follow_redirects=False)
@@ -1634,6 +1642,100 @@ r = client.get("/admin")
 check("اللوحة تعدّ مقاطع السلامة الرقمية",
       r.status_code == 200 and f"السلامة الرقمية: {n_safety}" in r.text, r.status_code)
 config.SAFETY_SOURCES = real_sources
+
+# ── مفاتيح API من اللوحة، للمدير وحده / API keys from the dashboard, admin only ──
+print("\n── مفاتيح API من اللوحة ──")
+from app import keys  # noqa: E402
+
+old_key, old_client_obj = config.ANTHROPIC_API_KEY, brain._client
+client.get("/admin?lang=ar")
+r = client.post("/admin/keys/set", follow_redirects=False,
+                data={"name": "ANTHROPIC_API_KEY", "value": "sk-ant-test-1234567890abcd"})
+check("المدير يحفظ مفتاحاً فيعمل فوراً ويُعاد بناء العميل",
+      "key_saved" in r.headers["location"] and config.ANTHROPIC_API_KEY == "sk-ant-test-1234567890abcd"
+      and brain._client is None, r.headers.get("location"))
+page_text = client.get("/admin/settings").text
+check("اللوحة تعرض آخر أربعة أحرف فقط ومصدر المفتاح",
+      "••••abcd" in page_text and "sk-ant-test" not in page_text and "من اللوحة" in page_text
+      and "مفاتيح API" in page_text)
+acts = store.audit_log(20)
+check("القيمة في القاعدة، وفي سجلّ الإجراءات اسم المفتاح لا قيمته",
+      store.api_keys()[0]["value"] == "sk-ant-test-1234567890abcd"
+      and any(a["action"] == "key_set" and a.get("target") == "ANTHROPIC_API_KEY" for a in acts)
+      and not any("1234567890abcd" in json.dumps(a, ensure_ascii=False) for a in acts), acts[:3])
+r = client.post("/admin/keys/set", data={"name": "ANTHROPIC_API_KEY", "value": "has space key"},
+                follow_redirects=False)
+check("مفتاح فيه مسافة يُرفض", "error=key" in r.headers["location"])
+r = client.post("/admin/keys/set", data={"name": "TELEGRAM_BOT_TOKEN", "value": "123456:ABCDEFGH"},
+                follow_redirects=False)
+check("مفتاح ليس في القائمة (يحتاج إعادة تشغيل) يُرفض",
+      "error=key" in r.headers["location"] and len(store.api_keys()) == 1)
+config.GOOGLE_CLIENT_ID, config.GOOGLE_CLIENT_SECRET = "cid", "sec"
+config.PUBLIC_URL = "http://bayan.test"
+dash.httpx.AsyncClient = lambda **kw: real_dash_async(transport=httpx.MockTransport(google_api), **kw)
+store.add_member("keys-viewer@paxmemoria.org", "viewer", "KV")
+viewer = TestClient(server.app)
+google_login(viewer, {"email": "keys-viewer@paxmemoria.org", "email_verified": True,
+                      "hd": "paxmemoria.org", "name": "KV"})
+dash.httpx.AsyncClient = real_dash_async
+config.PUBLIC_URL = ""
+check("المشاهد يقرأ ولا يحفظ مفاتيح، ولا يرى صفحة الإعدادات",
+      viewer.get("/admin/messages").status_code == 200
+      and viewer.post("/admin/keys/set", data={"name": "GEMINI_API_KEY", "value": "AIza-test-123456"}).status_code == 403
+      and viewer.get("/admin/settings").status_code == 403 and len(store.api_keys()) == 1,
+      (viewer.get("/admin/messages").status_code, viewer.get("/admin/settings").status_code))
+config.GOOGLE_CLIENT_ID = config.GOOGLE_CLIENT_SECRET = ""
+config.ANTHROPIC_API_KEY = "from-env"
+check("عند الإقلاع تُطبَّق المفاتيح المحفوظة فوق .env",
+      keys.apply_saved() == 1 and config.ANTHROPIC_API_KEY == "sk-ant-test-1234567890abcd")
+r = client.post("/admin/keys/clear", data={"name": "ANTHROPIC_API_KEY"}, follow_redirects=False)
+check("المسح يعيد قيمة .env ويُسجَّل",
+      "key_cleared" in r.headers["location"] and config.ANTHROPIC_API_KEY == keys.ENV_VALUES["ANTHROPIC_API_KEY"]
+      and store.api_keys() == [] and any(a["action"] == "key_clear" for a in store.audit_log(5)))
+config.ANTHROPIC_API_KEY, brain._client = old_key, old_client_obj
+
+# ── دور بيان من اللوحة، للمدير وحده / Bayan's role from the dashboard, admin only ──
+print("\n── دور بيان ──")
+from app import role  # noqa: E402
+
+r = client.get("/admin/role")
+check("صفحة «دور بيان» للمدير: أقسامها الخمسة ومعاينة التعليمات",
+      r.status_code == 200
+      and all(k in r.text for k in ("scope_ar", 'name="rules"', "refusal_en", "welcome_ar", "paused_en"))
+      and "نطاقك:" in r.text, r.status_code)
+check("المشاهد لا يفتح «دور بيان» ولا يحفظ فيه",
+      viewer.get("/admin/role").status_code == 403
+      and viewer.post("/admin/role/save", data={"section": "rules", "rules": "x"}).status_code == 403)
+r = client.post("/admin/role/save", follow_redirects=False,
+                data={"section": "rules", "rules": "لا تذكر أسعار الأدوات.\r\nاختم بشكر."})
+live = brain.system_prompt()
+check("قواعد الفريق تُلحق بالتعليمات الفعلية ولا تمسّ الافتراضية",
+      "role_saved" in r.headers["location"] and "لا تذكر أسعار الأدوات.\nاختم بشكر." in live
+      and "قواعد إضافية من فريق" in live and "قواعد إضافية" not in brain.SYSTEM_PROMPT
+      and live.startswith(brain.SYSTEM_PROMPT), r.headers.get("location"))
+r = client.post("/admin/role/save", follow_redirects=False,
+                data={"section": "refusal", "refusal_ar": "خارج نطاقي. اسألني عن الدليل.",
+                      "refusal_en": "Outside my scope. Ask me about the guide."})
+check("نص الرفض الجديد يُستعمل فوراً باللغتين",
+      "role_saved" in r.headers["location"]
+      and i18n.msg("out_of_scope", "ar") == "خارج نطاقي. اسألني عن الدليل."
+      and i18n.msg("out_of_scope", "en") == "Outside my scope. Ask me about the guide.")
+check("الصفحة تعلّم المعدَّل، والنص الأطول من الحدّ يُرفض",
+      "معدَّل من اللوحة" in client.get("/admin/role").text
+      and "error=role" in client.post("/admin/role/save", follow_redirects=False,
+                                      data={"section": "rules", "rules": "x" * 4001}).headers["location"])
+config.TEAM_RULES, config.OUT_OF_SCOPE_MESSAGE = "", "من .env"
+check("عند الإقلاع تُطبَّق النصوص المحفوظة فوق .env",
+      role.apply_saved() == 3 and config.TEAM_RULES.startswith("لا تذكر")
+      and config.OUT_OF_SCOPE_MESSAGE.startswith("خارج نطاقي"))
+client.post("/admin/role/save", data={"section": "refusal", "reset": "1"})
+client.post("/admin/role/save", data={"section": "rules", "reset": "1"})
+check("إعادة الافتراضي تعيد نصوص الكود وتعليمات النظام وتُسجَّل",
+      i18n.msg("out_of_scope", "ar") == role.DEFAULTS["refusal_ar"]
+      and i18n.msg("out_of_scope", "en") == role.DEFAULTS["refusal_en"]
+      and brain.system_prompt() == brain.SYSTEM_PROMPT
+      and any(a["action"] == "role_reset" for a in store.audit_log(8))
+      and any(a["action"] == "role_saved" and a.get("target") == "rules" for a in store.audit_log(20)))
 
 embed.embed = real_embed
 print(f"\nالنتيجة: {ok}/{ok + fail}")

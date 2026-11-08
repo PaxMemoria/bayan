@@ -39,7 +39,8 @@ import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
-from . import brain, broadcast, config, embed, ingest, opportunities, retrieve, store
+from . import (brain, broadcast, config, embed, ingest, keys, opportunities, retrieve, role,
+               store)
 
 log = logging.getLogger("dashboard")
 router = APIRouter()
@@ -445,6 +446,43 @@ TEXT: dict[str, tuple[str, str]] = {
     "err_member": ("البريد غير صالح أو ليس من نطاق {d}.", "The email is invalid or not on the {d} domain."),
     "err_self": ("لا يمكنك تعطيل نفسك أو خفض دورك.", "You cannot deactivate yourself or lower your own role."),
     "flash_member_saved": ("حُفظ العضو.", "Member saved."),
+    "nav_role": ("دور بيان", "Bayan's role"),
+    "role_help": ("للمدير وحده. ما يُحفظ هنا يُطبَّق فوراً على كل القنوات دون إعادة تشغيل، ويتقدّم على "
+                  "قيمة .env. الحقل الفارغ يعيد الافتراضي. القواعد الثابتة (لا معرفة عامة، لا روابط "
+                  "لأدوات حسّاسة أو مُزالة، قواعد التحقيقات) لا تُغيَّر من هنا.",
+                  "Admin only. What is saved here applies at once on every channel, with no restart, "
+                  "and takes precedence over the .env value. An empty field restores the default. "
+                  "The fixed rules (no general knowledge, no links to sensitive or removed tools, "
+                  "the investigation rules) cannot be changed here."),
+    "role_ar": ("بالعربية", "Arabic"),
+    "role_en": ("بالإنجليزية", "English"),
+    "role_custom": ("معدَّل من اللوحة", "Edited here"),
+    "role_default": ("الافتراضي", "Default"),
+    "role_reset": ("أعد الافتراضي", "Reset to default"),
+    "role_preview": ("تعليمات النظام الفعلية الآن", "The system instructions now in use"),
+    "flash_role_saved": ("حُفظ وطُبّق فوراً.", "Saved and applied at once."),
+    "err_role": ("نص أطول من {n} حرف.", "A text is longer than {n} characters."),
+    "keys_h": ("مفاتيح API", "API keys"),
+    "keys_help": ("للمدير وحده. المفتاح المحفوظ هنا يتقدّم على قيمة .env ويعمل فوراً بلا إعادة تشغيل، "
+                  "ويُحفظ في قاعدة بيان على الخادم، ولا يُعرض بعد حفظه إلا آخر أربعة أحرف. "
+                  "كل حفظ أو مسح يُسجَّل في سجلّ الإجراءات. رمز تيليغرام وسرّ Meta يبقيان في .env لأن تغييرهما يحتاج إعادة تشغيل.",
+                  "Admin only. A key saved here takes precedence over the .env value and works at once, "
+                  "with no restart; it is kept in Bayan's database on the server, and after saving only its "
+                  "last four characters are shown. Every save or clear goes to the action log. The Telegram "
+                  "token and the Meta app secret stay in .env, since changing them needs a restart."),
+    "th_key": ("المفتاح", "Key"),
+    "th_source": ("المصدر", "Source"),
+    "key_dash": ("من اللوحة", "From the dashboard"),
+    "key_env": ("من .env", "From .env"),
+    "key_none": ("غير مضبوط", "Not set"),
+    "key_by": ("بواسطة {who}، {when}", "by {who}, {when}"),
+    "key_new": ("قيمة جديدة", "New value"),
+    "key_save": ("احفظ", "Save"),
+    "key_clear": ("امسح وعُد إلى .env", "Clear, back to .env"),
+    "flash_key_saved": ("حُفظ المفتاح وصار معمولاً به.", "Key saved and now in use."),
+    "flash_key_cleared": ("مُسح المفتاح، وعادت قيمة .env.", "Key cleared; the .env value is back."),
+    "err_key": ("المفتاح غير صالح: أحرف لاتينية وأرقام ورموز بلا مسافات، 8 أحرف على الأقل.",
+                "Invalid key: Latin letters, digits and symbols without spaces, at least 8 characters."),
     "flash_member_deleted": ("حُذف العضو.", "Member deleted."),
     "by": ("بواسطة {who}", "by {who}"),
     "th_by": ("بواسطة", "By"),
@@ -454,7 +492,8 @@ TEXT: dict[str, tuple[str, str]] = {
 FLASH_KIND = {"reindex": "ok", "busy": "warn", "saved": "ok", "blocked": "ok",
               "unblocked": "ok", "rated": "ok", "fix_saved": "ok", "fix_novec": "warn",
               "fix_deleted": "ok", "opp_saved": "ok", "opp_deleted": "ok", "opp_sent": "ok",
-              "member_saved": "ok", "member_deleted": "ok"}
+              "member_saved": "ok", "member_deleted": "ok", "key_saved": "ok",
+              "key_cleared": "ok", "role_saved": "ok"}
 RATINGS = ("up", "down", "none")
 # نموذج التصحيح أكبر من غيره: الحرف العربي 6 بايتات بعد ترميز الرابط
 # The correction form is larger than the others: an Arabic character takes
@@ -476,12 +515,13 @@ def tr(lang: str):
 
 
 def req_lang(request: Request) -> str:
-    """?lang= يتقدّم على الكوكي، والافتراضي العربية.
-    ?lang= takes precedence over the cookie, and the default is Arabic."""
+    """?lang= يتقدّم على الكوكي، والافتراضي الإنجليزية (قرار 2026-11-09).
+    ?lang= takes precedence over the cookie, and the default is English
+    (decided 2026-11-09)."""
     q = request.query_params.get("lang")
     if q in ("ar", "en"):
         return q
-    return "en" if request.cookies.get(LANG_COOKIE) == "en" else "ar"
+    return "ar" if request.cookies.get(LANG_COOKIE) == "ar" else "en"
 
 
 # ─────────────────────────────────────────────────────── الدخول / Login
@@ -632,87 +672,181 @@ def fingerprint(channel: str, user_id: str) -> str:
 
 
 # ─────────────────────────────────────────────────────── القالب / Template
+# القالب: شريط جانبي ثابت للتنقّل، ورأس للصفحة، وألوان من لوحة موقع باكس ميموريا
+# (الورقي والأخضر). الإنجليزية افتراضياً والتبديل إلى العربية بزر في الشريط.
+# The template: a fixed sidebar for navigation, a page header, and the colours
+# of the Pax Memoria site palette (paper and green). English by default, with
+# a button in the sidebar to switch to Arabic.
 CSS = """
-:root{--bg:#f5f4f0;--panel:#fff;--ink:#1c1c1a;--muted:#696962;--line:#e2e0d9;
---accent:#1d5c57;--accent-ink:#fff;--ok:#2b7149;--ok-bg:#e6f2ea;--warn:#8f5200;
---warn-bg:#fdf1dc;--bad:#a8241c;--bad-bg:#fbe7e5;--code:#efede7}
-@media (prefers-color-scheme:dark){:root{--bg:#151614;--panel:#1e201d;--ink:#ecebe6;
---muted:#a3a29b;--line:#34362f;--accent:#7cc4bc;--accent-ink:#0f1a19;--ok:#8fd1a6;
---ok-bg:#1d3226;--warn:#f1bf72;--warn-bg:#3a2d16;--bad:#f39c94;--bad-bg:#3d1f1c;
---code:#2a2c27}}
+:root{--bg:#f3efe6;--panel:#fcfaf5;--panel-2:#f7f3ea;--ink:#1b1f1c;--muted:#6b6f68;
+--line:#e3dbcb;--accent:#3b7350;--accent-soft:#e4efe6;--accent-ink:#fff;--ok:#2b7149;
+--ok-bg:#e6f2ea;--warn:#8f5200;--warn-bg:#fdf1dc;--bad:#a8241c;--bad-bg:#fbe7e5;
+--code:#efeadf;--side:#10201e;--side-ink:#e8e4d8;--side-muted:#9aa89f;--side-on:#1b3330;
+--shadow:0 1px 2px rgba(20,30,25,.06)}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1715;--panel:#172926;--panel-2:#1c302c;
+--ink:#ecebe6;--muted:#9faea4;--line:#24403a;--accent:#8fd1a6;--accent-soft:#1d3226;
+--accent-ink:#0f1a19;--ok:#8fd1a6;--ok-bg:#1d3226;--warn:#f1bf72;--warn-bg:#3a2d16;
+--bad:#f39c94;--bad-bg:#3d1f1c;--code:#122320;--side:#0b1514;--side-ink:#e8e4d8;
+--side-muted:#8e9c93;--side-on:#1b3330;--shadow:none}}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);line-height:1.7;
+html{height:100%}
+body{margin:0;min-height:100%;background:var(--bg);color:var(--ink);line-height:1.6;
 font-family:"SF Arabic","Noto Sans Arabic","Segoe UI","Geeza Pro",Tahoma,sans-serif;
-font-size:15px}
-html[lang=en] body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+font-size:15px;-webkit-font-smoothing:antialiased}
+html[lang=en] body{font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 a{color:var(--accent)}
-header{background:var(--panel);border-bottom:1px solid var(--line)}
-.bar{max-width:1100px;margin:auto;padding:10px 16px;display:flex;flex-wrap:wrap;
-align-items:center;gap:6px 18px}
-.brand{font-weight:700;font-size:17px;margin-inline-end:auto}
-.brand small{color:var(--muted);font-weight:400}
-nav{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
-nav a{padding:4px 10px;border-radius:6px;text-decoration:none;color:var(--ink)}
-nav a.on{background:var(--accent);color:var(--accent-ink)}
-nav a.lang{border:1px solid var(--line)}
-nav form{display:inline}
-main{max-width:1100px;margin:auto;padding:20px 16px 60px}
-h1{font-size:22px;margin:0 0 14px}
-h2{font-size:17px;margin:26px 0 10px}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;
-padding:14px 16px;margin-bottom:12px}
-.grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
-.stat b{display:block;font-size:26px;line-height:1.3}
-.stat span{color:var(--muted);font-size:13px}
-.alert{border-radius:10px;padding:12px 16px;margin-bottom:12px;border:1px solid}
+/* الهيكل / Shell */
+.shell{display:grid;grid-template-columns:232px 1fr;min-height:100vh}
+.side{background:var(--side);color:var(--side-ink);padding:18px 14px;display:flex;
+flex-direction:column;gap:6px;position:sticky;top:0;height:100vh}
+.side .brand{display:flex;align-items:baseline;gap:8px;padding:4px 10px 16px;
+font-weight:700;font-size:19px;color:#fff;letter-spacing:.01em}
+.side .brand small{color:var(--side-muted);font-weight:500;font-size:12px}
+.side nav{display:flex;flex-direction:column;gap:2px}
+.side nav a{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;
+text-decoration:none;color:var(--side-ink);font-size:14.5px;font-weight:500}
+.side nav a svg{width:17px;height:17px;flex:none;stroke:currentColor;fill:none;
+stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;opacity:.75}
+.side nav a:hover{background:var(--side-on)}
+.side nav a.on{background:var(--side-on);color:#fff}
+.side nav a.on svg{opacity:1;color:#9fd8b2}
+.side .foot{margin-top:auto;border-top:1px solid rgba(255,255,255,.08);padding-top:12px;
+display:flex;flex-direction:column;gap:8px}
+.side .who{font-size:13px;color:var(--side-muted);padding:0 10px;overflow-wrap:anywhere}
+.side .who b{display:block;color:var(--side-ink);font-weight:600}
+.side .actions{display:flex;gap:8px;padding:0 10px}
+.side .actions form{margin:0;flex:1 1 auto}
+.side .actions button,.side .actions a{display:block;width:100%;text-align:center;
+background:transparent;color:var(--side-ink);border:1px solid rgba(255,255,255,.18);
+border-radius:8px;padding:6px 8px;font-size:13px;text-decoration:none;white-space:nowrap}
+.side .actions a.lang{flex:1 1 auto}
+.side .actions a.lang{font-weight:600}
+.side .actions button:hover,.side .actions a:hover{background:var(--side-on)}
+.content{min-width:0;padding:28px 36px 72px;max-width:1240px}
+.top{display:flex;align-items:center;justify-content:space-between;gap:16px;
+margin-bottom:22px}
+h1{font-size:26px;margin:0;letter-spacing:-.01em;line-height:1.25}
+h2{font-size:16px;margin:30px 0 12px;color:var(--ink);letter-spacing:.01em}
+h3{font-size:15px;margin:14px 0 8px}
+/* البطاقات / Cards */
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+padding:18px 20px;margin-bottom:14px;box-shadow:var(--shadow)}
+.grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(210px,1fr))}
+.grid .card{margin:0}
+.stat{display:flex;flex-direction:column;gap:2px}
+.stat>span:first-child{color:var(--muted);font-size:12.5px;font-weight:600;
+text-transform:uppercase;letter-spacing:.04em}
+html[lang=ar] .stat>span:first-child{text-transform:none;letter-spacing:0;font-size:13px}
+.stat b{display:block;font-size:32px;line-height:1.15;font-weight:600;
+font-variant-numeric:tabular-nums;margin:4px 0 2px}
+.stat>span:last-child{color:var(--muted);font-size:13px}
+.alert{border-radius:10px;padding:12px 16px;margin-bottom:14px;border:1px solid;
+border-inline-start-width:4px}
 .alert.bad{background:var(--bad-bg);border-color:var(--bad);color:var(--ink)}
 .alert.warn{background:var(--warn-bg);border-color:var(--warn)}
 .alert.ok{background:var(--ok-bg);border-color:var(--ok)}
 .alert strong{display:block}
-.badge{display:inline-block;font-size:12px;padding:1px 8px;border-radius:99px;
-border:1px solid currentColor;white-space:nowrap}
-.badge.ok{color:var(--ok)}.badge.warn{color:var(--warn)}.badge.bad{color:var(--bad)}
-.badge.muted{color:var(--muted)}
+.badge{display:inline-block;font-size:12px;padding:1px 9px;border-radius:99px;
+border:1px solid currentColor;white-space:nowrap;font-weight:500;line-height:1.6}
+.badge.ok{color:var(--ok);background:var(--ok-bg);border-color:transparent}
+.badge.warn{color:var(--warn);background:var(--warn-bg);border-color:transparent}
+.badge.bad{color:var(--bad);background:var(--bad-bg);border-color:transparent}
+.badge.muted{color:var(--muted);background:var(--panel-2);border-color:transparent}
 .muted{color:var(--muted)}
 .meta{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:13px;color:var(--muted);
 align-items:center}
-.q{font-size:16px;margin:6px 0;white-space:pre-wrap;overflow-wrap:anywhere}
+.q{font-size:16px;margin:8px 0;white-space:pre-wrap;overflow-wrap:anywhere;font-weight:500}
 pre,.reply{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--code);
 border-radius:8px;padding:10px 12px;margin:8px 0;font-family:inherit;font-size:14px}
 pre.log{font-family:ui-monospace,Menlo,monospace;font-size:12.5px;direction:ltr;
 text-align:left}
 code{background:var(--code);padding:1px 5px;border-radius:4px;direction:ltr;
 unicode-bidi:embed;font-size:13px}
-details summary{cursor:pointer;color:var(--accent);font-size:14px}
+details summary{cursor:pointer;color:var(--accent);font-size:14px;font-weight:500}
 .tabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
-.tabs a{padding:3px 12px;border:1px solid var(--line);border-radius:99px;
-text-decoration:none;color:var(--ink);background:var(--panel);font-size:14px}
-.tabs a.on{border-color:var(--accent);color:var(--accent);font-weight:700}
-button,.btn{font:inherit;background:var(--accent);color:var(--accent-ink);border:0;
-border-radius:7px;padding:6px 14px;cursor:pointer;text-decoration:none}
-button.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
+.tabs a{padding:4px 13px;border:1px solid var(--line);border-radius:99px;
+text-decoration:none;color:var(--ink);background:var(--panel);font-size:13.5px}
+.tabs a.on{border-color:var(--accent);color:var(--accent);background:var(--accent-soft);
+font-weight:600}
+button,.btn{font:inherit;font-weight:500;background:var(--accent);color:var(--accent-ink);
+border:0;border-radius:8px;padding:7px 15px;cursor:pointer;text-decoration:none}
+button:hover,.btn:hover{filter:brightness(1.07)}
+button.ghost{background:var(--panel);color:var(--ink);border:1px solid var(--line)}
 button.danger{background:transparent;color:var(--bad);border:1px solid var(--bad)}
-button.small{font-size:13px;padding:1px 10px}
+button.small{font-size:13px;padding:2px 11px}
 .meta form{margin-inline-start:auto}
 button:disabled{opacity:.5;cursor:default}
-input,textarea,select{font:inherit;color:var(--ink);background:var(--bg);
-border:1px solid var(--line);border-radius:7px;padding:7px 10px;width:100%}
+input,textarea,select{font:inherit;color:var(--ink);background:var(--panel);
+border:1px solid var(--line);border-radius:8px;padding:8px 11px;width:100%}
+input:focus,textarea:focus,select:focus{outline:2px solid var(--accent);outline-offset:0;
+border-color:var(--accent)}
 .rate{margin-top:8px}.rate form{max-width:560px}
 .rated{margin-top:6px}
 input[type=checkbox]{width:auto}
-label{display:block;margin:10px 0 4px;font-weight:600}
+label{display:block;margin:12px 0 5px;font-weight:600;font-size:13.5px}
 .row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
 .row form{margin:0}
-table{width:100%;border-collapse:collapse;font-size:14px}
-td,th{padding:6px 8px;border-bottom:1px solid var(--line);text-align:start;
+table{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}
+td,th{padding:9px 10px;border-bottom:1px solid var(--line);text-align:start;
 vertical-align:top}
+tr:last-child td{border-bottom:0}
+tbody tr:hover td{background:var(--panel-2)}
 td.wrap{overflow-wrap:anywhere}
 .state.ok{color:var(--ok);font-weight:600}.state.muted{color:var(--muted)}
-th{color:var(--muted);font-weight:600}
+th{color:var(--muted);font-weight:600;font-size:12.5px;text-transform:uppercase;
+letter-spacing:.04em}
+html[lang=ar] th{text-transform:none;letter-spacing:0;font-size:13px}
+th[scope=row]{text-transform:none;letter-spacing:0;font-size:14px;color:var(--ink);
+font-weight:600}
+.keys form.row{flex-wrap:nowrap;margin:0}
+.keys form.row input{width:auto;flex:1 1 160px}
+.keys td form+form{margin-top:8px}
+.fields{display:grid;gap:14px}
+.fields.two{grid-template-columns:1fr 1fr}
+.fields label{margin-top:0;display:flex;gap:8px;align-items:center}
+.fields textarea{font-size:14px;line-height:1.6}
+@media (max-width:900px){.fields.two{grid-template-columns:1fr}}
 .bar-chart{height:8px;border-radius:4px;background:var(--line);overflow:hidden}
 .bar-chart i{display:block;height:100%;background:var(--accent)}
-.help{color:var(--muted);font-size:14px;margin:-6px 0 14px}
+.help{color:var(--muted);font-size:14px;margin:-10px 0 16px;max-width:72ch}
+/* الدخول / Login */
+body.bare{display:grid;place-items:center;padding:24px}
+body.bare .content{padding:0;max-width:440px;width:100%}
+body.bare .top{justify-content:center;flex-direction:column;gap:6px;text-align:center}
+body.bare h1{font-size:22px}
+body.bare .brand{font-weight:700;font-size:22px}
+body.bare .brand small{color:var(--muted);font-weight:500;font-size:13px;display:block}
+body.bare .card{max-width:none !important}
+body.bare .lang{display:inline-block;margin-top:14px;font-size:14px}
+@media (max-width:900px){
+.shell{grid-template-columns:1fr}
+.side{position:static;height:auto;padding:12px 14px;gap:10px}
+.side nav{flex-direction:row;flex-wrap:wrap}
+.side nav a{padding:6px 10px;font-size:14px}
+.side .foot{margin-top:0;border-top:0;padding-top:0;flex-direction:row;align-items:center;
+justify-content:space-between;gap:10px}
+.side .who{padding:0}
+.content{padding:20px 16px 60px}
+h1{font-size:22px}}
 """
+
+# أيقونات التنقّل: SVG مضمّن (سياسة CSP تمنع الصور الخارجية)
+# Navigation icons: inline SVG (the CSP forbids external images)
+ICONS = {
+    "home": '<path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v10h14V10"/>',
+    "messages": '<path d="M4 5h16v11H9l-5 4z"/>',
+    "try": '<path d="M12 3v3M12 18v3M3 12h3M18 12h3"/><circle cx="12" cy="12" r="4"/>',
+    "corrections": '<path d="M4 20h4l11-11-4-4L4 16z"/><path d="M13 7l4 4"/>',
+    "opportunities": '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
+    "settings": '<circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.4-2.3 1a7 7 0 0 0-2-1.2L14 3h-4l-.6 2.7a7 7 0 0 0-2 1.2l-2.3-1-2 3.4 2 1.5A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.5 2 3.4 2.3-1a7 7 0 0 0 2 1.2L10 21h4l.6-2.7a7 7 0 0 0 2-1.2l2.3 1 2-3.4-2-1.5c.1-.4.1-.8.1-1.2z"/>',
+    "blocked": '<circle cx="12" cy="12" r="9"/><path d="M6 6l12 12"/>',
+    "role": '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+    "team": '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17" cy="9" r="2.5"/><path d="M16 15a5 5 0 0 1 5.5 5"/>',
+}
+
+
+def icon(key: str) -> str:
+    return f'<svg viewBox="0 0 24 24" aria-hidden="true">{ICONS.get(key, "")}</svg>'
 
 NAV = [
     ("/admin", "nav_home", "home"),
@@ -720,6 +854,7 @@ NAV = [
     ("/admin/try", "nav_try", "try"),
     ("/admin/corrections", "nav_corrections", "corrections"),
     ("/admin/opportunities", "nav_opps", "opportunities"),
+    ("/admin/role", "nav_role", "role"),
     ("/admin/settings", "nav_settings", "settings"),
     ("/admin/blocked", "nav_blocked", "blocked"),
     ("/admin/team", "nav_team", "team"),
@@ -755,33 +890,43 @@ def page(request: Request, title: str, body: str, active: str = "", nav: bool = 
     lang = req_lang(request)
     T = tr(lang)
     other = "ar" if lang == "en" else "en"
-    links = ""
-    if nav:
-        links = "".join(
-            f'<a href="{href}" class="{"on" if key == active else ""}">{T(label)}</a>'
-            for href, label, key in NAV
-        )
-    links += (f'<a class="lang" href="{e(_lang_link(request, other))}" '
-              f'lang="{other}">{T("other_lang")}</a>')
-    if nav:
-        m = current_member(request)
-        if m:
-            label = m.get("name") or m.get("email") or T("owner_label")
-            links += f'<span class="muted who">{e(label)} · {T("role_" + m["role"])}</span>'
-        links += ('<form method="post" action="/admin/logout">'
-                  f'<button class="ghost" type="submit">{T("logout")}</button></form>')
+    # زر اللغة: يحمل اسم اللغة الأخرى بلغتها / The language button carries the
+    # other language's name in that language
+    lang_btn = (f'<a class="lang" href="{e(_lang_link(request, other))}" '
+                f'lang="{other}" hreflang="{other}">{T("other_lang")}</a>')
     note = ""
     if flash in FLASH_KIND:
         note = f'<div class="alert {FLASH_KIND[flash]}">{e(T("flash_" + flash))}</div>'
     name = config.BOT_NAME_EN if lang == "en" else config.BOT_NAME
-    doc = f"""<!doctype html>
+    head = f"""<!doctype html>
 <html lang="{lang}" dir="{'ltr' if lang == 'en' else 'rtl'}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow">
-<title>{e(title)} · {e(name)}</title><style>{CSS}</style></head>
-<body><header><div class="bar"><div class="brand">{e(name)}
-<small>{T("dashboard")}</small></div><nav>{links}</nav></div></header>
-<main><h1>{e(title)}</h1>{note}{body}</main></body></html>"""
+<title>{e(title)} · {e(name)}</title><style>{CSS}</style></head>"""
+    if nav:
+        links = "".join(
+            f'<a href="{href}" class="{"on" if key == active else ""}">{icon(key)}'
+            f"<span>{T(label)}</span></a>"
+            for href, label, key in NAV
+        )
+        m = current_member(request)
+        who = ""
+        if m:
+            label = m.get("name") or m.get("email") or T("owner_label")
+            who = f'<div class="who"><b>{e(label)}</b>{T("role_" + m["role"])}</div>'
+        doc = f"""{head}
+<body class="shell"><aside class="side"><div class="brand">{e(name)}
+<small>{T("dashboard")}</small></div><nav>{links}</nav>
+<div class="foot">{who}<div class="actions">{lang_btn}
+<form method="post" action="/admin/logout"><button type="submit">{T("logout")}</button>
+</form></div></div></aside>
+<main class="content"><div class="top"><h1>{e(title)}</h1></div>{note}{body}</main>
+</body></html>"""
+    else:
+        doc = f"""{head}
+<body class="bare"><main class="content"><div class="top"><div class="brand">{e(name)}
+<small>{T("dashboard")}</small></div><h1>{e(title)}</h1></div>{note}{body}
+<p style="text-align:center">{lang_btn}</p></main></body></html>"""
     resp = HTMLResponse(doc, status_code=status, headers=HEADERS)
     if request.query_params.get("lang") in ("ar", "en"):
         resp.set_cookie(LANG_COOKIE, lang, max_age=365 * 86400, httponly=True,
@@ -1747,7 +1892,7 @@ async def settings(request: Request, msg: str = "", error: str = ""):
     T = tr(lang)
     thr = brain.threshold()
     paused = brain.paused()
-    err = {"threshold": "err_threshold", "limit": "err_limit"}.get(error)
+    err = {"threshold": "err_threshold", "limit": "err_limit", "key": "err_key"}.get(error)
     err_html = f'<div class="alert bad">{T(err)}</div>' if err else ""
     fixed = [
         (T("f_answer_model"), config.ANSWER_MODEL),
@@ -1778,6 +1923,9 @@ value="{brain.daily_limit()}" style="max-width:140px">
 <button class="ghost" type="submit" name="reset" value="1">{T("reset_thr")}</button></p>
 </form></div>
 <h2>{T("channels")}</h2><div class="card"><table>{_channel_state(T)}</table></div>
+<h2>{T("keys_h")}</h2>
+<p class="help">{T("keys_help")}</p>
+<div class="card"><table class="keys">{_keys_rows(T, lang)}</table></div>
 <h2>{T("env_settings")}</h2>
 <p class="help">{T("env_help")}</p>
 <div class="card"><table>{fixed_rows}</table></div>"""
@@ -1807,3 +1955,116 @@ async def save_settings(request: Request):
     store.set_setting("paused", "1" if form.get("paused") else "0")
     store.audit(who(request), "settings")
     return _back("/admin/settings", msg="saved")
+
+
+def _keys_rows(T, lang: str) -> str:
+    """صفوف مفاتيح API: الاسم وحاله ونموذج حفظ، بلا قيمة المفتاح.
+    The API key rows: name, state and a save form, without the key's value."""
+    i = 1 if lang == "en" else 0
+    rows = []
+    for k in keys.status():
+        if k["source"] == "dashboard":
+            state = (f'<span class="badge ok">{T("key_dash")}</span> <code>{e(k["mask"])}</code>'
+                     f'<div class="muted">{e(T("key_by", who=k["by"] or "?", when=when(k["updated"])))}</div>')
+        elif k["source"] == "env":
+            state = f'<span class="badge muted">{T("key_env")}</span> <code>{e(k["mask"])}</code>'
+        else:
+            state = f'<span class="badge warn">{T("key_none")}</span>'
+        clear = ""
+        if k["source"] == "dashboard":
+            clear = (f'<form method="post" action="/admin/keys/clear">'
+                     f'<input type="hidden" name="name" value="{k["name"]}">'
+                     f'<button class="ghost small" type="submit">{T("key_clear")}</button></form>')
+        rows.append(
+            f'<tr><th scope="row">{e(k["label"][i])}<div class="muted"><code>{k["name"]}</code></div></th>'
+            f"<td>{state}</td>"
+            f'<td><form method="post" action="/admin/keys/set" class="row">'
+            f'<input type="hidden" name="name" value="{k["name"]}">'
+            f'<input type="password" name="value" autocomplete="off" spellcheck="false" '
+            f'placeholder="{T("key_new")}" style="max-width:260px" required>'
+            f'<button type="submit" class="small">{T("key_save")}</button></form>{clear}</td></tr>'
+        )
+    return (f'<tr><th>{T("th_key")}</th><th>{T("th_source")}</th><th>{T("key_new")}</th></tr>'
+            + "".join(rows))
+
+
+@router.get("/admin/role")
+async def role_page(request: Request, msg: str = "", error: str = ""):
+    if denied := _gate(request, "admin"):
+        return denied
+    lang = req_lang(request)
+    T = tr(lang)
+    i = 1 if lang == "en" else 0
+    err_html = (f'<div class="alert bad">{T("err_role", n=role.MAX_CHARS)}</div>'
+                if error == "role" else "")
+    sections = []
+    for s in role.SECTIONS:
+        boxes = []
+        for field, _attr, flang, rows in s["fields"]:
+            value, custom = role.current(field)
+            state = (f'<span class="badge ok">{T("role_custom")}</span>' if custom
+                     else f'<span class="badge muted">{T("role_default")}</span>')
+            boxes.append(
+                f'<div><label for="{field}">{T("role_" + flang)} {state}</label>'
+                f'<textarea id="{field}" name="{field}" rows="{rows}" lang="{flang}" '
+                f'dir="{"rtl" if flang == "ar" else "ltr"}" maxlength="{role.MAX_CHARS}">'
+                f"{e(value)}</textarea></div>"
+            )
+        cols = "two" if len(boxes) == 2 else "one"
+        sections.append(
+            f'<h2>{e(s["title"][i])}</h2><p class="help">{e(s["help"][i])}</p>'
+            f'<div class="card"><form method="post" action="/admin/role/save">'
+            f'<input type="hidden" name="section" value="{s["key"]}">'
+            f'<div class="fields {cols}">{"".join(boxes)}</div>'
+            f'<p class="row"><button type="submit">{T("save")}</button>'
+            f'<button class="ghost" type="submit" name="reset" value="1">{T("role_reset")}</button>'
+            f"</p></form></div>"
+        )
+    preview = (f'<h2>{T("role_preview")}</h2><div class="card"><details><summary>'
+               f'{len(brain.system_prompt())} {"characters" if lang == "en" else "حرفاً"}'
+               f'</summary><pre dir="rtl">{e(brain.system_prompt())}</pre></details></div>')
+    body = f'{err_html}<p class="help">{T("role_help")}</p>{"".join(sections)}{preview}'
+    return page(request, T("nav_role"), body, "role", flash=msg)
+
+
+@router.post("/admin/role/save")
+async def role_save(request: Request):
+    denied, form = await _post_gate(request, limit=200_000, role="admin")
+    if denied:
+        return denied
+    section = next((s for s in role.SECTIONS if s["key"] == form.get("section")), None)
+    if section is None:
+        return _back("/admin/role", error="role")
+    reset = bool(form.get("reset"))
+    try:
+        for field, _attr, _lang, _rows in section["fields"]:
+            role.save(field, "" if reset else (form.get(field) or ""), who(request))
+    except ValueError:
+        return _back("/admin/role", error="role")
+    return _back("/admin/role", msg="role_saved")
+
+
+@router.post("/admin/keys/set")
+async def key_set(request: Request):
+    denied, form = await _post_gate(request, limit=4096, role="admin")
+    if denied:
+        return denied
+    name = (form.get("name") or "").strip()
+    value = (form.get("value") or "").strip()
+    try:
+        keys.set_key(name, value, who(request))
+    except ValueError:
+        return _back("/admin/settings", error="key")
+    return _back("/admin/settings", msg="key_saved")
+
+
+@router.post("/admin/keys/clear")
+async def key_clear(request: Request):
+    denied, form = await _post_gate(request, role="admin")
+    if denied:
+        return denied
+    try:
+        keys.clear_key((form.get("name") or "").strip(), who(request))
+    except ValueError:
+        return _back("/admin/settings", error="key")
+    return _back("/admin/settings", msg="key_cleared")

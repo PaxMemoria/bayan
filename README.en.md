@@ -265,8 +265,8 @@ docker compose exec bayan python tests/test_offline.py  # with no keys and no ne
 
 ## Dashboard
 
-At `PUBLIC_URL/admin`, in Arabic and English (a link in the top bar switches
-language, and the choice is kept in a cookie), without JavaScript. It is enabled when
+At `PUBLIC_URL/admin`, in English by default and in Arabic with a button in the
+sidebar (the choice is kept in a cookie), without JavaScript. It is enabled when
 `.env` sets `ADMIN_PASSWORD` (at least 12 characters) and `SESSION_SECRET` (at
 least 32 characters, `python -c "import secrets;print(secrets.token_urlsafe(48))"`).
 
@@ -287,9 +287,20 @@ least 32 characters, `python -c "import secrets;print(secrets.token_urlsafe(48))
   `scripts/check_corrections.py` asks their questions again after any change.
 - **Try Bayan** («جرّب بيان»): a question without a channel, with the
   retrieved passages and the matching corrections.
-- **Settings** («الإعدادات»): the threshold, the daily question limit and the
-  pause button, applied without a restart, and the connection status of each
-  channel.
+- **Bayan's role** («دور بيان», admin only): Bayan's scope, extra team rules
+  appended to the system instructions, and the refusal, welcome and paused
+  texts in both languages, edited from the dashboard, applied at once and
+  taking precedence over `.env`; an empty field restores the default, and the
+  fixed rules (no general knowledge, the link and investigation rules) cannot
+  be changed there.
+- **Settings** («الإعدادات», admin only): the threshold, the daily question
+  limit and the pause button, applied without a restart, the connection status
+  of each channel, and **API keys**: the Claude, Gemini, Voyage and local-model
+  keys and the Facebook page and WhatsApp tokens can be saved from the
+  dashboard into Bayan's database; they take precedence over `.env` and work at
+  once, only their last four characters are shown after saving, and every save
+  or clear goes to the action log. The Telegram token and the Meta app secret
+  stay in `.env`, since changing them needs a restart.
 - **Blocked** («المحظورون»): blocking from the question log, and lifting a
   block.
 

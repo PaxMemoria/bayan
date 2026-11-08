@@ -184,6 +184,16 @@ CREATE TABLE IF NOT EXISTS settings (
     value TEXT NOT NULL
 );
 
+-- مفاتيح API المحفوظة من اللوحة (app/keys.py): تتقدّم على .env. القيمة لا تُعرض.
+-- API keys saved from the dashboard (app/keys.py): they take precedence over
+-- .env. The value is never displayed.
+CREATE TABLE IF NOT EXISTS api_keys (
+    name    TEXT PRIMARY KEY,
+    value   TEXT NOT NULL,
+    updated REAL NOT NULL,
+    by      TEXT
+);
+
 -- تقييم الفريق لإجابة بيان على سؤال، برقم رسالة السؤال. يُحذف مع الرسالة.
 -- The team's rating of Bayan's answer to a question, keyed by the question's
 -- message number. Deleted together with the message.
@@ -925,6 +935,28 @@ def set_setting(key: str, value: str) -> None:
 def clear_setting(key: str) -> None:
     with db() as conn:
         conn.execute("DELETE FROM settings WHERE key=?", (key,))
+
+
+# ─────────────────────────────────────── مفاتيح API من اللوحة / Dashboard API keys
+def api_keys() -> list[dict]:
+    with db() as conn:
+        rows = conn.execute("SELECT name, value, updated, by FROM api_keys ORDER BY name").fetchall()
+    return [dict(r) for r in rows]
+
+
+def set_api_key(name: str, value: str, by: str) -> None:
+    with db() as conn:
+        conn.execute(
+            "INSERT INTO api_keys(name,value,updated,by) VALUES(?,?,?,?) "
+            "ON CONFLICT(name) DO UPDATE SET value=excluded.value, updated=excluded.updated, "
+            "by=excluded.by",
+            (name, value, time.time(), by),
+        )
+
+
+def clear_api_key(name: str) -> None:
+    with db() as conn:
+        conn.execute("DELETE FROM api_keys WHERE name=?", (name,))
 
 
 # ──────────────────────────────────────────────── استعلامات اللوحة / Dashboard queries
