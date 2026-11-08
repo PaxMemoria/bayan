@@ -131,17 +131,16 @@ SYSTEM_PROMPT = f"""أنت «{config.BOT_NAME}»، المساعد الآلي ل�
 (Security in a Box، من Front Line Defenders، رخصة CC BY-SA 4.0) و«عدّة الإسعاف
 الأولي الرقمي» (Digital First Aid Kit، رخصة CC BY 4.0). كل مقطع يذكر مصدره
 ورخصته وتاريخ مراجعة صفحته.
-- اذكر في جوابك اسم المصدر ورخصته وتاريخ مراجعة الصفحة، مرة واحدة، في جملة
-  طبيعية: «وفق عدّة الأمان (Security in a Box، رخصة CC BY-SA 4.0، روجِعت
-  الصفحة في 28 March 2024) …». رابط الصفحة يصل السائل في سطر المصدر.
+- اذكر اسم المصدر مرة واحدة فقط في الجواب كله، في جملة طبيعية مع تاريخ
+  مراجعة الصفحة: «وفق عدّة الأمان (Security in a Box، روجِعت الصفحة في
+  28 March 2024) …». لا تكتب الرخصة في النص ولا تعرّف بالمصدر ولا تكرر اسمه
+  في كل فقرة: رخصته تُضاف تلقائياً بعد رابطه في سطر المصدر.
 - إرشاد عام لا حكم على حالة السائل: لا تؤكد له أنه مراقَب أو مخترَق أو آمن،
-  بل انقل خطوات المصدر وعلاماته كما هي، وقل إنها عامة وإن تقدير حالته يحتاج
-  مختصاً.
+  بل انقل خطوات المصدر وعلاماته كما هي. واختم بجملة واحدة قصيرة بأنها إرشادات
+  عامة وأن الخطوات قد تتغيّر بعد تاريخ المراجعة، لا أكثر.
 - إن ذكر السائل خطراً جارياً (اعتقال، تهديد، اختراق يحدث الآن): قدّم خطوات
   المصدر الأولى، وأحله إلى منظمات الدعم التي تذكرها عدّة الإسعاف الأولي الرقمي
   إن وردت في <المصادر>، وقل إن {config.BOT_NAME} ليس بديلاً من مساعدة مباشرة.
-- خطوات التطبيقات والأجهزة قد تتغيّر بعد تاريخ المراجعة، فانصح بمراجعة الصفحة
-  الأصلية للخطوات الحالية.
 - أدوات هذه المصادر (مديرو كلمات السرّ وتطبيقات المراسلة وغيرها) ليست من دليل
   أدوات {config.ORG_NAME}: لا تنسبها إليه ولا تعطها درجة تحقق.
 
@@ -312,16 +311,18 @@ def guide_overview() -> str:
     if config.PUBLIC_URL:
         lines.append(f"- سياسة الخصوصية: {config.PUBLIC_URL}/privacy")
     about = "\n".join(lines)
-    return (f'<نظرة_عامة رقم="{overview.GUIDE_NO}" موضوع="بيان">\n{about}\n'
+    return (f'<نظرة_عامة رقم="{overview.BAYAN_NO}" موضوع="بيان">\n{about}\n'
             f"</نظرة_عامة>\n\n{view}")
 
 
 def overview_urls() -> dict[int, str]:
-    """روابط أرقام النظرة العامة في سطر [SOURCES].
-    The links for the overview's numbers in the [SOURCES] line."""
+    """روابط أرقام النظرة العامة في سطر [SOURCES]. نظرة بيان عن نفسه بلا رابط.
+    The links for the overview's numbers in the [SOURCES] line. Bayan's
+    overview of itself has no link."""
     return {overview.GUIDE_NO: f"{config.SITE_URL}/osint-tools",
             overview.INVESTIGATIONS_NO: f"{config.SITE_URL}/investigations",
-            overview.ABOUT_NO: f"{config.SITE_URL}/about"}
+            overview.ABOUT_NO: f"{config.SITE_URL}/about",
+            overview.BAYAN_NO: ""}
 
 
 def build_context(result: dict, lang: str = "ar") -> tuple[str, dict[int, str]]:
@@ -405,9 +406,13 @@ def cited_sources(text: str, urls: dict[int, str], result: dict) -> tuple[str, l
     text = _SOURCES_LINE.sub("", text).strip()
     sources: list[str] = []
     for n in numbers:
-        if n in urls and urls[n] not in sources:
+        if urls.get(n) and urls[n] not in sources:
             sources.append(urls[n])
-    if not sources:
+    # الاحتياط حين لا يكتب النموذج السطر أصلاً؛ أما رقم بلا رابط (نظرة بيان عن
+    # نفسه) فيعني جواباً بلا مصدر
+    # The fallback is for when the model writes no line at all; a number with
+    # no link (Bayan's overview of itself) means an answer without a source
+    if not sources and not numbers:
         if result["tools"] or result["category_tools"]:
             sources = [f"{config.SITE_URL}/osint-tools"]
         elif result["passages"]:
@@ -869,10 +874,26 @@ def answer(question: str, channel: str, user_id: str, model: str | None = None) 
 
     out = text
     if config.SHOW_SOURCES and sources:
-        out += f"\n\n{i18n.msg('sources', lang)}\n" + "\n".join(sources)
+        out += f"\n\n{i18n.msg('sources', lang)}\n" + "\n".join(source_lines(sources, result))
 
     outcome = "tool_list" if result["category_tools"] else "answered"
     return done(out, outcome, sources)
+
+
+def source_lines(sources: list[str], result: dict) -> list[str]:
+    """سطور المصادر: الرابط، ولمصدر السلامة الرقمية اسمه ورخصته بعده.
+
+    النسب شرط الرخصة، ويُذكر هنا مرة واحدة بدل أن يكرره النموذج في النص.
+    بحروف لاتينية وحدها كي يبقى السطر باتجاه واحد مع الرابط.
+
+    The source lines: the link, and for a digital-safety source its name and
+    licence after it. Attribution is the licence's condition, and it is given
+    here once instead of the model repeating it in the text. Latin letters
+    only, so the line keeps one direction with the link.
+    """
+    labels = {p["url"]: f'{p["meta"].get("source", "")}, {p["meta"].get("licence", "")}'
+              for p in (result.get("passages") or []) if p["type"] == "safety"}
+    return [f"{u} — {labels[u]}" if labels.get(u) else u for u in sources]
 
 
 # تحية وحدها تُجاب بالترحيب بلغتها بدل رسالة الرفض: في واتساب يبدأ الناس
