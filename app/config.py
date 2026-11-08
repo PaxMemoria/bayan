@@ -286,6 +286,10 @@ WELCOME_MESSAGE_EN = os.getenv(
     "accounts.\n\n"
     "Ask your question in Arabic or English.",
 )
+# قواعد إضافية يكتبها الفريق من صفحة «دور بيان» في اللوحة، تُلحق بتعليمات النظام
+# Extra rules the team writes on the dashboard's "Bayan's role" page, appended
+# to the system instructions
+TEAM_RULES = os.getenv("TEAM_RULES", "")
 PAUSED_MESSAGE = os.getenv(
     "PAUSED_MESSAGE",
     f"{BOT_NAME} متوقف مؤقتاً.\n"

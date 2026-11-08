@@ -13,7 +13,8 @@ import time
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 
-from . import brain, config, dashboard, embed, i18n, ingest, keys, privacy, retrieve, store
+from . import (brain, config, dashboard, embed, i18n, ingest, keys, privacy, retrieve, role,
+               store)
 from .channels import messenger, telegram, whatsapp
 
 logging.basicConfig(
@@ -47,6 +48,8 @@ async def startup() -> None:
     # API keys saved from the dashboard take precedence over .env
     if n := keys.apply_saved():
         log.info("طُبّق %d مفتاح API من اللوحة", n)
+    if n := role.apply_saved():
+        log.info("طُبّق %d نص من صفحة «دور بيان»", n)
     # الخادم يبدأ للتوّ، فلا فهرسة جارية: ما بقي مفتوحاً قطعته إعادة التشغيل
     # The server is just starting, so no indexing is running: whatever was
     # left open was cut off by the restart

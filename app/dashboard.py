@@ -39,7 +39,8 @@ import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
-from . import brain, broadcast, config, embed, ingest, keys, opportunities, retrieve, store
+from . import (brain, broadcast, config, embed, ingest, keys, opportunities, retrieve, role,
+               store)
 
 log = logging.getLogger("dashboard")
 router = APIRouter()
@@ -445,6 +446,22 @@ TEXT: dict[str, tuple[str, str]] = {
     "err_member": ("البريد غير صالح أو ليس من نطاق {d}.", "The email is invalid or not on the {d} domain."),
     "err_self": ("لا يمكنك تعطيل نفسك أو خفض دورك.", "You cannot deactivate yourself or lower your own role."),
     "flash_member_saved": ("حُفظ العضو.", "Member saved."),
+    "nav_role": ("دور بيان", "Bayan's role"),
+    "role_help": ("للمدير وحده. ما يُحفظ هنا يُطبَّق فوراً على كل القنوات دون إعادة تشغيل، ويتقدّم على "
+                  "قيمة .env. الحقل الفارغ يعيد الافتراضي. القواعد الثابتة (لا معرفة عامة، لا روابط "
+                  "لأدوات حسّاسة أو مُزالة، قواعد التحقيقات) لا تُغيَّر من هنا.",
+                  "Admin only. What is saved here applies at once on every channel, with no restart, "
+                  "and takes precedence over the .env value. An empty field restores the default. "
+                  "The fixed rules (no general knowledge, no links to sensitive or removed tools, "
+                  "the investigation rules) cannot be changed here."),
+    "role_ar": ("بالعربية", "Arabic"),
+    "role_en": ("بالإنجليزية", "English"),
+    "role_custom": ("معدَّل من اللوحة", "Edited here"),
+    "role_default": ("الافتراضي", "Default"),
+    "role_reset": ("أعد الافتراضي", "Reset to default"),
+    "role_preview": ("تعليمات النظام الفعلية الآن", "The system instructions now in use"),
+    "flash_role_saved": ("حُفظ وطُبّق فوراً.", "Saved and applied at once."),
+    "err_role": ("نص أطول من {n} حرف.", "A text is longer than {n} characters."),
     "keys_h": ("مفاتيح API", "API keys"),
     "keys_help": ("للمدير وحده. المفتاح المحفوظ هنا يتقدّم على قيمة .env ويعمل فوراً بلا إعادة تشغيل، "
                   "ويُحفظ في قاعدة بيان على الخادم، ولا يُعرض بعد حفظه إلا آخر أربعة أحرف. "
@@ -476,7 +493,7 @@ FLASH_KIND = {"reindex": "ok", "busy": "warn", "saved": "ok", "blocked": "ok",
               "unblocked": "ok", "rated": "ok", "fix_saved": "ok", "fix_novec": "warn",
               "fix_deleted": "ok", "opp_saved": "ok", "opp_deleted": "ok", "opp_sent": "ok",
               "member_saved": "ok", "member_deleted": "ok", "key_saved": "ok",
-              "key_cleared": "ok"}
+              "key_cleared": "ok", "role_saved": "ok"}
 RATINGS = ("up", "down", "none")
 # نموذج التصحيح أكبر من غيره: الحرف العربي 6 بايتات بعد ترميز الرابط
 # The correction form is larger than the others: an Arabic character takes
@@ -784,6 +801,11 @@ font-weight:600}
 .keys form.row{flex-wrap:nowrap;margin:0}
 .keys form.row input{width:auto;flex:1 1 160px}
 .keys td form+form{margin-top:8px}
+.fields{display:grid;gap:14px}
+.fields.two{grid-template-columns:1fr 1fr}
+.fields label{margin-top:0;display:flex;gap:8px;align-items:center}
+.fields textarea{font-size:14px;line-height:1.6}
+@media (max-width:900px){.fields.two{grid-template-columns:1fr}}
 .bar-chart{height:8px;border-radius:4px;background:var(--line);overflow:hidden}
 .bar-chart i{display:block;height:100%;background:var(--accent)}
 .help{color:var(--muted);font-size:14px;margin:-10px 0 16px;max-width:72ch}
@@ -818,6 +840,7 @@ ICONS = {
     "opportunities": '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
     "settings": '<circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.4-2.3 1a7 7 0 0 0-2-1.2L14 3h-4l-.6 2.7a7 7 0 0 0-2 1.2l-2.3-1-2 3.4 2 1.5A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.5 2 3.4 2.3-1a7 7 0 0 0 2 1.2L10 21h4l.6-2.7a7 7 0 0 0 2-1.2l2.3 1 2-3.4-2-1.5c.1-.4.1-.8.1-1.2z"/>',
     "blocked": '<circle cx="12" cy="12" r="9"/><path d="M6 6l12 12"/>',
+    "role": '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
     "team": '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17" cy="9" r="2.5"/><path d="M16 15a5 5 0 0 1 5.5 5"/>',
 }
 
@@ -831,6 +854,7 @@ NAV = [
     ("/admin/try", "nav_try", "try"),
     ("/admin/corrections", "nav_corrections", "corrections"),
     ("/admin/opportunities", "nav_opps", "opportunities"),
+    ("/admin/role", "nav_role", "role"),
     ("/admin/settings", "nav_settings", "settings"),
     ("/admin/blocked", "nav_blocked", "blocked"),
     ("/admin/team", "nav_team", "team"),
@@ -1962,6 +1986,62 @@ def _keys_rows(T, lang: str) -> str:
         )
     return (f'<tr><th>{T("th_key")}</th><th>{T("th_source")}</th><th>{T("key_new")}</th></tr>'
             + "".join(rows))
+
+
+@router.get("/admin/role")
+async def role_page(request: Request, msg: str = "", error: str = ""):
+    if denied := _gate(request, "admin"):
+        return denied
+    lang = req_lang(request)
+    T = tr(lang)
+    i = 1 if lang == "en" else 0
+    err_html = (f'<div class="alert bad">{T("err_role", n=role.MAX_CHARS)}</div>'
+                if error == "role" else "")
+    sections = []
+    for s in role.SECTIONS:
+        boxes = []
+        for field, _attr, flang, rows in s["fields"]:
+            value, custom = role.current(field)
+            state = (f'<span class="badge ok">{T("role_custom")}</span>' if custom
+                     else f'<span class="badge muted">{T("role_default")}</span>')
+            boxes.append(
+                f'<div><label for="{field}">{T("role_" + flang)} {state}</label>'
+                f'<textarea id="{field}" name="{field}" rows="{rows}" lang="{flang}" '
+                f'dir="{"rtl" if flang == "ar" else "ltr"}" maxlength="{role.MAX_CHARS}">'
+                f"{e(value)}</textarea></div>"
+            )
+        cols = "two" if len(boxes) == 2 else "one"
+        sections.append(
+            f'<h2>{e(s["title"][i])}</h2><p class="help">{e(s["help"][i])}</p>'
+            f'<div class="card"><form method="post" action="/admin/role/save">'
+            f'<input type="hidden" name="section" value="{s["key"]}">'
+            f'<div class="fields {cols}">{"".join(boxes)}</div>'
+            f'<p class="row"><button type="submit">{T("save")}</button>'
+            f'<button class="ghost" type="submit" name="reset" value="1">{T("role_reset")}</button>'
+            f"</p></form></div>"
+        )
+    preview = (f'<h2>{T("role_preview")}</h2><div class="card"><details><summary>'
+               f'{len(brain.system_prompt())} {"characters" if lang == "en" else "حرفاً"}'
+               f'</summary><pre dir="rtl">{e(brain.system_prompt())}</pre></details></div>')
+    body = f'{err_html}<p class="help">{T("role_help")}</p>{"".join(sections)}{preview}'
+    return page(request, T("nav_role"), body, "role", flash=msg)
+
+
+@router.post("/admin/role/save")
+async def role_save(request: Request):
+    denied, form = await _post_gate(request, limit=200_000, role="admin")
+    if denied:
+        return denied
+    section = next((s for s in role.SECTIONS if s["key"] == form.get("section")), None)
+    if section is None:
+        return _back("/admin/role", error="role")
+    reset = bool(form.get("reset"))
+    try:
+        for field, _attr, _lang, _rows in section["fields"]:
+            role.save(field, "" if reset else (form.get(field) or ""), who(request))
+    except ValueError:
+        return _back("/admin/role", error="role")
+    return _back("/admin/role", msg="role_saved")
 
 
 @router.post("/admin/keys/set")

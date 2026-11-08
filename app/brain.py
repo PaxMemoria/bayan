@@ -60,8 +60,19 @@ VERIFICATION_EN = {
     "trained": "not reviewed live in the latest audit, and listed for priority review",
 }
 
-SYSTEM_PROMPT = f"""أنت «{config.BOT_NAME}»، المساعد الآلي لمنظمة {config.ORG_NAME}.
-نطاقك: {config.SCOPE_DESCRIPTION}.
+def _build_prompt(scope: str, rules: str = "") -> str:
+    """تعليمات النظام: الثابتة هنا، ونطاق بيان وقواعد الفريق من الإعدادات
+    (صفحة «دور بيان» في اللوحة تغيّرهما دون إعادة تشغيل).
+    The system instructions: the fixed part here, and Bayan's scope and the
+    team's rules from the settings (the dashboard's "Bayan's role" page changes
+    them without a restart)."""
+    team = ""
+    if rules.strip():
+        team = (f"\n\n## قواعد إضافية من فريق {config.ORG_NAME}\n"
+                "كتبها الفريق من لوحة التحكم، وتسري مع ما سبق ولا تُلغي القاعدة المطلقة "
+                "ولا قواعد الأدوات والتحقيقات والروابط:\n" + rules.strip() + "\n")
+    return f"""أنت «{config.BOT_NAME}»، المساعد الآلي لمنظمة {config.ORG_NAME}.
+نطاقك: {scope}.
 
 ## القاعدة المطلقة
 تجيب **فقط** مما ورد داخل <المصادر> و<نظرة_عامة>. معرفتك العامة ممنوعة تماماً — ولا حتى
@@ -171,7 +182,20 @@ SYSTEM_PROMPT = f"""أنت «{config.BOT_NAME}»، المساعد الآلي ل�
 مثل «السجلّ» أو «الحقل» أو «المقطع» أو «النظرة العامة» أو «التصحيح المعتمد»،
 ولا record أو field أو passage أو overview أو correction بالإنجليزية: قل
 «الدليل لا يسمّي بديلاً لها» لا «لم يرد في سجلّها حقل البديل».
-"""
+""" + team
+
+
+# الافتراضية (بلا قواعد فريق): للاختبارات والمقارنة. الفعلية من system_prompt().
+# The default (no team rules): for the tests and for comparison. The one in use
+# comes from system_prompt().
+SYSTEM_PROMPT = _build_prompt(config.SCOPE_DESCRIPTION)
+
+
+def system_prompt() -> str:
+    """التعليمات الفعلية لهذا الطلب، بنطاق بيان وقواعد الفريق الحاليين.
+    The instructions in use for this request, with Bayan's current scope and
+    team rules."""
+    return _build_prompt(config.SCOPE_DESCRIPTION, config.TEAM_RULES)
 
 
 def client() -> Anthropic:
@@ -580,9 +604,10 @@ def _ask_claude(view: str, messages: list[dict], lang: str) -> tuple[str, str]:
         model=config.ANSWER_MODEL,
         max_tokens=config.MAX_OUTPUT_TOKENS,
         output_config={"effort": config.ANSWER_EFFORT},
-        # تعليمات النظام ثابتة، فتُخزَّن مؤقتاً لدى الواجهة بين الأسئلة
-        # The system prompt never changes, so the API caches it between questions
-        system=[{"type": "text", "text": SYSTEM_PROMPT,
+        # تعليمات النظام لا تتغيّر إلا من اللوحة، فتُخزَّن مؤقتاً لدى الواجهة بين الأسئلة
+        # The system prompt changes only from the dashboard, so the API caches it
+        # between questions
+        system=[{"type": "text", "text": system_prompt(),
                  "cache_control": {"type": "ephemeral"}}]
         + ([{"type": "text", "text": view, "cache_control": {"type": "ephemeral"}}]
            if view else []),
@@ -620,7 +645,7 @@ def _ask_gemini(view: str, messages: list[dict], model: str, lang: str) -> tuple
     """
     if not config.GEMINI_API_KEY:
         raise RuntimeError("GEMINI_API_KEY غير مضبوط")
-    sys_parts = [{"text": SYSTEM_PROMPT}] + ([{"text": view}] if view else [])
+    sys_parts = [{"text": system_prompt()}] + ([{"text": view}] if view else [])
     contents = [
         {"role": "model" if m["role"] == "assistant" else "user",
          "parts": [{"text": m["content"]}]}
@@ -710,7 +735,7 @@ def _ask_local(view: str, messages: list[dict], lang: str) -> tuple[str, str]:
 
 
 def _local_system(view: str) -> str:
-    return SYSTEM_PROMPT + (f"\n\n{view}" if view else "")
+    return system_prompt() + (f"\n\n{view}" if view else "")
 
 
 def warm_local() -> bool:

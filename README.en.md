@@ -287,6 +287,12 @@ least 32 characters, `python -c "import secrets;print(secrets.token_urlsafe(48))
   `scripts/check_corrections.py` asks their questions again after any change.
 - **Try Bayan** («جرّب بيان»): a question without a channel, with the
   retrieved passages and the matching corrections.
+- **Bayan's role** («دور بيان», admin only): Bayan's scope, extra team rules
+  appended to the system instructions, and the refusal, welcome and paused
+  texts in both languages, edited from the dashboard, applied at once and
+  taking precedence over `.env`; an empty field restores the default, and the
+  fixed rules (no general knowledge, the link and investigation rules) cannot
+  be changed there.
 - **Settings** («الإعدادات», admin only): the threshold, the daily question
   limit and the pause button, applied without a restart, the connection status
   of each channel, and **API keys**: the Claude, Gemini, Voyage and local-model

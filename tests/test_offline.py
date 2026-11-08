@@ -1694,6 +1694,49 @@ check("المسح يعيد قيمة .env ويُسجَّل",
       and store.api_keys() == [] and any(a["action"] == "key_clear" for a in store.audit_log(5)))
 config.ANTHROPIC_API_KEY, brain._client = old_key, old_client_obj
 
+# ── دور بيان من اللوحة، للمدير وحده / Bayan's role from the dashboard, admin only ──
+print("\n── دور بيان ──")
+from app import role  # noqa: E402
+
+r = client.get("/admin/role")
+check("صفحة «دور بيان» للمدير: أقسامها الخمسة ومعاينة التعليمات",
+      r.status_code == 200
+      and all(k in r.text for k in ("scope_ar", 'name="rules"', "refusal_en", "welcome_ar", "paused_en"))
+      and "نطاقك:" in r.text, r.status_code)
+check("المشاهد لا يفتح «دور بيان» ولا يحفظ فيه",
+      viewer.get("/admin/role").status_code == 403
+      and viewer.post("/admin/role/save", data={"section": "rules", "rules": "x"}).status_code == 403)
+r = client.post("/admin/role/save", follow_redirects=False,
+                data={"section": "rules", "rules": "لا تذكر أسعار الأدوات.\r\nاختم بشكر."})
+live = brain.system_prompt()
+check("قواعد الفريق تُلحق بالتعليمات الفعلية ولا تمسّ الافتراضية",
+      "role_saved" in r.headers["location"] and "لا تذكر أسعار الأدوات.\nاختم بشكر." in live
+      and "قواعد إضافية من فريق" in live and "قواعد إضافية" not in brain.SYSTEM_PROMPT
+      and live.startswith(brain.SYSTEM_PROMPT), r.headers.get("location"))
+r = client.post("/admin/role/save", follow_redirects=False,
+                data={"section": "refusal", "refusal_ar": "خارج نطاقي. اسألني عن الدليل.",
+                      "refusal_en": "Outside my scope. Ask me about the guide."})
+check("نص الرفض الجديد يُستعمل فوراً باللغتين",
+      "role_saved" in r.headers["location"]
+      and i18n.msg("out_of_scope", "ar") == "خارج نطاقي. اسألني عن الدليل."
+      and i18n.msg("out_of_scope", "en") == "Outside my scope. Ask me about the guide.")
+check("الصفحة تعلّم المعدَّل، والنص الأطول من الحدّ يُرفض",
+      "معدَّل من اللوحة" in client.get("/admin/role").text
+      and "error=role" in client.post("/admin/role/save", follow_redirects=False,
+                                      data={"section": "rules", "rules": "x" * 4001}).headers["location"])
+config.TEAM_RULES, config.OUT_OF_SCOPE_MESSAGE = "", "من .env"
+check("عند الإقلاع تُطبَّق النصوص المحفوظة فوق .env",
+      role.apply_saved() == 3 and config.TEAM_RULES.startswith("لا تذكر")
+      and config.OUT_OF_SCOPE_MESSAGE.startswith("خارج نطاقي"))
+client.post("/admin/role/save", data={"section": "refusal", "reset": "1"})
+client.post("/admin/role/save", data={"section": "rules", "reset": "1"})
+check("إعادة الافتراضي تعيد نصوص الكود وتعليمات النظام وتُسجَّل",
+      i18n.msg("out_of_scope", "ar") == role.DEFAULTS["refusal_ar"]
+      and i18n.msg("out_of_scope", "en") == role.DEFAULTS["refusal_en"]
+      and brain.system_prompt() == brain.SYSTEM_PROMPT
+      and any(a["action"] == "role_reset" for a in store.audit_log(8))
+      and any(a["action"] == "role_saved" and a.get("target") == "rules" for a in store.audit_log(20)))
+
 embed.embed = real_embed
 print(f"\nالنتيجة: {ok}/{ok + fail}")
 sys.exit(0 if fail == 0 else 1)
