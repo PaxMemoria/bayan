@@ -888,8 +888,23 @@ GREETINGS = {
 _NOT_LETTERS = re.compile(r"[^\w\s]", re.UNICODE)
 
 
+def _greeting_key(text: str) -> str:
+    return " ".join(normalize_ar(_NOT_LETTERS.sub(" ", text)).split())
+
+
 def _is_greeting(text: str) -> bool:
-    return " ".join(normalize_ar(_NOT_LETTERS.sub(" ", text)).split()) in GREETINGS
+    return _greeting_key(text) in GREETINGS
+
+
+# فاصل بين رسالتين في ردّ واحد: القناة ترسل كل جزء رسالةً وحده (main._reply)
+# A break between two messages in one reply: the channel sends each part as a
+# message of its own (main._reply)
+MESSAGE_BREAK = "\n\x1e\n"
+
+
+def messages(reply: str) -> list[str]:
+    """أجزاء الردّ كرسائل منفصلة. The reply's parts as separate messages."""
+    return [m for m in reply.split(MESSAGE_BREAK) if m.strip()]
 
 
 SUBSCRIBE_CMDS = ("/subscribe", "subscribe", "اشتراك", "اشترك", "اشتركني")
@@ -979,8 +994,12 @@ def handle(question: str, channel: str, user_id: str, lang_hint: str | None = No
     if cmd in UNSUBSCRIBE_CMDS:
         key = "unsubscribed" if store.unsubscribe(channel, user_id) else "not_subscribed"
         return _reply_in(key, _cmd_lang(cmd, hint))
+    # تحية: ردّها بمثلها في رسالة أولى، ثم الترحيب بما يفعله بيان في رسالة ثانية
+    # A greeting: answered in kind in a first message, then the welcome with
+    # what Bayan does in a second
     if _is_greeting(question):
-        return i18n.welcome(lang, daily_limit())
+        return (i18n.greeting_reply(_greeting_key(question), lang) + MESSAGE_BREAK
+                + i18n.welcome(lang, daily_limit(), opener=""))
 
     # بعد الأوامر: /start و /help لا تُحسب من الحدّ ولا يمنعها
     # After the commands: /start and /help do not count toward the limit, and

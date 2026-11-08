@@ -200,7 +200,8 @@ async def _reply(channel: str, user_id: str, text: str, sender,
         log.exception("فشل في معالجة رسالة من %s", channel)
         reply = i18n.msg("error", i18n.detect(text))
     try:
-        await sender(user_id, reply)
+        for part in brain.messages(reply):
+            await sender(user_id, part)
     except Exception:
         log.exception("فشل إرسال الرد على %s", channel)
 

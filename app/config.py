@@ -238,37 +238,50 @@ OUT_OF_SCOPE_MESSAGE_EN = os.getenv(
 # The welcome is in the asker's language and says what Bayan can and cannot
 # do. The daily-limit line is added when shown, since the limit is changed
 # from the dashboard (app/i18n.py).
+# بلا سطر التحية الأول: يضيفه app/i18n.py («أهلاً بك» بعد /start، وردّ التحية
+# بمثلها بعد «السلام عليكم» أو «صباح الخير»).
+# Without the opening greeting line: app/i18n.py adds it ("أهلاً بك" after
+# /start, and a matching reply after "السلام عليكم" or "صباح الخير").
 WELCOME_MESSAGE_AR = os.getenv(
     "WELCOME_MESSAGE_AR",
-    f"أهلاً بك 👋\n\nأنا {BOT_NAME}، مساعد {ORG_NAME}.\n\n"
+    f"أنا {BOT_NAME}، مساعد {ORG_NAME}.\n\n"
     "ما أستطيع فعله:\n"
     "• أعرّفك بأدوات المصادر المفتوحة في دليلنا: ما هي، ولأي غرض، وتحذيراتها، "
-    "ورابطها حين يُسمح بإعطائه.\n"
-    "• أقترح أدوات لمهمة ما، مثل معرفة مكان التقاط صورة أو تتبّع رحلة طائرة.\n"
-    "• أجيب عن تحقيقاتنا المنشورة: ماذا وثّقت وكيف، مع رابط التحقيق.\n\n"
+    "ورابطها حين يُسمح بإعطائه، وأقترح أدوات لمهمة ما، مثل معرفة مكان التقاط "
+    "صورة أو تتبّع رحلة طائرة.\n"
+    "• أجيب عن تحقيقاتنا المنشورة: ماذا وثّقت وكيف، مع رابط التحقيق.\n"
+    "• أرسل قائمة الفرص الأسبوعية (زمالات ومنح وجوائز وتدريبات للصحفيين) حين "
+    "تكتب «فرص».\n"
+    "• أقدّم إرشادات عامة في السلامة الرقمية لحماية حساباتك وأجهزتك واتصالاتك، "
+    "من «عدّة الأمان» و«عدّة الإسعاف الأولي الرقمي»، مع ذكر المصدر.\n\n"
     "ما لا أستطيع فعله:\n"
-    "• الإجابة عن أي موضوع خارج الدليل والتحقيقات، كالأخبار والسياسة والصحة.\n"
+    "• الإجابة عن أي موضوع خارج ذلك، كالأخبار والسياسة والصحة.\n"
     "• فحص صورة أو فيديو أو رابط ترسله إليّ، أو البحث في الإنترنت. أقرأ النص فقط.\n"
-    "• إبداء رأي أو تقدير لم يرد في تحقيقاتنا.\n"
+    "• إبداء رأي أو تقدير لم يرد في تحقيقاتنا، أو الحكم على حالتك الأمنية.\n"
     "• المساعدة في أي عمل قد يؤذي أحداً، كاختراق الحسابات.\n\n"
     "اكتب سؤالك بالعربية أو بالإنجليزية.",
 )
 WELCOME_MESSAGE_EN = os.getenv(
     "WELCOME_MESSAGE_EN",
-    f"Hello 👋\n\nI'm {BOT_NAME_EN}, {ORG_NAME_EN}'s assistant.\n\n"
+    f"I'm {BOT_NAME_EN}, {ORG_NAME_EN}'s assistant.\n\n"
     "What I can do:\n"
     "• Tell you about the open-source tools in our guide: what they are, what "
-    "they are for, their warnings, and their link where sharing it is allowed.\n"
-    "• Suggest tools for a task, such as finding where a photo was taken or "
+    "they are for, their warnings, and their link where sharing it is allowed, "
+    "and suggest tools for a task, such as finding where a photo was taken or "
     "tracking a flight.\n"
     "• Answer questions about our published investigations: what they "
-    "documented and how, with a link to the investigation.\n\n"
+    "documented and how, with a link to the investigation.\n"
+    "• Send the weekly opportunities list (fellowships, grants, awards and "
+    "trainings for journalists) when you write \"فرص\".\n"
+    "• Give general digital-safety guidance for protecting your accounts, "
+    "devices and communications, from Security in a Box and the Digital First "
+    "Aid Kit, naming the source.\n\n"
     "What I can't do:\n"
-    "• Answer anything outside the guide and the investigations, such as news, "
-    "politics or health.\n"
+    "• Answer anything outside that, such as news, politics or health.\n"
     "• Check a photo, video or link you send me, or search the internet. I read "
     "text only.\n"
-    "• Give opinions or estimates that our investigations do not contain.\n"
+    "• Give opinions or estimates that our investigations do not contain, or "
+    "judge your own security situation.\n"
     "• Help with anything that could harm someone, such as breaking into "
     "accounts.\n\n"
     "Ask your question in Arabic or English.",

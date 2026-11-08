@@ -495,6 +495,22 @@ g_ar = brain.handle("مرحباً!", "whatsapp", "u-greet")
 g_en = brain.handle("Hello 👋", "whatsapp", "u-greet")
 check("تحية عربية: ترحيب بالعربية", "أهلاً" in g_ar and "Hello" not in g_ar)
 check("تحية إنجليزية: ترحيب بالإنجليزية", "Hello" in g_en and "أهلاً" not in g_en)
+parts = brain.messages(g_ar)
+check("التحية تُجاب برسالتين: ردّ التحية ثم الترحيب بلا سطر «أهلاً بك»",
+      parts == ["أهلاً وسهلاً 👋", i18n.welcome("ar", brain.daily_limit(), opener="")]
+      and "أهلاً بك" not in parts[1] and "ما أستطيع فعله" in parts[1], parts[:1])
+check("ردّ التحية بمثلها: السلام عليكم، صباح الخير، مساء الخير، good morning",
+      brain.messages(brain.handle("السلام عليكم", "whatsapp", "u-greet"))[0] == "وعليكم السلام ورحمة الله وبركاته 👋"
+      and brain.messages(brain.handle("صباح الخير!", "whatsapp", "u-greet"))[0] == "صباح النور 👋"
+      and brain.messages(brain.handle("مساء الخير", "whatsapp", "u-greet"))[0] == "مساء النور 👋"
+      and brain.messages(brain.handle("Good morning", "whatsapp", "u-greet"))[0] == "Good morning 👋"
+      and brain.messages(g_en)[0] == "Hello 👋")
+check("/start يبقى رسالة واحدة تبدأ بـ«أهلاً بك»",
+      brain.messages(brain.handle("بدء", "whatsapp", "u-greet")) == [i18n.welcome("ar", brain.daily_limit())]
+      and i18n.welcome("ar", brain.daily_limit()).startswith("أهلاً بك 👋\n\n"))
+check("الترحيب يذكر الأجزاء الأربعة",
+      all(k in w_ar for k in ("دليلنا", "تحقيقاتنا", "«فرص»", "السلامة الرقمية"))
+      and all(k in w_en for k in ("our guide", "investigations", "فرص", "digital-safety")))
 check("التحية لا تُحسب سؤالاً",
       len(store.questions_since("whatsapp", "u-greet", time.time() - 86400)) == before)
 check("سؤال يبدأ بتحية يبقى سؤالاً", "أهلاً" not in brain.handle("مرحبا، ما هي عاصمة فرنسا؟", "whatsapp", "u-greet"))
