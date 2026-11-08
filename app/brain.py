@@ -183,6 +183,14 @@ def client() -> Anthropic:
     return _client
 
 
+def reset_client() -> None:
+    """بعد تغيير مفتاح Claude من اللوحة: العميل التالي يُبنى بالمفتاح الجديد.
+    After the Claude key changes from the dashboard: the next client is built
+    with the new key."""
+    global _client
+    _client = None
+
+
 # ──────────────────────────────────────────── بناء المصادر / Building the sources
 def tool_record(t: dict, lang: str = "ar") -> str:
     """سجلّ الأداة كما يراه النموذج، بلغة الإجابة.

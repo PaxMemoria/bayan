@@ -13,7 +13,7 @@ import time
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 
-from . import brain, config, dashboard, embed, i18n, ingest, privacy, retrieve, store
+from . import brain, config, dashboard, embed, i18n, ingest, keys, privacy, retrieve, store
 from .channels import messenger, telegram, whatsapp
 
 logging.basicConfig(
@@ -43,6 +43,10 @@ app.include_router(dashboard.router)
 @app.on_event("startup")
 async def startup() -> None:
     store.init()
+    # مفاتيح API المحفوظة من اللوحة تتقدّم على .env
+    # API keys saved from the dashboard take precedence over .env
+    if n := keys.apply_saved():
+        log.info("طُبّق %d مفتاح API من اللوحة", n)
     # الخادم يبدأ للتوّ، فلا فهرسة جارية: ما بقي مفتوحاً قطعته إعادة التشغيل
     # The server is just starting, so no indexing is running: whatever was
     # left open was cut off by the restart
