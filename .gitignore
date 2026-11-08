@@ -4,3 +4,4 @@ bayan-export/
 __pycache__/
 *.pyc
 .venv/
+models/

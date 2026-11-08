@@ -865,6 +865,27 @@ check("بلا مفتاح Gemini يكون توقف المحلي خطأً صريح
 config.ANSWER_MODEL, config.GEMINI_API_KEY = old_model, old_key
 config.LOCAL_LLM_MODEL = config.LOCAL_LLM_KEY = ""
 local_reply.clear()
+
+# ── المحلي لتعليقات فيسبوك وحدها / The local provider for Facebook comments only ──
+# هنا Claude معطّل (503) ومفتاح Gemini مضبوط، فالمزوّد العام يجيب عبر Gemini
+# Here Claude is broken (503) and Gemini has a key, so the general provider answers via Gemini
+config.COMMENT_ANSWER_MODEL, config.LOCAL_LLM_MODEL = "local", "qwen-test"
+local_reply.update(choices=[{"finish_reason": "stop", "message": {"content": "رد محلي على التعليق.\n[SOURCES: 1]"}}])
+gemini_reply.clear()
+gemini_reply.update(candidates=[{"finishReason": "STOP", "content": {"role": "model", "parts": [
+    {"text": "رد Gemini للمحادثة.\n[SOURCES: 1]"}]}}])
+n_local = len(local_sent)
+reply = brain.handle_comment("بيان ما هي أداة Hunchly؟", "messenger", "fb-c1")
+check("تعليق فيسبوك يُجاب من النموذج المحلي",
+      reply and "رد محلي" in reply and len(local_sent) == n_local + 1, reply)
+res = brain.answer("ما هي أداة Hunchly؟", "admin", "console")
+check("المحادثات تبقى على المزوّد العام", "رد Gemini" in res["text"] and len(local_sent) == n_local + 1, res["text"])
+local_reply.clear()
+local_reply["down"] = True
+reply = brain.handle_comment("بيان ما هي أداة Hunchly؟", "messenger", "fb-c2")
+check("توقف المحلي يحوّل رد التعليق إلى المزوّد العام", reply and "رد Gemini" in reply, reply)
+config.COMMENT_ANSWER_MODEL = config.LOCAL_LLM_MODEL = ""
+local_reply.clear()
 brain.httpx.Client = lambda **kw: real_client(transport=httpx.MockTransport(fake_gemini), **kw)
 
 gemini_reply.clear()

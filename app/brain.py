@@ -688,7 +688,30 @@ def topic_of(result: dict | None, outcome: str) -> tuple[str, str]:
     return "other", ""
 
 
-def answer(question: str, channel: str, user_id: str) -> dict:
+def _ask_api(view: str, messages: list[dict], lang: str) -> tuple[str, str]:
+    """المزوّد العام: Claude، وعند تعذّره Gemini إن كان له مفتاح؛ أو Gemini أساسياً
+    حين يُضبط ANSWER_MODEL عليه أو لا مفتاح لـ Claude.
+    The general provider: Claude, then Gemini if it has a key when Claude
+    fails; or Gemini as primary when ANSWER_MODEL names it or Claude has no key."""
+    if config.ANSWER_MODEL.startswith("gemini") or (
+        _client is None and not config.ANTHROPIC_API_KEY and bool(config.GEMINI_API_KEY)
+    ):
+        gmodel = (config.ANSWER_MODEL if config.ANSWER_MODEL.startswith("gemini")
+                  else config.GEMINI_MODEL)
+        return _ask_gemini(view, messages, gmodel, lang)
+    try:
+        return _ask_claude(view, messages, lang)
+    except Exception:
+        if not config.GEMINI_API_KEY:
+            raise
+        log.warning("تعذّر استدعاء Claude — التحويل التلقائي إلى Gemini (%s)",
+                    config.GEMINI_MODEL, exc_info=True)
+        return _ask_gemini(view, messages, config.GEMINI_MODEL, lang)
+
+
+def answer(question: str, channel: str, user_id: str, model: str | None = None) -> dict:
+    """model: مزوّد لهذا الاستدعاء وحده (local أو gemini-…)، وإلا ANSWER_MODEL.
+    model: the provider for this call alone (local or gemini-…), else ANSWER_MODEL."""
     question = question.strip()[: config.MAX_QUESTION_CHARS]
     lang = i18n.detect(question)
     refuse = i18n.msg("out_of_scope", lang)
@@ -741,32 +764,19 @@ def answer(question: str, channel: str, user_id: str) -> dict:
         f"أو اكتب {OUT_OF_SCOPE_TAG}."
     )
     messages = [*history, {"role": "user", "content": user_block}]
-    use_gemini_primary = config.ANSWER_MODEL.startswith("gemini") or (
-        _client is None and not config.ANTHROPIC_API_KEY and bool(config.GEMINI_API_KEY)
-    )
+    primary = model or config.ANSWER_MODEL
     try:
-        if config.ANSWER_MODEL == "local":
+        if primary == "local":
             try:
                 stop_reason, text = _ask_local(view, messages, lang)
             except Exception:
-                if not config.GEMINI_API_KEY:
-                    raise
-                log.warning("تعذّر استدعاء النموذج المحلي — التحويل التلقائي إلى Gemini (%s)",
-                            config.GEMINI_MODEL, exc_info=True)
-                stop_reason, text = _ask_gemini(view, messages, config.GEMINI_MODEL, lang)
-        elif use_gemini_primary:
-            gmodel = (config.ANSWER_MODEL if config.ANSWER_MODEL.startswith("gemini")
-                      else config.GEMINI_MODEL)
-            stop_reason, text = _ask_gemini(view, messages, gmodel, lang)
+                log.warning("تعذّر استدعاء النموذج المحلي — التحويل إلى المزوّد العام",
+                            exc_info=True)
+                stop_reason, text = _ask_api(view, messages, lang)
+        elif primary.startswith("gemini") and model:
+            stop_reason, text = _ask_gemini(view, messages, primary, lang)
         else:
-            try:
-                stop_reason, text = _ask_claude(view, messages, lang)
-            except Exception:
-                if not config.GEMINI_API_KEY:
-                    raise
-                log.warning("تعذّر استدعاء Claude — التحويل التلقائي إلى Gemini (%s)",
-                            config.GEMINI_MODEL, exc_info=True)
-                stop_reason, text = _ask_gemini(view, messages, config.GEMINI_MODEL, lang)
+            stop_reason, text = _ask_api(view, messages, lang)
     except Exception:
         log.exception("فشل استدعاء النموذج")
         return done(i18n.msg("error", lang), "error")
@@ -959,7 +969,7 @@ def handle_comment(question: str, channel: str, user_id: str) -> str | None:
     if not fixes and not mentions_bot:
         return None
 
-    res = answer(text, channel, user_id)
+    res = answer(text, channel, user_id, model=config.COMMENT_ANSWER_MODEL or None)
     if res["outcome"] not in ("answered", "tool_list"):
         return None
     store.record_question(channel, user_id)
