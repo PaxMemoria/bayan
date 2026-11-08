@@ -27,6 +27,17 @@ SITE_BRANCH = os.getenv("SITE_BRANCH", "main")
 EXPORT_DIR = SITE_REPO / "bayan-export"
 KNOWLEDGE_PATH = Path(os.getenv("KNOWLEDGE_PATH", EXPORT_DIR / "knowledge.jsonl"))
 TOOLS_PATH = Path(os.getenv("TOOLS_PATH", EXPORT_DIR / "tools.json"))
+# السلامة الرقمية (app/safety.py): المصادر المفعّلة، ونسخة آخر جلب ناجح،
+# ومستودع عدّة الإسعاف الأولي الرقمي. SAFETY_SOURCES فارغاً يعطّل الجزء كله.
+# Digital safety (app/safety.py): the enabled sources, the copy of the last
+# successful fetch, and the Digital First Aid Kit repository. An empty
+# SAFETY_SOURCES disables the whole part.
+SAFETY_SOURCES = {s.strip() for s in os.getenv("SAFETY_SOURCES", "siab,dfak").split(",")
+                  if s.strip()}
+SAFETY_PATH = Path(os.getenv("SAFETY_PATH", DATA_DIR / "safety.jsonl"))
+DFAK_REPO = Path(os.getenv("DFAK_REPO", DATA_DIR / "dfak"))
+DFAK_REPO_URL = os.getenv("DFAK_REPO_URL", "https://gitlab.com/rarenet/dfak_2020.git")
+DFAK_BRANCH = os.getenv("DFAK_BRANCH", "main")
 
 # سرّ الإشارة التي يرسلها workflow الموقع لطلب إعادة الفهرسة.
 # هذا هو السرّ الوحيد الذي يملكه مستودع الموقع، وأقصى ضرر تسريبه
@@ -174,25 +185,53 @@ ORG_NAME_EN = os.getenv("ORG_NAME_EN", "Pax Memoria")
 SITE_URL = os.getenv("SITE_URL", "https://paxmemoria.org")
 SCOPE_DESCRIPTION = os.getenv(
     "SCOPE_DESCRIPTION",
-    f"دليل أدوات المصادر المفتوحة والتحقيقات المنشورة في {ORG_NAME}، والتعريف بـ{ORG_NAME} نفسها",
+    f"دليل أدوات المصادر المفتوحة والتحقيقات المنشورة في {ORG_NAME}، وفرص الأسبوع، "
+    "وإرشادات السلامة الرقمية من مصدرين مفتوحي الرخصة، "
+    f"والتعريف بـ{ORG_NAME} نفسها",
 )
 SCOPE_DESCRIPTION_EN = os.getenv(
     "SCOPE_DESCRIPTION_EN",
-    f"{ORG_NAME_EN}'s open-source tools guide and published investigations, and {ORG_NAME_EN} itself",
+    f"{ORG_NAME_EN}'s open-source tools guide and published investigations, the weekly "
+    f"opportunities, digital-safety guidance from two openly licensed sources, and "
+    f"{ORG_NAME_EN} itself",
 )
+# رسالة الرفض تقول ما يعرفه بيان: أجزاؤه الأربعة بكلمات يفهمها من لا يعرف
+# المنظمة. «بلدان الجنوب العالمي» لا أسماء دول (قرار تحريري، 2026-11-09).
+# The refusal says what Bayan knows: its four parts in words a stranger to the
+# organization understands. «Global South», not country names (editorial
+# decision, 2026-11-09).
 OUT_OF_SCOPE_MESSAGE = os.getenv(
     "OUT_OF_SCOPE_MESSAGE",
-    "أعتذر، سؤالك خارج ما أعرفه.\n"
-    f"أنا {BOT_NAME}، مخصص للإجابة عن دليل أدوات المصادر المفتوحة "
-    f"والتحقيقات المنشورة في {ORG_NAME} فقط.\n"
-    "جرّب سؤالاً عن أداة أو تصنيف أدوات، أو عن أحد تحقيقاتنا.",
+    "أعتذر، هذا خارج ما أستطيع الإجابة عنه.\n"
+    f"أنا {BOT_NAME}، مساعد {ORG_NAME}، وأجيب عن أربعة أشياء:\n"
+    "• دليل الأدوات: نحو 600 أداة مجانية للتحقق من الصور والفيديو، وتحديد مواقع "
+    "الأحداث وتوقيتها، وتتبع الطائرات والسفن، والبحث في المصادر المفتوحة، مع درجة "
+    "تحقق لكل أداة.\n"
+    f"• التحقيقات: تحقيقات {ORG_NAME} المنشورة التي توثّق هجمات ووقائع في بلدان "
+    "الجنوب العالمي بالصور والأقمار الصناعية والشهادات.\n"
+    "• الفرص: قائمة أسبوعية بزمالات ومنح وجوائز وتدريبات للصحفيين.\n"
+    "• السلامة الرقمية: إرشادات عامة لحماية الحسابات والأجهزة والاتصالات، من "
+    "«عدّة الأمان» (Security in a Box) و«عدّة الإسعاف الأولي الرقمي» "
+    "(Digital First Aid Kit).\n"
+    "جرّب سؤالاً مثل «كيف أعرف مكان التقاط صورة؟» أو «ما تحقيقاتكم عن اليمن؟» أو "
+    "«كيف أحمي حسابي بالاستيثاق بمعاملين؟»، أو اكتب «فرص» لتصلك قائمة هذا الأسبوع.",
 )
 OUT_OF_SCOPE_MESSAGE_EN = os.getenv(
     "OUT_OF_SCOPE_MESSAGE_EN",
-    "Sorry, your question is outside what I know.\n"
-    f"I'm {BOT_NAME_EN}, and I only answer questions about {ORG_NAME_EN}'s "
-    "open-source tools guide and its published investigations.\n"
-    "Try asking about a tool, a category of tools, or one of our investigations.",
+    "Sorry, that is outside what I can answer.\n"
+    f"I'm {BOT_NAME_EN}, {ORG_NAME_EN}'s assistant, and I answer about four things:\n"
+    "• The tools guide: about 600 free tools for verifying photos and videos, locating "
+    "and dating events, tracking aircraft and ships, and searching open sources, each "
+    "with a verification grade.\n"
+    f"• The investigations: {ORG_NAME_EN}'s published investigations documenting attacks "
+    "and events across the Global South through imagery, satellite data and testimony.\n"
+    "• The opportunities: a weekly list of fellowships, grants, awards and trainings "
+    "for journalists.\n"
+    "• Digital safety: general guidance on protecting accounts, devices and "
+    "communications, from Security in a Box and the Digital First Aid Kit.\n"
+    "Try a question like \"How do I find where a photo was taken?\", \"What "
+    "investigations do you have on Yemen?\" or \"How do I protect my account with "
+    "two-factor authentication?\", or write \"فرص\" for this week's list.",
 )
 # الترحيب بلغة السائل، ويقول ما يستطيع بيان فعله وما لا يستطيع. سطر حدّ
 # الأسئلة اليومي يُضاف عند العرض لأن الحدّ يتغيّر من اللوحة (app/i18n.py).

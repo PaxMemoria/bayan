@@ -5,8 +5,9 @@
 [![Security scans](https://github.com/PaxMemoria/bayan/actions/workflows/security-sast.yml/badge.svg?branch=main)](https://github.com/PaxMemoria/bayan/actions/workflows/security-sast.yml) [![Offline tests](https://github.com/PaxMemoria/bayan/actions/workflows/python-app.yml/badge.svg?branch=main)](https://github.com/PaxMemoria/bayan/actions/workflows/python-app.yml)
 
 A bot that answers the public's questions about Pax Memoria's **open-source
-tools guide** and its **published investigations**, and goes no further than
-those two. It answers in the asker's language, Arabic or English, and runs on
+tools guide**, its **published investigations**, the **weekly opportunities**
+and **digital safety** from two openly licensed sources, and goes no further
+than those. It answers in the asker's language, Arabic or English, and runs on
 Telegram, WhatsApp and Facebook Messenger with the same brain and the same
 knowledge base.
 
@@ -48,6 +49,28 @@ github.com/…" («نطاقها السابق (لا يُفتح): github.com/…»
 model through the semantic path. Telegram and WhatsApp also turn a bare domain
 into a clickable link. A link to an ordinary tool that shares a prefix with a
 banned link (such as Google custom search engines) is exempted by exact match.
+
+---
+
+## Digital safety: the fourth part
+
+The first three parts of the knowledge come from Pax Memoria itself: the
+tools and the investigations from the site repository, the opportunities
+from the dashboard. The fourth part comes from two external, openly licensed
+sources that `app/safety.py` fetches on every reindex:
+
+| Source | Licence | How it is fetched |
+|---|---|---|
+| [Security in a Box](https://securityinabox.org/ar/) (Front Line Defenders) | CC BY-SA 4.0 | Its Arabic pages are not in its repository, so the `/ar/` pages in `sitemap.xml` are fetched and read from HTML (without the blog, the "about" pages and the policies). |
+| [Digital First Aid Kit](https://digitalfirstaid.org/ar/) (RaReNet and CiviCERT) | CC BY 4.0 | A shallow clone of its GitLab repository; the `content/ar` files are read (topics, pages and support organisations). |
+
+Every chunk carries its source, licence, page link and review date, and the
+system instructions require Bayan to name them in the answer, to stay general
+guidance rather than a judgement on the asker's situation, and to refer anyone
+describing an ongoing danger to the support organisations. What is fetched is
+kept in `DATA_DIR/safety.jsonl`; if a source is down on a later cycle, its
+previous copy stays and the reindex does not fail. `SAFETY_SOURCES` (default
+`siab,dfak`) limits the sources, and an empty value disables the part.
 
 ---
 

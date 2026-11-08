@@ -21,17 +21,23 @@ import os
 import subprocess
 import sys
 import threading
+from pathlib import Path
 
-from . import config, embed, store
+from . import config, embed, safety, store
 from .arabic import normalize_ar
 
 
 def sync_repo(log: list[str]) -> None:
     """سحب أو تحديث نسخة القراءة من مستودع الموقع.
     Clone or update the read-only copy of the site repository."""
-    repo = config.SITE_REPO
+    git_sync(config.SITE_REPO, config.SITE_REPO_URL, config.SITE_BRANCH, log)
+
+
+def git_sync(repo: Path, url: str, branch: str, log: list[str],
+             label: str = "المستودع") -> None:
+    """سحب أو تحديث نسخة ضحلة للقراءة من مستودع git على فرع واحد.
+    Clone or update a shallow read-only copy of a git repository on one branch."""
     if (repo / ".git").exists():
-        branch = config.SITE_BRANCH
         cmds = [
             # المرجع صريح: نسخة --depth 1 --branch تتبع فرعها الأول وحده، فلا
             # يحدّث «fetch origin main» المرجع origin/main إن تغيّر SITE_BRANCH.
@@ -44,10 +50,7 @@ def sync_repo(log: list[str]) -> None:
         ]
     else:
         repo.parent.mkdir(parents=True, exist_ok=True)
-        cmds = [[
-            "git", "clone", "--depth", "1", "--branch", config.SITE_BRANCH,
-            config.SITE_REPO_URL, str(repo),
-        ]]
+        cmds = [["git", "clone", "--depth", "1", "--branch", branch, url, str(repo)]]
     for cmd in cmds:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         if r.returncode != 0:
@@ -56,7 +59,7 @@ def sync_repo(log: list[str]) -> None:
         ["git", "-C", str(repo), "rev-parse", "--short", "HEAD"],
         capture_output=True, text=True,
     ).stdout.strip()
-    log.append(f"المستودع عند {head}")
+    log.append(f"{label} عند {head}")
 
 
 def run_extractor(log: list[str]) -> None:
@@ -248,12 +251,17 @@ def _run(pull: bool) -> tuple[bool, str]:
             sync_repo(log)
             run_extractor(log)
         chunks, tools = read_exports()
+        # السلامة الرقمية من مصدريها الخارجيين؛ تعذّرهما لا يُفشل الدورة
+        # Digital safety from its two external sources; their failure does not
+        # fail the cycle
+        chunks += safety.collect(log, pull)
         index(chunks, tools, log)
         c = store.counts()
         log.append(
             f"مفهرس: {c['_chunks']} مقطع "
             f"({c.get('investigation', 0)} تحقيقات، {c.get('tool', 0)} أدوات، "
-            f"{c.get('tool_removed', 0)} مُزالة) | {c['_tools']} سجل أداة"
+            f"{c.get('tool_removed', 0)} مُزالة، {c.get('safety', 0)} سلامة رقمية) | "
+            f"{c['_tools']} سجل أداة"
         )
         detail = "\n".join(log)
         store.finish_run(run_id, True, c["_chunks"], c["_tools"], detail)

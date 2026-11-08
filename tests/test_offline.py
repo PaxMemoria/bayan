@@ -1369,6 +1369,234 @@ check("واتساب يردّ على الـBSUID في recipient", tg_calls[-1].ge
       and "to" not in tg_calls[-1], tg_calls[-1])
 tg.httpx.AsyncClient = real_async
 
+# ── السلامة الرقمية: الجزء الرابع من مصدرين مفتوحين / Digital safety: the fourth part ──
+print("\n── السلامة الرقمية ──")
+from app import safety  # noqa: E402
+
+SIAB_URL = "https://securityinabox.org/ar/passwords/2fa/"
+SIAB_PARA = "الاستيثاق بمُعاملين يضيف مُعاملاً للاستيثاق إلى نظام الولوج. " * 5
+SIAB_HTML = f"""<html><body><nav id="top-nav"><a href="/ar">القائمة</a></nav>
+<main id="content"><ul class="breadcrumbs"><li><a href="/ar">الرئيسية</a></li></ul>
+<div class="d-none" id="search-breadcrumbs">كلمات السرّ › الاستيثاق</div>
+<h1 class="title">الاستيثاق بمعاملين</h1><p class="meta">روجِع 28 March 2024</p>
+<div id="toc"><h2>الفهرس</h2><ul><li><a href="#a">كيفية الاستخدام</a></li></ul></div>
+<p>{SIAB_PARA}&#x639;ن الاستيثاق.</p><h2>كيفية الاستخدام</h2>
+<ul><li>خطوة <strong>أولى</strong></li><li>خطوة ثانية</li></ul>
+<details><summary>تفصيل مطويّ</summary><p>نص التفصيل.</p></details><img src="x.png" alt>
+</main><footer id="footer">CC BY-SA</footer></body></html>"""
+recs = safety.parse_siab(SIAB_HTML, SIAB_URL)
+text = "\n".join(r["text"] for r in recs)
+check("صفحة Security in a Box تُقرأ من <main>", recs and recs[0]["title"] == "الاستيثاق بمعاملين",
+      recs[:1])
+check("تاريخ المراجعة من سطر «روجِع»", recs and recs[0]["meta"]["date"] == "28 March 2024")
+check("المعرّف والرابط والرخصة في meta",
+      recs and recs[0]["id"] == "safety:siab:passwords/2fa:0" and recs[0]["url"] == SIAB_URL
+      and recs[0]["meta"]["licence"] == "CC BY-SA 4.0" and recs[0]["type"] == "safety"
+      and recs[0]["lang"] == "ar", recs[:1])
+check("مسار التنقّل والفهرس والتذييل خارج النص",
+      "الرئيسية" not in text and "الفهرس" not in text and "CC BY-SA" not in text
+      and "القائمة" not in text, text)
+check("العناوين والقوائم والتفاصيل والكيانات في النص",
+      "## كيفية الاستخدام" in text and "- خطوة أولى" in text and "- خطوة ثانية" in text
+      and "تفصيل مطويّ" in text and "نص التفصيل." in text and "عن الاستيثاق." in text, text)
+en_recs = safety.parse_siab(SIAB_HTML.replace(SIAB_PARA, "Signal protects your calls end to end. " * 8),
+                            "https://securityinabox.org/ar/tools/signal/")
+check("صفحة /ar/ لم تُترجم تُوسم إنجليزية من حروفها",
+      recs[0]["lang"] == "ar" and en_recs and en_recs[0]["lang"] == "en", en_recs[:1])
+check("صفحة قسم بلا متن لا تُفهرس",
+      safety.parse_siab('<main id="content"><h1 class="title">كلمات السرّ</h1></main>',
+                        "https://securityinabox.org/ar/passwords/") == [])
+sitemap = "".join(f"<loc>{u}</loc>" for u in (
+    "https://securityinabox.org/ar/", "https://securityinabox.org/ar/404/",
+    "https://securityinabox.org/ar/about/how/", "https://securityinabox.org/ar/blog/x/",
+    "https://securityinabox.org/ar/disclaimer/", "https://securityinabox.org/en/passwords/2fa/",
+    "https://securityinabox.org/ar/passwords/2fa/", "https://securityinabox.org/ar/guide/riseup/",
+))
+check("من sitemap تُؤخذ الصفحات العربية الإرشادية وحدها",
+      safety.siab_urls(sitemap) == ["https://securityinabox.org/ar/passwords/2fa/",
+                                    "https://securityinabox.org/ar/guide/riseup/"],
+      safety.siab_urls(sitemap))
+
+long = "جملة أولى. " * 30
+first = "فقرة أولى طويلة بما يكفي. " * 3
+parts = safety.chunk_blocks([first, "## عنوان", "فقرة ثانية.", long], limit=120)
+check("العنوان بعد مقطع امتلأ نصفه يبدأ مقطعاً ويبقى مع ما بعده",
+      parts[0] == first.strip() and parts[1].startswith("## عنوان\nفقرة ثانية."), parts[:2])
+check("العنوان بعد مقطع قصير يُضمّ إليه",
+      safety.chunk_blocks(["فقرة.", "## عنوان", "فقرة ثانية."], limit=120)
+      == ["فقرة.\n## عنوان\nفقرة ثانية."])
+check("الفقرة الطويلة تُقسَم عند نهايات الجمل دون تجاوز الحدّ",
+      all(len(p) <= 120 for p in parts) and "".join(parts).count("جملة أولى") == 30,
+      [len(p) for p in parts])
+
+DFAK_MD = """---
+layout: topic
+title: "لا أستطيع الولوج إلى حسابي"
+language: ar
+summary: "هل تواجهين صعوبة في الولوج&nbsp;إلى حسابك؟"
+date: 2023-06-29
+permalink: topics/account-access-issues
+sidebar: >
+  <h3>المزيد</h3>
+
+  <ul><li>سطر</li></ul>
+---
+
+# لا أستطيع الولوج إلى حسابي
+
+يستعمل أفراد المجتمع المدني الحسابات بكثافة [[1]](#note-1) و&nbsp;انظر [دليل الاستخدام](https://example.org/x).
+<!--- قالب للمحرّرين
+- Yes
+-->
+
+## Workflow
+
+### Password-Typo
+
+#### هل تحتوي كلمة السر على خطأ مطبعي؟
+
+> جرِّبي كتابة كلمة السرِّ في مُحرِّر نصوص **صافية**.
+>
+> - [فيسبوك](https://www.facebook.com/help/1)
+> - [إنستَگرام
+>   للمساعدة](https://help.instagram.com/2)
+
+##### Options
+
+- [نعم](#resolved_end)
+- [لا](#account-disabled)
+
+### account-disabled
+
+#### الحساب معطل
+
+اتّبعوا آليات التظلّم.
+"""
+fields, body = safety.front_matter(DFAK_MD)
+check("حقول الواجهة تُقرأ، والقيمة متعددة الأسطر تُلحق بمفتاحها",
+      fields["permalink"] == "topics/account-access-issues" and fields["date"] == "2023-06-29"
+      and fields["title"] == "لا أستطيع الولوج إلى حسابي" and "<h3>المزيد</h3>" in fields["sidebar"]
+      and "<ul><li>سطر</li></ul>" in fields["sidebar"], fields)
+blocks = safety.md_blocks(body)
+check("عنوان الصفحة ومراسي المسار وقوائم Options تُسقَط",
+      not any(b.startswith("## Workflow") or "Password-Typo" in b or "account-disabled" in b
+              or "resolved_end" in b or b == "- نعم" or b == "- لا" for b in blocks), blocks)
+check("العناوين العربية والاقتباسات والروابط والتعليقات تُنظَّف",
+      "## هل تحتوي كلمة السر على خطأ مطبعي؟" in blocks and "## الحساب معطل" in blocks
+      and "جرِّبي كتابة كلمة السرِّ في مُحرِّر نصوص صافية." in blocks
+      and "- فيسبوك" in blocks and "- إنستَگرام للمساعدة" in blocks
+      and "اتّبعوا آليات التظلّم." in blocks
+      and any(b.startswith("يستعمل أفراد المجتمع المدني الحسابات بكثافة 1 و انظر دليل الاستخدام.")
+              for b in blocks)
+      and not any("قالب" in b or "](" in b or "<" in b for b in blocks), blocks)
+
+dfak_dir = TMP / "dfak" / "content" / "ar"
+(dfak_dir / "topics").mkdir(parents=True)
+(dfak_dir / "organisations").mkdir()
+(dfak_dir / "contact-methods").mkdir()
+(dfak_dir / "topics" / "account-access-issues.md").write_text(DFAK_MD, encoding="utf-8")
+(dfak_dir / "organisations" / "FLD.md").write_text("""---
+language: ar
+layout: organisation
+name: Front Line Defenders
+website: https://www.frontlinedefenders.org/emergency-contact
+hours: emergency 24/7
+response_time: نفس اليوم
+---
+
+منظَّمة دوليَّة تقدِّم دعمًا سريعًا للمدافعين عن حقوق الإنسان.
+""", encoding="utf-8")
+(dfak_dir / "about.md").write_text("---\nlayout: page\ntitle: About\npermalink: about\n---\n\nعن العدّة.\n",
+                                   encoding="utf-8")
+(dfak_dir / "contact-methods" / "email.md").write_text(
+    "---\nlayout: contact-method\ntitle: البريد\npermalink: /ar/contact-methods/email.md\n---\n\nنص.\n",
+    encoding="utf-8")
+drecs = safety.read_dfak(TMP / "dfak")
+topic = [r for r in drecs if r["meta"]["slug"] == "topics/account-access-issues"]
+org = [r for r in drecs if r["meta"]["slug"] == "support/FLD"]
+check("ملفات content/ar تُقرأ: موضوع ومنظمة، لا «عن» ولا وسائل الاتصال",
+      len(drecs) == len(topic) + len(org) and topic and org, [r["id"] for r in drecs])
+check("الموضوع: الرابط من permalink، الملخص أولاً، التاريخ والرخصة في meta",
+      topic[0]["url"] == "https://digitalfirstaid.org/ar/topics/account-access-issues/"
+      and topic[0]["text"].startswith("لا أستطيع الولوج إلى حسابي\nهل تواجهين صعوبة في الولوج إلى حسابك؟")
+      and topic[0]["meta"]["date"] == "2023-06-29" and topic[0]["meta"]["licence"] == "CC BY 4.0"
+      and topic[0]["meta"]["source"] == "Digital First Aid Kit", topic[0])
+check("منظمة الدعم: اسمها وموقعها وساعاتها، ورابطها صفحة الدعم",
+      org[0]["title"] == "Front Line Defenders" and org[0]["url"] == "https://digitalfirstaid.org/ar/support/"
+      and "منظمة دعم: Front Line Defenders" in org[0]["text"]
+      and "الموقع: https://www.frontlinedefenders.org/emergency-contact" in org[0]["text"]
+      and "ساعات العمل: emergency 24/7" in org[0]["text"] and "زمن الاستجابة: نفس اليوم" in org[0]["text"]
+      and "دعمًا سريعًا" in org[0]["text"], org[0]["text"])
+
+# الدورة: الجلب الفاشل يُبقي النسخة السابقة، والناجح يحفظها، وبلا سحب تُقرأ وحدها
+# The cycle: a failed fetch keeps the previous copy, a successful one saves it,
+# and without pull only the copy is read
+cached = recs[:1] + drecs[:1]
+config.SAFETY_PATH.write_text("\n".join(json.dumps(c, ensure_ascii=False) for c in cached) + "\n",
+                              encoding="utf-8")
+real_sources, real_fetch_siab, real_fetch_dfak = config.SAFETY_SOURCES, safety.fetch_siab, safety.fetch_dfak
+config.SAFETY_SOURCES = {"siab", "dfak"}
+got = safety.collect([], pull=False)
+check("بلا سحب تُقرأ النسخة المحفوظة", [c["id"] for c in got] == [c["id"] for c in cached])
+config.SAFETY_SOURCES = {"dfak"}
+check("SAFETY_SOURCES يحصر المصادر", [c["id"] for c in safety.collect([], pull=False)] == [drecs[0]["id"]])
+config.SAFETY_SOURCES = set()
+check("SAFETY_SOURCES فارغاً يعطّل الجزء", safety.collect([], pull=True) == [])
+config.SAFETY_SOURCES = {"siab", "dfak"}
+
+
+def down(*a, **k):
+    raise RuntimeError("503 Service Unavailable")
+
+
+safety.fetch_siab = safety.fetch_dfak = down
+log_lines = []
+mtime = config.SAFETY_PATH.stat().st_mtime_ns
+got = safety.collect(log_lines, pull=True)
+check("تعطّل المصدرين يُبقي النسخة السابقة ويُسجَّل",
+      [c["id"] for c in got] == [c["id"] for c in cached]
+      and sum("503" in line and "أُبقي على 1 مقطع" in line for line in log_lines) == 2
+      and config.SAFETY_PATH.stat().st_mtime_ns == mtime, log_lines)
+safety.fetch_siab = lambda log, client: recs
+safety.fetch_dfak = down
+got = safety.collect(log_lines, pull=True)
+check("مصدر ناجح ومصدر معطّل: الناجح جديد والمعطّل من النسخة، وتُحفظ النسخة",
+      [c["id"] for c in got] == [c["id"] for c in recs] + [drecs[0]["id"]]
+      and [c["id"] for c in safety.collect([], pull=False)] == [c["id"] for c in got], got)
+safety.fetch_siab, safety.fetch_dfak = real_fetch_siab, real_fetch_dfak
+
+# الفهرسة تضمّ المقاطع، والاسترجاع يجدها، والسياق يسمّي المصدر والرخصة والتاريخ
+# Indexing includes the chunks, retrieval finds them, and the context names
+# the source, licence and date
+config.VOYAGE_API_KEY = "test"
+embed.embed = fake_vectors
+okk, detail = ingest.run(pull=False)
+n_safety = len(recs) + 1
+check("الفهرسة بلا سحب تضمّ مقاطع السلامة من النسخة",
+      okk and store.counts().get("safety") == n_safety and f"{n_safety} سلامة رقمية" in detail, detail)
+retrieve.warm()
+r = retrieve.search("كيف أفعّل الاستيثاق بمعاملين لحماية حسابي؟")
+hit = [p for p in r["passages"] if p["type"] == "safety"]
+check("الاسترجاع يجد مقطع السلامة", hit, [(p["type"], p["title"]) for p in r["passages"]])
+ctx, urls = brain.build_context({**r, "passages": hit[:1], "corrections": [], "opportunities": [],
+                                 "tools": [], "category_tools": [], "category": None}, "ar")
+check("السياق يسمّي المصدر ورخصته وتاريخ المراجعة ورابط الصفحة",
+      ctx.startswith('<سلامة_رقمية رقم="1" المصدر="Security in a Box" الرخصة="CC BY-SA 4.0">')
+      and "المصدر: عدّة الأمان (Security in a Box، Front Line Defenders) | الرخصة: CC BY-SA 4.0"
+      in ctx and "روجِعت الصفحة: 28 March 2024" in ctx and urls[1] == SIAB_URL, ctx[:300])
+check("موضوع السؤال «السلامة الرقمية» باسم مصدره",
+      brain.topic_of({"passages": hit[:1], "tools": [], "category_tools": []}, "answered")
+      == ("safety", "Security in a Box") and "safety" in brain.TOPICS)
+check("تعليمات النظام والرفض تذكر الجزء الرابع ومصدريه",
+      "<سلامة_رقمية>" in brain.SYSTEM_PROMPT and "CC BY-SA 4.0" in brain.SYSTEM_PROMPT
+      and "أربعة أشياء" in config.OUT_OF_SCOPE_MESSAGE and "الجنوب العالمي" in config.OUT_OF_SCOPE_MESSAGE
+      and "four things" in config.OUT_OF_SCOPE_MESSAGE_EN and "Global South" in config.OUT_OF_SCOPE_MESSAGE_EN
+      and "Digital First Aid Kit" in config.OUT_OF_SCOPE_MESSAGE_EN)
+r = client.get("/admin")
+check("اللوحة تعدّ مقاطع السلامة الرقمية",
+      r.status_code == 200 and f"السلامة الرقمية: {n_safety}" in r.text, r.status_code)
+config.SAFETY_SOURCES = real_sources
+
 embed.embed = real_embed
 print(f"\nالنتيجة: {ok}/{ok + fail}")
 sys.exit(0 if fail == 0 else 1)

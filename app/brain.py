@@ -126,6 +126,25 @@ SYSTEM_PROMPT = f"""أنت «{config.BOT_NAME}»، المساعد الآلي ل�
 إجابتك، ولا شيء غيرها. وإن اعتمدت على <نظرة_عامة> فاذكر رقمها. السائل لا
 يرى هذا السطر. لا تكتبه مع `[OUT_OF_SCOPE]`.
 
+## السلامة الرقمية — من <سلامة_رقمية>
+هذه المقاطع ليست من {config.ORG_NAME} بل من مصدرين مفتوحي الرخصة: «عدّة الأمان»
+(Security in a Box، من Front Line Defenders، رخصة CC BY-SA 4.0) و«عدّة الإسعاف
+الأولي الرقمي» (Digital First Aid Kit، رخصة CC BY 4.0). كل مقطع يذكر مصدره
+ورخصته وتاريخ مراجعة صفحته.
+- اذكر في جوابك اسم المصدر ورخصته وتاريخ مراجعة الصفحة، مرة واحدة، في جملة
+  طبيعية: «وفق عدّة الأمان (Security in a Box، رخصة CC BY-SA 4.0، روجِعت
+  الصفحة في 28 March 2024) …». رابط الصفحة يصل السائل في سطر المصدر.
+- إرشاد عام لا حكم على حالة السائل: لا تؤكد له أنه مراقَب أو مخترَق أو آمن،
+  بل انقل خطوات المصدر وعلاماته كما هي، وقل إنها عامة وإن تقدير حالته يحتاج
+  مختصاً.
+- إن ذكر السائل خطراً جارياً (اعتقال، تهديد، اختراق يحدث الآن): قدّم خطوات
+  المصدر الأولى، وأحله إلى منظمات الدعم التي تذكرها عدّة الإسعاف الأولي الرقمي
+  إن وردت في <المصادر>، وقل إن {config.BOT_NAME} ليس بديلاً من مساعدة مباشرة.
+- خطوات التطبيقات والأجهزة قد تتغيّر بعد تاريخ المراجعة، فانصح بمراجعة الصفحة
+  الأصلية للخطوات الحالية.
+- أدوات هذه المصادر (مديرو كلمات السرّ وتطبيقات المراسلة وغيرها) ليست من دليل
+  أدوات {config.ORG_NAME}: لا تنسبها إليه ولا تعطها درجة تحقق.
+
 ## قواعد التحقيقات — إلزامية
 تتناول تحقيقاتنا وقائع قتل وقصف. التزم بالمنشور حرفياً في المعنى:
 - لا تنسب مسؤولية ولا نيّة إلا بالصيغة التي وردت في التحقيق نفسه.
@@ -280,6 +299,11 @@ def guide_overview() -> str:
         "- الفرص: يعرض بيان فرصاً (زمالات ومنحاً وجوائز وتدريبات) من قوائم "
         "الأسابيع الأخيرة، بروابطها المباشرة. لا يضمن بيان أن باب التقديم ما زال "
         "مفتوحاً، فينصح السائل بقراءة صفحة الفرصة والتحقق من موعدها قبل التقديم.",
+        "- السلامة الرقمية: يجيب بيان بإرشادات عامة لحماية الحسابات والأجهزة "
+        "والاتصالات من مصدرين مفتوحي الرخصة، «عدّة الأمان» (Security in a Box، "
+        "CC BY-SA 4.0) و«عدّة الإسعاف الأولي الرقمي» (Digital First Aid Kit، "
+        "CC BY 4.0)، ويذكر المصدر ورخصته وتاريخ مراجعة الصفحة. وهي إرشادات عامة "
+        "لا تقدير لحالة السائل.",
         "- لا يفحص بيان الصور أو الروابط أو الملفات، ويقرأ النص وحده.",
     ]
     if limit > 0:
@@ -349,6 +373,14 @@ def build_context(result: dict, lang: str = "ar") -> tuple[str, dict[int, str]]:
             if m.get("date"):
                 head += f" | {m['date']}"
             add("تحقيق", f"{head}\n{p['text']}", p["url"])
+        elif p["type"] == "safety":
+            m = p["meta"]
+            head = (f"المصدر: {m.get('source_ar', '')} ({m.get('source', '')}، "
+                    f"{m.get('publisher', '')}) | الرخصة: {m.get('licence', '')}")
+            if m.get("date"):
+                head += f" | روجِعت الصفحة: {m['date']}"
+            add("سلامة_رقمية", f"{head}\n{p['text']}", p["url"],
+                f' المصدر="{m.get("source", "")}" الرخصة="{m.get("licence", "")}"')
         else:
             add("مقطع", _worded_grade(p["text"], lang), p["url"])
 
@@ -677,7 +709,8 @@ def warm_local() -> bool:
 # مواضيع الأسئلة، بترتيب العرض في اللوحة. أعداد فقط: لا يُحفظ من السؤال إلا جزؤه.
 # Question topics, in dashboard order. Counts only: nothing of the question is
 # kept but its part.
-TOPICS = ("tools", "investigations", "opportunities", "about", "other", "unanswered")
+TOPICS = ("tools", "investigations", "opportunities", "safety", "about", "other",
+          "unanswered")
 
 
 def topic_of(result: dict | None, outcome: str) -> tuple[str, str]:
@@ -707,6 +740,8 @@ def topic_of(result: dict | None, outcome: str) -> tuple[str, str]:
             return "investigations", meta.get("slug") or first.get("url", "").rstrip("/").rsplit("/", 1)[-1]
         if kind == "about":
             return "about", ""
+        if kind == "safety":
+            return "safety", meta.get("source") or ""
         return "tools", meta.get("category_en") or ""
     return "other", ""
 
