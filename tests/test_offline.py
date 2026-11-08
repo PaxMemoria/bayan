@@ -884,6 +884,12 @@ local_reply.clear()
 local_reply["down"] = True
 reply = brain.handle_comment("بيان ما هي أداة Hunchly؟", "messenger", "fb-c2")
 check("توقف المحلي يحوّل رد التعليق إلى المزوّد العام", reply and "رد Gemini" in reply, reply)
+local_reply.clear()
+local_reply.update(choices=[{"finish_reason": "stop", "message": {"content": "رد محلي على التعليق.\n[SOURCES: 1]"}}])
+for q in ("«بيان ما هي أداة Hunchly؟»", "بيان، ما هي أداة Hunchly؟", "Bayan: what is Hunchly?"):
+    reply = brain.handle_comment(q, "messenger", "fb-c3")
+    check(f"الاسم يُلتقط مع علامة ملتصقة: {q[:12]}", reply and "رد محلي" in reply, reply)
+check("تعليق لا يذكر بيان ولا يطابق تصحيحاً يُترك", brain.handle_comment("ما هي أداة Hunchly؟", "messenger", "fb-c4") is None)
 config.COMMENT_ANSWER_MODEL = config.LOCAL_LLM_MODEL = ""
 local_reply.clear()
 brain.httpx.Client = lambda **kw: real_client(transport=httpx.MockTransport(fake_gemini), **kw)

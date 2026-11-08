@@ -958,14 +958,17 @@ def handle_comment(question: str, channel: str, user_id: str) -> str | None:
         return None
     lang = i18n.detect(text)
     if daily_refusal(channel, user_id, lang) is not None:
+        # بلا نص التعليق: السجلّ لا يحمل أسئلة / Without the comment text: the log carries no questions
+        log.info("تعليق تُرك بلا ردّ: بلغ صاحبه الحدّ اليومي | %s", channel)
         return None
 
     norm = normalize_ar(text)
     fixes = retrieve.match_corrections(text, retrieve._query_vector(text))
-    mentions_bot = (
-        normalize_ar(config.BOT_NAME) in norm.split()
-        or config.BOT_NAME_EN.lower() in norm.lower().split()
-    )
+    # الاسم يُلتقط ولو التصقت به علامة («بيان، بيان: بيان؟)، فالكلمات تُقطع بلا ترقيم
+    # The name is caught even with a mark stuck to it («بيان، بيان: بيان؟): words
+    # are split without punctuation
+    words = set(re.findall(r"\w+", norm.lower()))
+    mentions_bot = normalize_ar(config.BOT_NAME) in words or config.BOT_NAME_EN.lower() in words
     if not fixes and not mentions_bot:
         return None
 
