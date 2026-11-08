@@ -76,7 +76,14 @@ ANSWER_FALLBACK = os.getenv("ANSWER_FALLBACK", "default").strip().lower()
 LOCAL_LLM_URL = os.getenv("LOCAL_LLM_URL", "http://127.0.0.1:8080/v1").rstrip("/")
 LOCAL_LLM_MODEL = os.getenv("LOCAL_LLM_MODEL", "")
 LOCAL_LLM_KEY = os.getenv("LOCAL_LLM_KEY", "")
-LOCAL_LLM_TIMEOUT = int(os.getenv("LOCAL_LLM_TIMEOUT", "120"))
+# مهلة الاستدعاء المحلي. الطلب الأول بعد الإقلاع يقرأ طلب بيان كاملاً (نحو 7 آلاف
+# رمز) على المعالج فيستغرق دقائق؛ لذلك يُسخَّن النموذج عند الإقلاع، وتبقى المهلة
+# طويلة لأن ردود التعليقات لا ينتظرها أحد على الشاشة.
+# The local call's timeout. The first request after start-up reads Bayan's
+# whole prompt (about 7,000 tokens) on the CPU and takes minutes; hence the
+# warm-up at start-up, and a long timeout, since nobody waits on screen for a
+# comment reply.
+LOCAL_LLM_TIMEOUT = int(os.getenv("LOCAL_LLM_TIMEOUT", "900"))
 # مزوّد الردود الخاصة على تعليقات فيسبوك وحدها: local، أو gemini-…، أو فارغ فيُستعمل
 # المزوّد العام. الرد على التعليق لا ينتظره أحد على الشاشة، فيحتمل بطء النموذج
 # المحلي (نحو دقيقة ونصف على الخادم)، والمحادثات تبقى على المزوّد العام.

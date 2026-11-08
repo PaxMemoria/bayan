@@ -627,7 +627,7 @@ def _ask_local(view: str, messages: list[dict], lang: str) -> tuple[str, str]:
     removed; finish_reason "length" is a cut at the cap and "content_filter"
     a refusal, as with the other providers.
     """
-    system = SYSTEM_PROMPT + (f"\n\n{view}" if view else "")
+    system = _local_system(view)
     payload = {
         "model": config.LOCAL_LLM_MODEL or "default",
         "messages": [{"role": "system", "content": system}] + messages,
@@ -649,6 +649,29 @@ def _ask_local(view: str, messages: list[dict], lang: str) -> tuple[str, str]:
     if finish == "length":
         return "max_tokens", ""
     return "end_turn", text
+
+
+def _local_system(view: str) -> str:
+    return SYSTEM_PROMPT + (f"\n\n{view}" if view else "")
+
+
+def warm_local() -> bool:
+    """يملأ ذاكرة النموذج المحلي بالجزء الثابت من الطلب (التعليمات والنظرة العامة)
+    بطلب من رمز واحد، فلا يدفع أول سؤال حقيقي ثمن قراءته. يعيد True عند النجاح.
+    Fills the local model's cache with the fixed part of the prompt (the
+    instructions and the overview) with a one-token request, so the first real
+    question does not pay for reading it. Returns True on success."""
+    payload = {
+        "model": config.LOCAL_LLM_MODEL or "default",
+        "messages": [{"role": "system", "content": _local_system(guide_overview())},
+                     {"role": "user", "content": "."}],
+        "max_tokens": 1,
+        "stream": False,
+    }
+    headers = {"Authorization": f"Bearer {config.LOCAL_LLM_KEY}"} if config.LOCAL_LLM_KEY else {}
+    with httpx.Client(timeout=config.LOCAL_LLM_TIMEOUT) as http:
+        r = http.post(f"{config.LOCAL_LLM_URL}/chat/completions", json=payload, headers=headers)
+    return r.status_code == 200
 
 
 # مواضيع الأسئلة، بترتيب العرض في اللوحة. أعداد فقط: لا يُحفظ من السؤال إلا جزؤه.

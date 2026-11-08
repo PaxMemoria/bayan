@@ -60,6 +60,8 @@ async def startup() -> None:
     app.state.comment_poll = asyncio.create_task(_comment_poll_loop())
     if config.EMBED_PROVIDER == "local":
         app.state.keep_warm = asyncio.create_task(_keep_warm_loop())
+    if "local" in (config.ANSWER_MODEL, config.COMMENT_ANSWER_MODEL):
+        app.state.local_warm = asyncio.create_task(_local_warm_loop())
 
 
 def _preload() -> None:
@@ -84,6 +86,42 @@ async def _keep_warm_loop() -> None:
             log.exception("تعذّر إبقاء نموذج المتجهات في الذاكرة")
 
 
+LOCAL_WARM_MINUTES = 30
+
+
+async def _local_warm_loop() -> None:
+    """يسخّن النموذج المحلي بعد الإقلاع ثم كل نصف ساعة: الطلب الأول يقرأ الجزء
+    الثابت من الطلب (دقائق على المعالج)، وما بعده ثوانٍ ما دام محفوظاً. إن تعذّر
+    (خادم النموذج لم يُقلع بعد) يعيد المحاولة بعد دقيقة.
+    Warms the local model after start-up and then every half hour: the first
+    request reads the fixed part of the prompt (minutes on the CPU), later ones
+    take seconds while it stays cached. On failure (the model server not up
+    yet) it retries after a minute."""
+    delay = 20
+    while True:
+        await asyncio.sleep(delay)
+        try:
+            t = time.time()
+            ok = await asyncio.to_thread(brain.warm_local)
+            log.info("تسخين النموذج المحلي: %s في %.0f ث", "تم" if ok else "رُفض", time.time() - t)
+            delay = LOCAL_WARM_MINUTES * 60 if ok else 60
+        except Exception:  # noqa: BLE001
+            log.warning("تعذّر تسخين النموذج المحلي، محاولة أخرى بعد دقيقة", exc_info=True)
+            delay = 60
+
+
+# ردود التعليقات تُعالج بالتوازي (ثلاثة في وقت واحد): رد محلي يستغرق دقائق لا يؤخّر
+# ردود «فرص» الفورية خلفه
+# Comment replies run concurrently (three at a time): a local reply that takes
+# minutes does not hold up the instant «فرص» replies behind it
+_comment_slots = asyncio.Semaphore(3)
+
+
+async def _reply_comment_task(user_id: str, comment_id: str, text: str) -> None:
+    async with _comment_slots:
+        await _reply_comment(user_id, comment_id, text)
+
+
 async def _comment_poll_loop() -> None:
     seeded = False
     while True:
@@ -99,7 +137,7 @@ async def _comment_poll_loop() -> None:
             else:
                 for event_id, user_id, comment_id, text in comments:
                     if store.first_time(event_id):
-                        await _reply_comment(user_id, comment_id, text)
+                        asyncio.create_task(_reply_comment_task(user_id, comment_id, text))
         except Exception:  # noqa: BLE001
             log.exception("تعذّر فحص تعليقات فيسبوك الدورية")
         await asyncio.sleep(15)

@@ -844,6 +844,14 @@ check("الطلب بصيغة OpenAI: system أولاً ثم المحادثة، �
       and local_sent[-1].headers.get("authorization") == "Bearer k-local"
       and str(local_sent[-1].url).endswith("/v1/chat/completions"), lreq["messages"][0]["role"])
 local_reply.clear()
+local_reply.update(choices=[{"finish_reason": "stop", "message": {"content": "."}}])
+n0 = len(local_sent)
+check("تسخين النموذج المحلي يرسل تعليمات النظام برمز واحد",
+      brain.warm_local() is True and len(local_sent) == n0 + 1
+      and json.loads(local_sent[-1].content)["max_tokens"] == 1
+      and json.loads(local_sent[-1].content)["messages"][0]["content"].startswith(brain.SYSTEM_PROMPT[:40]))
+check("خادم بيان يسخّن المحلي فقط حين يُستعمل", hasattr(server, "_local_warm_loop") and server.LOCAL_WARM_MINUTES == 30)
+local_reply.clear()
 local_reply.update(choices=[{"finish_reason": "length", "message": {"content": "نص مقطوع"}}])
 res = brain.answer("ما هي أداة Hunchly؟", "admin", "console")
 check("قطع المزوّد المحلي عند الحدّ لا يُرسل ناقصاً", res["outcome"] == "error", res["outcome"])
