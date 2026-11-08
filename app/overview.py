@@ -22,6 +22,11 @@ from . import config, store
 # The overview's numbers in the [SOURCES] line, far from the retrieved
 # sources' numbers
 GUIDE_NO, INVESTIGATIONS_NO, ABOUT_NO = 0, 100, 200
+# نظرة بيان عن نفسه (brain.guide_overview): رقم خاص بلا رابط، كي لا يُنسب جواب عن
+# بيان إلى صفحة الدليل
+# Bayan's overview of itself (brain.guide_overview): its own number with no
+# link, so an answer about Bayan is not attributed to the guide page
+BAYAN_NO = 300
 
 _MONTHS = {
     "يناير": 1, "كانون الثاني": 1, "فبراير": 2, "شباط": 2, "مارس": 3, "آذار": 3,

@@ -658,6 +658,12 @@ reply.update(content=[{"type": "text", "text": "منظمة غير ربحية.\n[
 res = brain.answer("ما حجم السيول في محافظة الحديدة اليمنية؟", "admin", "console")
 check("الاستناد إلى «من نحن» يعطي صفحة «من نحن» مصدراً",
       res["sources"] == [f"{config.SITE_URL}/about"], res["sources"])
+reply.update(content=[{"type": "text", "text": "أنا بيان، أجيب عن أربعة أشياء.\n[SOURCES: 300]"}],
+             stop_reason="end_turn")
+res = brain.answer("ما حجم السيول في محافظة الحديدة اليمنية؟", "admin", "console")
+check("الاستناد إلى نظرة بيان عن نفسه لا يعطي رابطاً، ويبقى الجواب بلا سطر مصدر",
+      res["sources"] == [] and "🔗" not in res["text"]
+      and 'رقم="300" موضوع="بيان"' in brain.guide_overview(), (res["sources"], res["text"]))
 
 # ── التصحيحات المعتمدة في الاسترجاع / Approved corrections in retrieval ──
 # المتجهات المزيّفة كيس كلمات: صياغة تشارك معظم الكلمات قريبة، وغيرها بعيدة
@@ -1600,6 +1606,10 @@ check("السياق يسمّي المصدر ورخصته وتاريخ المرا
       ctx.startswith('<سلامة_رقمية رقم="1" المصدر="Security in a Box" الرخصة="CC BY-SA 4.0">')
       and "المصدر: عدّة الأمان (Security in a Box، Front Line Defenders) | الرخصة: CC BY-SA 4.0"
       in ctx and "روجِعت الصفحة: 28 March 2024" in ctx and urls[1] == SIAB_URL, ctx[:300])
+check("سطر المصدر يحمل اسم المصدر ورخصته بعد الرابط، والرخصة ليست مطلوبة في النص",
+      brain.source_lines([SIAB_URL, f"{config.SITE_URL}/osint-tools"], {"passages": hit[:1]})
+      == [f"{SIAB_URL} — Security in a Box, CC BY-SA 4.0", f"{config.SITE_URL}/osint-tools"]
+      and "لا تكتب الرخصة في النص" in brain.SYSTEM_PROMPT)
 check("موضوع السؤال «السلامة الرقمية» باسم مصدره",
       brain.topic_of({"passages": hit[:1], "tools": [], "category_tools": []}, "answered")
       == ("safety", "Security in a Box") and "safety" in brain.TOPICS)
