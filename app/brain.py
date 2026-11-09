@@ -60,18 +60,38 @@ VERIFICATION_EN = {
     "trained": "not reviewed live in the latest audit, and listed for priority review",
 }
 
-def _build_prompt(scope: str, rules: str = "") -> str:
-    """تعليمات النظام: الثابتة هنا، ونطاق بيان وقواعد الفريق من الإعدادات
-    (صفحة «دور بيان» في اللوحة تغيّرهما دون إعادة تشغيل).
-    The system instructions: the fixed part here, and Bayan's scope and the
-    team's rules from the settings (the dashboard's "Bayan's role" page changes
-    them without a restart)."""
+# قسم «الأسلوب» في التعليمات: النبرة والطول من صفحة «دور بيان»؛ formal وmedium
+# هما الصياغة الأصلية. / The prompt's style section: the tone and length from the
+# "Bayan's role" page; formal and medium are the original wording.
+STYLE_TONE = {
+    "formal": "بالعربية: فصحى مبسطة. بالإنجليزية: لغة واضحة بسيطة.",
+    "friendly": "بالعربية: فصحى مبسطة بأسلوب ودود ومباشر، بصيغة المخاطب، بلا رسميات "
+                "زائدة. بالإنجليزية: لغة واضحة بسيطة، ودودة ومباشرة، تخاطب السائل "
+                "مباشرة بلا رسميات زائدة.",
+}
+STYLE_LENGTH = {
+    "short": "جملة إلى ثلاث جمل، أو ثلاث نقاط على الأكثر.",
+    "medium": "من جملتين إلى ست، أو نقاط قصيرة للقوائم.",
+    "long": "حتى عشر جمل أو نقاط، مع التفصيل حين يفيد.",
+}
+
+
+def _build_prompt(scope: str, rules: str = "", tone: str = "formal",
+                  length: str = "medium", name: str = "") -> str:
+    """تعليمات النظام: الثابتة هنا، ونطاق بيان وقواعد الفريق واسمه وأسلوب الردّ
+    من الإعدادات (صفحة «دور بيان» في اللوحة تغيّرها دون إعادة تشغيل).
+    The system instructions: the fixed part here, and Bayan's scope, the team's
+    rules, its name and the response style from the settings (the dashboard's
+    "Bayan's role" page changes them without a restart)."""
+    name = name or config.BOT_NAME
+    style = (STYLE_TONE.get(tone, STYLE_TONE["formal"]) + " "
+             + STYLE_LENGTH.get(length, STYLE_LENGTH["medium"]))
     team = ""
     if rules.strip():
         team = (f"\n\n## قواعد إضافية من فريق {config.ORG_NAME}\n"
                 "كتبها الفريق من لوحة التحكم، وتسري مع ما سبق ولا تُلغي القاعدة المطلقة "
                 "ولا قواعد الأدوات والتحقيقات والروابط:\n" + rules.strip() + "\n")
-    return f"""أنت «{config.BOT_NAME}»، المساعد الآلي لمنظمة {config.ORG_NAME}.
+    return f"""أنت «{name}»، المساعد الآلي لمنظمة {config.ORG_NAME}.
 نطاقك: {scope}.
 
 ## القاعدة المطلقة
@@ -164,7 +184,7 @@ def _build_prompt(scope: str, rules: str = "") -> str:
   عامة وأن الخطوات قد تتغيّر بعد تاريخ المراجعة، لا أكثر.
 - إن ذكر السائل خطراً جارياً (اعتقال، تهديد، اختراق يحدث الآن): قدّم خطوات
   المصدر الأولى، وأحله إلى منظمات الدعم التي تذكرها عدّة الإسعاف الأولي الرقمي
-  إن وردت في <المصادر>، وقل إن {config.BOT_NAME} ليس بديلاً من مساعدة مباشرة.
+  إن وردت في <المصادر>، وقل إن {name} ليس بديلاً من مساعدة مباشرة.
 - أدوات هذه المصادر (مديرو كلمات السرّ وتطبيقات المراسلة وغيرها) ليست من دليل
   أدوات {config.ORG_NAME}: لا تنسبها إليه ولا تعطها درجة تحقق.
 
@@ -182,8 +202,7 @@ def _build_prompt(scope: str, rules: str = "") -> str:
 - إن سُئلت عمّا لم يفصل فيه التحقيق، قل إنه لم يفصل فيه.
 
 ## الأسلوب
-بالعربية: فصحى مبسطة. بالإنجليزية: لغة واضحة بسيطة. من جملتين إلى ست، أو
-نقاط قصيرة للقوائم. لا تقل «حسب المصادر» ولا «ورد في النص»، ولا
+{style} لا تقل «حسب المصادر» ولا «ورد في النص»، ولا
 "according to the sources" بالإنجليزية: تكلّم طبيعياً. لا تخترع روابط.
 الأرقام بالأرقام الغربية (8 لا ٨). لا تذكر للسائل مصطلحات المصادر الداخلية
 مثل «السجلّ» أو «الحقل» أو «المقطع» أو «النظرة العامة» أو «التصحيح المعتمد»،
@@ -192,17 +211,20 @@ def _build_prompt(scope: str, rules: str = "") -> str:
 """ + team
 
 
-# الافتراضية (بلا قواعد فريق): للاختبارات والمقارنة. الفعلية من system_prompt().
-# The default (no team rules): for the tests and for comparison. The one in use
-# comes from system_prompt().
-SYSTEM_PROMPT = _build_prompt(config.SCOPE_DESCRIPTION)
+# الافتراضية (بلا قواعد فريق، بالاسم والأسلوب من .env أو الكود): للاختبارات
+# والمقارنة. الفعلية من system_prompt().
+# The default (no team rules, the name and style from .env or the code): for the
+# tests and for comparison. The one in use comes from system_prompt().
+SYSTEM_PROMPT = _build_prompt(config.SCOPE_DESCRIPTION, tone=config.RESPONSE_TONE,
+                              length=config.RESPONSE_LENGTH)
 
 
 def system_prompt() -> str:
-    """التعليمات الفعلية لهذا الطلب، بنطاق بيان وقواعد الفريق الحاليين.
-    The instructions in use for this request, with Bayan's current scope and
-    team rules."""
-    return _build_prompt(config.SCOPE_DESCRIPTION, config.TEAM_RULES)
+    """التعليمات الفعلية لهذا الطلب، بنطاق بيان وقواعد الفريق واسمه وأسلوب
+    الردّ الحاليين. The instructions in use for this request, with Bayan's
+    current scope, team rules, name and response style."""
+    return _build_prompt(config.SCOPE_DESCRIPTION, config.TEAM_RULES, config.RESPONSE_TONE,
+                         config.RESPONSE_LENGTH, config.BOT_NAME)
 
 
 def client() -> Anthropic:

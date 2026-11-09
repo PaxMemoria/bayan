@@ -300,7 +300,9 @@ least 32 characters, `python -c "import secrets;print(secrets.token_urlsafe(48))
   texts in both languages, edited from the dashboard, applied at once and
   taking precedence over `.env`; an empty field restores the default, and the
   fixed rules (no general knowledge, the link and investigation rules) cannot
-  be changed there.
+  be changed there. The same page sets Bayan's name in both languages and the
+  response style: the tone (formal or friendly) and the length (short, medium
+  or long).
 - **Settings** («الإعدادات», admin only): the threshold, the daily question
   limit and the pause button, applied without a restart, the connection status
   of each channel, and **API keys**: the Claude, Gemini, Voyage and local-model

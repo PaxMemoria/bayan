@@ -1789,6 +1789,52 @@ check("إعادة الافتراضي تعيد نصوص الكود وتعليما
       and brain.system_prompt() == brain.SYSTEM_PROMPT
       and any(a["action"] == "role_reset" for a in store.audit_log(8))
       and any(a["action"] == "role_saved" and a.get("target") == "rules" for a in store.audit_log(20)))
+# اسم بيان وأسلوب الردّ من الصفحة نفسها / The bot's name and the response style from the same page
+r = client.post("/admin/role/save", follow_redirects=False,
+                data={"section": "name", "name_ar": "نور", "name_en": "Noor"})
+check("اسم البوت الجديد يدخل تعليمات النظام وعنوان اللوحة فوراً",
+      "role_saved" in r.headers["location"] and "أنت «نور»" in brain.system_prompt()
+      and "أنت «بيان»" in brain.SYSTEM_PROMPT and 'class="brand">Noor' in client.get("/admin?lang=en").text
+      and 'class="brand">نور' in client.get("/admin?lang=ar").text, r.headers.get("location"))
+check("الاسم الأطول من 40 حرفاً أو على سطرين يُرفض ولا يُحفظ",
+      "error=role_name" in client.post("/admin/role/save", follow_redirects=False,
+                                       data={"section": "name", "name_ar": "ن" * 41, "name_en": "Noor"}
+                                       ).headers["location"]
+      and "error=role_name" in client.post("/admin/role/save", follow_redirects=False,
+                                           data={"section": "name", "name_ar": "نور", "name_en": "No\nor"}
+                                           ).headers["location"]
+      and config.BOT_NAME == "نور" and config.BOT_NAME_EN == "Noor")
+r = client.post("/admin/role/save", follow_redirects=False,
+                data={"section": "style", "tone": "friendly", "length": "short"})
+live = brain.system_prompt()
+check("النبرة الودودة والطول القصير يغيّران قسم «الأسلوب» في التعليمات الفعلية فقط",
+      "role_saved" in r.headers["location"] and "بصيغة المخاطب" in live and "جملة إلى ثلاث جمل" in live
+      and "من جملتين إلى ست" not in live and "بصيغة المخاطب" not in brain.SYSTEM_PROMPT
+      and "من جملتين إلى ست" in brain.SYSTEM_PROMPT and live.count("## الأسلوب") == 1,
+      r.headers.get("location"))
+check("اختيار غير معروف في الأسلوب يُرفض",
+      "error=role_choice" in client.post("/admin/role/save", follow_redirects=False,
+                                         data={"section": "style", "tone": "shouting", "length": "short"}
+                                         ).headers["location"]
+      and config.RESPONSE_TONE == "friendly")
+r = client.get("/admin/role?lang=en")
+check("صفحة «دور بيان» تعرض القوائم بالاختيار المحفوظ والاسم في حقل سطر واحد",
+      '<select id="tone" name="tone">' in r.text and '<option value="friendly" selected>' in r.text
+      and '<option value="short" selected>' in r.text and '<option value="formal">' in r.text
+      and 'name="name_en"' in r.text and 'value="Noor"' in r.text
+      and r.text.count("Edited here") >= 4)
+config.BOT_NAME, config.BOT_NAME_EN = "بيان", "Bayan"
+config.RESPONSE_TONE, config.RESPONSE_LENGTH = "formal", "medium"
+check("عند الإقلاع تُطبَّق الاسم والنبرة والطول المحفوظة فوق .env",
+      role.apply_saved() == 4 and config.BOT_NAME == "نور" and config.BOT_NAME_EN == "Noor"
+      and config.RESPONSE_TONE == "friendly" and config.RESPONSE_LENGTH == "short")
+client.post("/admin/role/save", data={"section": "name", "reset": "1"})
+client.post("/admin/role/save", data={"section": "style", "reset": "1"})
+check("إعادة الافتراضي تعيد الاسم والأسلوب وتعليمات النظام الافتراضية",
+      config.BOT_NAME == role.DEFAULTS["name_ar"] and config.RESPONSE_TONE == "formal"
+      and config.RESPONSE_LENGTH == "medium" and brain.system_prompt() == brain.SYSTEM_PROMPT
+      and 'class="brand">Bayan' in client.get("/admin?lang=en").text)
+client.get("/admin?lang=ar")  # ?lang= يثبّت كوكي اللغة؛ نعيد العربية لما بعده / restores the Arabic cookie
 
 # ── مصادر الفريق من اللوحة / Team sources from the dashboard ──
 print("\n── مصادر الفريق ──")
