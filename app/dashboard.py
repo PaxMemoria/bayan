@@ -113,6 +113,8 @@ TEXT: dict[str, tuple[str, str]] = {
     "origin_denied": ("مصدر الطلب غير مسموح", "Request origin not allowed"),
     "too_large": ("الطلب أكبر من المسموح", "Request too large"),
     "login_title": ("الدخول إلى اللوحة", "Log in to the dashboard"),
+    "login_done": ("تم الدخول، جارٍ فتح اللوحة…", "Signed in; opening the dashboard…"),
+    "login_done_link": ("افتح اللوحة", "Open the dashboard"),
     "login_bad": ("كلمة المرور غير صحيحة.", "Wrong password."),
     "login_slow": ("محاولات كثيرة. انتظر ربع ساعة ثم أعد المحاولة.",
                    "Too many attempts. Wait a quarter of an hour, then try again."),
@@ -1041,8 +1043,37 @@ async def login_form(request: Request, error: str = ""):
     return page(request, T("login_title"), body, nav=False)
 
 
-def _session_response(member_id: int, to: str = "/admin") -> RedirectResponse:
-    resp = RedirectResponse(to, status_code=303)
+def _session_response(member_id: int, to: str = "/admin", landing: str | None = None) -> Response:
+    """يفتح الجلسة ويحوّل إلى اللوحة.
+
+    بعد العودة من Google يُعرض بدل التحويل صفحة هبوط صغيرة من موقعنا تنتقل
+    بنفسها إلى اللوحة: كوكي الجلسة SameSite=Strict لا يُرسل في تحويلة هي جزء
+    من تنقّل بدأ من موقع آخر (accounts.google.com)، فكان التحويل المباشر يعيد
+    الداخل إلى صفحة الدخول رغم نجاح دخوله. التنقّل من صفحة الهبوط يبدأ من
+    موقعنا فيُرسل الكوكي.
+
+    Opens the session and sends the member to the dashboard.
+
+    After the return from Google, a small landing page of our own is shown
+    instead of a redirect, and it moves on to the dashboard by itself: a
+    SameSite=Strict session cookie is not sent on a redirect that is part
+    of a navigation started from another site (accounts.google.com), so a
+    direct redirect bounced the member back to the login page although the
+    login had succeeded. A navigation from the landing page starts on our
+    site, so the cookie is sent.
+    """
+    if landing is None:
+        resp: Response = RedirectResponse(to, status_code=303)
+    else:
+        T = tr(landing)
+        resp = HTMLResponse(
+            f'<!doctype html><html lang="{landing}" dir="{"ltr" if landing == "en" else "rtl"}">'
+            f'<head><meta charset="utf-8"><meta http-equiv="refresh" content="0; url={to}">'
+            f'<meta name="robots" content="noindex,nofollow"><title>{e(T("login_done"))}</title>'
+            f"<style>{CSS}</style></head><body class=\"bare\"><main class=\"content\">"
+            f'<div class="card"><p>{e(T("login_done"))}</p>'
+            f'<p><a class="btn" href="{to}">{e(T("login_done_link"))}</a></p></div>'
+            f"</main></body></html>", headers=HEADERS)
     resp.set_cookie(
         COOKIE, _new_session(member_id), max_age=SESSION_HOURS * 3600, httponly=True,
         samesite="strict", path="/admin",
@@ -1144,7 +1175,7 @@ async def google_callback(request: Request, code: str = "", state: str = "", err
         return _back("/admin/login", error="inactive")
     store.touch_login(m["id"], data.get("name") or m["name"])
     store.audit(data.get("name") or email, "login", "google")
-    resp = _session_response(m["id"])
+    resp = _session_response(m["id"], landing=req_lang(request))
     resp.delete_cookie(OAUTH_COOKIE, path="/admin")
     return resp
 
