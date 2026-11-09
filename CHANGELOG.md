@@ -1,5 +1,11 @@
 # Changelog / سجل الإصدارات
 
+## Unreleased
+
+**Languages / اللغات**
+- Eleven languages for the public and the dashboard, each from one JSON file in `app/locales/`: Arabic and English (the originals), Brazilian Portuguese, Spanish, French, Swahili, Hindi, Urdu, Persian, Turkish and Indonesian. Detection works from the script and a small word list without libraries; the model translates faithfully from the organisation's Arabic and English sources into the asker's language. The dashboard offers the same languages from a list in the sidebar (Arabic, Persian and Urdu right-to-left); the role page's editable texts and their overrides stay Arabic and English. A new language is one more file plus its code in `SUPPORTED_LANGUAGES`.
+- إحدى عشرة لغة للجمهور وللوحة، كل لغة من ملف JSON واحد في `app/locales/`: العربية والإنجليزية (الأصل)، والبرتغالية البرازيلية والإسبانية والفرنسية والسواحلية والهندية والأردية والفارسية والتركية والإندونيسية. كشف اللغة من الحرف وقائمة كلمات صغيرة بلا مكتبات؛ والنموذج يترجم بأمانة من مصادر المنظمة العربية والإنجليزية إلى لغة السائل. وتتيح اللوحة اللغات نفسها من قائمة في الشريط الجانبي (العربية والفارسية والأردية من اليمين)؛ ونصوص صفحة الدور القابلة للتحرير وتعديلاتها تبقى بالعربية والإنجليزية. اللغة الجديدة ملف واحد إضافي ورمزها في `SUPPORTED_LANGUAGES`.
+
 ## 1.0.0 — 2026-11-09
 
 First public release. أول إصدار عام.

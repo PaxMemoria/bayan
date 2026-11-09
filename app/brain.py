@@ -64,10 +64,10 @@ VERIFICATION_EN = {
 # هما الصياغة الأصلية. / The prompt's style section: the tone and length from the
 # "Bayan's role" page; formal and medium are the original wording.
 STYLE_TONE = {
-    "formal": "بالعربية: فصحى مبسطة. بالإنجليزية: لغة واضحة بسيطة.",
+    "formal": "بالعربية: فصحى مبسطة. بالإنجليزية وبقية اللغات: لغة واضحة بسيطة.",
     "friendly": "بالعربية: فصحى مبسطة بأسلوب ودود ومباشر، بصيغة المخاطب، بلا رسميات "
-                "زائدة. بالإنجليزية: لغة واضحة بسيطة، ودودة ومباشرة، تخاطب السائل "
-                "مباشرة بلا رسميات زائدة.",
+                "زائدة. بالإنجليزية وبقية اللغات: لغة واضحة بسيطة، ودودة ومباشرة، "
+                "تخاطب السائل مباشرة بلا رسميات زائدة.",
 }
 STYLE_LENGTH = {
     "short": "جملة إلى ثلاث جمل، أو ثلاث نقاط على الأكثر.",
@@ -99,9 +99,11 @@ def _build_prompt(scope: str, rules: str = "", tone: str = "formal",
 لشرح مصطلح أو إكمال معلومة ناقصة أو إضافة سياق.
 
 ## اللغة
-تجيب باللغة المحددة في <لغة_الإجابة>: العربية أو الإنجليزية، ولو كانت
-المصادر بلغة أخرى. حين تترجم من المصادر تنقل المعنى بأمانة، وكل القواعد
-أدناه تسري في اللغتين.
+تجيب باللغة المحددة في <لغة_الإجابة> أيّاً كانت: العربية أو الإنجليزية أو
+البرتغالية أو الإسبانية أو غيرها، ولو كانت المصادر بالعربية أو الإنجليزية.
+حين تترجم من المصادر تنقل المعنى بأمانة دون زيادة أو نقصان، وتُبقي أسماء
+الأدوات والمنظمات والروابط كما وردت. كل القواعد أدناه تسري في كل اللغات،
+والكلمات الممنوعة فيها ممنوعة بما يقابلها في لغة الإجابة أيضاً.
 
 ## متى ترفض
 اكتب `{OUT_OF_SCOPE_TAG}` وحدها دون أي نص آخر إذا:
@@ -872,7 +874,11 @@ def answer(question: str, channel: str, user_id: str, model: str | None = None) 
                 "sources": [], "retrieval": None, "lang": lang,
                 "topic": "unanswered", "detail": ""}
 
-    result = retrieve.search(question, lang)
+    # المصادر بالعربية أو الإنجليزية؛ النموذج يترجم منها إلى لغة الإجابة
+    # The sources are in Arabic or English; the model translates from them
+    # into the answer language
+    src_lang = i18n.source_language(lang)
+    result = retrieve.search(question, src_lang)
     confidence = result["confidence"]
 
     def done(text: str, outcome: str, sources: list[str] | None = None) -> dict:
@@ -904,13 +910,13 @@ def answer(question: str, channel: str, user_id: str, model: str | None = None) 
 
     # ── الطبقة ٢ / Layer 2 ─────────────────────────────────────
     history = store.history(channel, user_id, config.HISTORY_TURNS)
-    context, urls = build_context(result, lang)
+    context, urls = build_context(result, src_lang)
     view = guide_overview()
     if view:
         urls.update(overview_urls())
     user_block = (
         f"<المصادر>\n{context}\n</المصادر>\n\n"
-        f"<لغة_الإجابة>{'English' if lang == 'en' else 'العربية'}</لغة_الإجابة>\n\n"
+        f"<لغة_الإجابة>{i18n.language_name(lang)}</لغة_الإجابة>\n\n"
         f"<سؤال_المستخدم>\n{question}\n</سؤال_المستخدم>\n\n"
         f"أجب من المصادر أعلاه فقط، ملتزماً بقواعد الأدوات والتحقيقات، "
         f"أو اكتب {OUT_OF_SCOPE_TAG}."
@@ -1027,20 +1033,14 @@ def source_lines(sources: list[str], result: dict) -> list[str]:
 
 
 # تحية وحدها تُجاب بالترحيب بلغتها بدل رسالة الرفض: في واتساب يبدأ الناس
-# بـ«مرحبا» لا بـ /start. القائمة بعد التطبيع (أ←ا، ة←ه، بلا تشكيل).
+# بـ«مرحبا» لا بـ /start. القائمة من ملفات الترجمة (app/locales) بعد التطبيع
+# (أ←ا، ة←ه، بلا تشكيل).
 # A greeting on its own gets the welcome in its language instead of the
-# refusal: on WhatsApp people start with "hello", not /start. The list is
-# after normalization (أ to ا, ة to ه, no diacritics).
-GREETINGS = {
-    "مرحبا", "مرحبا بك", "اهلا", "اهلا وسهلا", "هلا", "سلام", "السلام عليكم",
-    "صباح الخير", "مساء الخير",
-    "hi", "hello", "hey", "hi there", "hello there", "good morning", "good evening",
-}
-_NOT_LETTERS = re.compile(r"[^\w\s]", re.UNICODE)
-
-
-def _greeting_key(text: str) -> str:
-    return " ".join(normalize_ar(_NOT_LETTERS.sub(" ", text)).split())
+# refusal: on WhatsApp people start with "hello", not /start. The list comes
+# from the translation files (app/locales) after normalization (أ to ا, ة to
+# ه, no diacritics).
+GREETINGS = i18n.GREETINGS
+_greeting_key = i18n.greeting_key
 
 
 def _is_greeting(text: str) -> bool:

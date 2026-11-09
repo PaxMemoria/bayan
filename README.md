@@ -175,12 +175,35 @@ prompt:
 
 ## Languages and the answer model
 
-- **Language detection** (`app/i18n.py`): Arabic script makes a question
-  Arabic, otherwise Latin letters make it English; names in Latin letters
-  inside an Arabic sentence keep it Arabic. Support for more languages from a
-  translations file is in progress.
-- **Fixed messages** (greeting, welcome, refusal, daily limit, pause, error,
-  subscription) exist per language and are editable from the dashboard.
+- **Eleven languages from translation files**: Arabic and English (the
+  originals), Brazilian Portuguese, Spanish, French, Swahili, Hindi, Urdu,
+  Persian, Turkish and Indonesian. Each language is one JSON file in
+  `app/locales/` (`ar.json`, `en.json`, `pt-BR.json`, ...) holding every text
+  the public gets (greeting, welcome, refusal, daily limit, pause, error,
+  subscription, privacy gist) and a `dashboard` section with the dashboard's
+  strings. Whatever a file lacks falls back to English.
+- **Adding a language**: copy `en.json` to `<code>.json` and translate its
+  values, the `dashboard` section included, keeping the placeholders such as
+  `{limit}` and `{bot_name}` and the command names such as `/subscribe`; add
+  the code to `SUPPORTED_LANGUAGES` in `app/i18n.py`, and, for a Latin-script
+  language, a set of its common words to `_MARKERS` there so it can be
+  detected. Nothing else changes: the model answers in whatever language the
+  prompt names.
+- **Language detection** (`app/i18n.py`, no libraries): the script first
+  (Arabic script is Arabic unless it carries Urdu-only or Persian letters;
+  Devanagari is Hindi), then, for the Latin script, a small list of common
+  words and distinctive characters per language; anything unknown is English.
+  Names in Latin letters inside an Arabic sentence keep it Arabic, and a bare
+  name on its own is English. Telegram's interface language sets the language
+  of `/start` and of messages without text.
+- **The sources stay in Arabic and English**: for a question in another
+  language the sources are retrieved in English (Arabic for Urdu and Persian),
+  and the system instructions tell the model to translate faithfully into the
+  language named in the prompt, keeping names and links as they are and
+  applying every rule in that language.
+- **Fixed messages** come from the asker's language file. The refusal, welcome
+  and paused texts edited on the dashboard's role page override the Arabic
+  and English files only; the other languages keep their file's text.
 - **The answer model**: `ANSWER_MODEL` (a Claude model by default, with a
   Gemini fallback if a key is set) and `ANSWER_EFFORT`. An optional local
   OpenAI-compatible model (`ANSWER_MODEL=local`, for example llama.cpp) can
@@ -214,8 +237,12 @@ the server). Tests: `tests/test_bayan.py` on the real index,
 
 ## Dashboard
 
-At `PUBLIC_URL/admin`, without JavaScript, in English by default and in
-Arabic at a click. Enabled when `.env` sets `ADMIN_PASSWORD` and
+At `PUBLIC_URL/admin`, without JavaScript, in English by default and in any
+of the supported languages from the language list in the sidebar, each named
+in its own language; the choice is kept in a cookie, and Arabic, Persian and
+Urdu render right-to-left. The strings come from the `dashboard` section of
+`app/locales/<code>.json`, with English for anything a language lacks; the
+role page's editable texts stay Arabic and English. Enabled when `.env` sets `ADMIN_PASSWORD` and
 `SESSION_SECRET`; the team signs in with Google accounts of your domain
 (`GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`, `ALLOWED_EMAIL_DOMAIN`,
 `ADMIN_EMAILS`) with roles admin, editor and viewer, and every action is in

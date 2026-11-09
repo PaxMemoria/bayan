@@ -13,6 +13,7 @@ dashboard's security.
 import json
 import os
 import pathlib
+import re
 import sys
 import tempfile
 import time
@@ -358,10 +359,10 @@ check("رابط العودة إلى العربية في الشريط", "lang=ar"
 r = client.get("/admin/messages?lang=ar")
 check("?lang=ar يعيد العربية ومن اليمين",
       "أسئلة الجمهور" in r.text and 'dir="rtl"' in r.text)
-check("قيمة لغة غير معروفة لا تُقبل: تبقى لغة الكوكي", 'dir="rtl"' in client.get("/admin?lang=fr").text)
-check("الشريط الجانبي: زر اللغة الأخرى وخروج والصفحة الفعّالة",
-      'class="lang"' in r.text and "English" in r.text and "/admin/logout" in r.text
-      and 'class="on"' in r.text, r.text[:200])
+check("قيمة لغة غير معروفة لا تُقبل: تبقى لغة الكوكي", 'dir="rtl"' in client.get("/admin?lang=xx").text)
+check("الشريط الجانبي: قائمة اللغات وخروج والصفحة الفعّالة",
+      'class="langform"' in r.text and '<select name="lang"' in r.text and "English" in r.text
+      and "/admin/logout" in r.text and 'class="on"' in r.text, r.text[:200])
 
 msg_id = store.questions()[0]["id"]
 r = client.post("/admin/block", data={"msg_id": str(msg_id), "next": "/admin/messages"},
@@ -613,6 +614,123 @@ check("لسؤال عربي: النسخة العربية لا الإنجليزي�
       retrieve._in_language(twin_ar, "ar", retrieve._S)
       and not retrieve._in_language(twin_en, "ar", retrieve._S))
 
+# ── ٥ج٢. اللغات الأخرى من ملفات الترجمة / 5c2. The other languages from the locale files ──
+print("\n── اللغات الأخرى ──")
+LOCALE_SAMPLES = {
+    "ar": ["فرص", "السلام عليكم", "كيف أعرف مكان التقاط صورة؟"],
+    "en": ["Hunchly", "How do I track a flight?", "Hello"],
+    "pt-BR": ["Olá", "Como descubro onde uma foto foi tirada?", "Qual é a capital da França?"],
+    "es": ["Hola", "¿Cómo averiguo dónde se tomó una foto?", "¿Qué es la herramienta Hunchly?"],
+    "fr": ["Bonjour", "Comment savoir où une photo a été prise ?"],
+    "sw": ["Habari", "Nawezaje kujua picha ilipigwa wapi?"],
+    "hi": ["नमस्ते", "फ़ोटो कहाँ खींची गई, कैसे पता करूँ?"],
+    "ur": ["تصویر کہاں لی گئی، میں کیسے جانوں؟"],
+    "fa": ["چطور بفهمم عکسی کجا گرفته شده؟", "سلام خوبی"],
+    "tr": ["Merhaba", "Bir fotoğrafın nerede çekildiğini nasıl bulurum?"],
+    "id": ["Halo", "Bagaimana cara mengetahui di mana sebuah foto diambil?"],
+}
+en_keys = set(i18n.LOCALES["en"])
+check("ملف ترجمة لكل لغة مدعومة، بمفاتيح en.json نفسها",
+      set(i18n.LOCALES) == set(i18n.SUPPORTED_LANGUAGES) == set(LOCALE_SAMPLES)
+      and all(set(loc) == en_keys for loc in i18n.LOCALES.values())
+      and all((config.LOCALES_DIR / f"{c}.json").is_file() for c in i18n.SUPPORTED_LANGUAGES),
+      {c: sorted(set(loc) ^ en_keys) for c, loc in i18n.LOCALES.items() if set(loc) != en_keys})
+check("كل ملف يُبقي «فرص» والأوامر حرفياً ومتغيرات النصوص",
+      all("فرص" in loc["out_of_scope"] and "فرص" in loc["welcome"]
+          and "/subscribe" in loc["welcome_subscribe"] and "/unsubscribe" in loc["subscribed"]
+          and "{limit}" in loc["daily"] and "{wait}" in loc["daily"] and "{bot_name}" in loc["paused"]
+          for loc in i18n.LOCALES.values()))
+misses = [(lang, s, i18n.detect(s)) for lang, ss in LOCALE_SAMPLES.items() for s in ss
+          if i18n.detect(s) != lang]
+check("كشف اللغة على جمل من كل لغة، و«فرص» عربية و«Hunchly» إنجليزية", not misses, misses)
+check("ما لا يُعرف إنجليزي، وبلا حروف عربي",
+      i18n.detect("Привет, как дела?") == "en" and i18n.detect("123 ؟!") == "ar")
+check("لغة الواجهة تُطابق الرمز المدعوم أو جزءه الأول، وإلا الإنجليزية",
+      (i18n.from_hint("pt-br"), i18n.from_hint("en-GB"), i18n.from_hint("es_MX"),
+       i18n.from_hint("de"), i18n.from_hint(None)) == ("pt-BR", "en", "es", "en", None))
+check("اسم اللغة للنموذج، ولغة المصادر عربية للحرف العربي وإنجليزية لغيره",
+      i18n.language_name("pt-BR") == "Portuguese (Brazil)" and i18n.language_name("ar") == "العربية"
+      and i18n.language_name("en") == "English" and i18n.source_language("ur") == "ar"
+      and i18n.source_language("fa") == "ar" and i18n.source_language("es") == "en")
+g_pt = brain.messages(brain.handle("Olá", "whatsapp", "u-pt"))
+g_es = brain.messages(brain.handle("Hola", "whatsapp", "u-es"))
+check("«Olá» تُجاب بردّ التحية والترحيب بالبرتغالية البرازيلية",
+      g_pt == ["Olá 👋", i18n.welcome("pt-BR", brain.daily_limit(), opener="")]
+      and "O que posso fazer" in g_pt[1] and "Pax Memoria" in g_pt[1] and "/subscribe" in g_pt[1]
+      and "What I can do" not in g_pt[1], g_pt[:1])
+check("«Hola» تُجاب بردّ التحية والترحيب بالإسبانية",
+      g_es == ["Hola 👋", i18n.welcome("es", brain.daily_limit(), opener="")]
+      and "Lo que puedo hacer" in g_es[1], g_es[:1])
+check("ردّ التحية بمثلها في اللغات الأخرى: Bom dia، Buenos días، Günaydın",
+      brain.messages(brain.handle("Bom dia!", "whatsapp", "u-pt"))[0] == "Bom dia 👋"
+      and brain.messages(brain.handle("Buenos días", "whatsapp", "u-es"))[0] == "Buenos días 👋"
+      and brain.messages(brain.handle("Günaydın", "whatsapp", "u-tr"))[0] == "Günaydın 👋")
+r_pt = brain.handle("Qual é a capital da França?", "telegram", "u-pt")
+check("سؤال برتغالي خارج النطاق يُرفض من البوابة بالرفض البرتغالي، بلا نموذج",
+      r_pt == i18n.msg("out_of_scope", "pt-BR") and r_pt.startswith("Desculpe")
+      and "Bayan" in r_pt and "فرص" in r_pt and r_pt != config.OUT_OF_SCOPE_MESSAGE_EN, r_pt[:80])
+check("الرسالة بلا نص بلغة الواجهة البرتغالية",
+      brain.handle("", "telegram", "u-pt", "pt-br") == i18n.msg("text_only", "pt-BR")
+      and brain.handle("", "telegram", "u-pt", "pt-br").startswith("Leio apenas texto"))
+check("خلاصة الخصوصية بالفرنسية برابطها ومدة الحفظ",
+      brain.handle("/privacy", "telegram", "u-fr", "fr").startswith("Politique de confidentialité de Bayan")
+      and f"{config.MESSAGE_RETENTION_DAYS} jours" in brain.handle("/privacy", "telegram", "u-fr", "fr")
+      and "/privacy" in brain.handle("/privacy", "telegram", "u-fr", "fr"))
+store.set_setting("daily_limit", "1")
+brain.handle("Quelles enquêtes avez-vous sur le Yémen ?", "telegram", "u-fr-limit")
+r_fr = brain.handle("Et sur la Syrie ?", "telegram", "u-fr-limit")
+check("رسالة الحدّ اليومي بالفرنسية، بالحدّ والمدة",
+      r_fr.startswith("Vous avez atteint la limite de 1 questions") and "heure" in r_fr
+      and config.SITE_URL in r_fr, r_fr[:80])
+store.set_setting("daily_limit", "10")
+check("المدة بالساعات بلغتها: المثنى العربي، وعدد في غيرها",
+      i18n.hours(7200, "ar") == "ساعتين" and i18n.hours(7200, "tr") == "2 saat"
+      and i18n.hours(40000, "ar") == "12 ساعة" and i18n.hours(40000, "es") == "12 horas"
+      and i18n.hours(100, "pt-BR") == "menos de uma hora")
+check("الإيقاف المؤقت والخطأ بالسواحلية من ملفها، وباسم بيان اللاتيني",
+      i18n.msg("paused", "sw").startswith("Bayan amesimamishwa") and config.SITE_URL in i18n.msg("paused", "sw")
+      and i18n.msg("error", "sw") == i18n.LOCALES["sw"]["error"])
+check("لغة غير مدعومة في msg تُعامل إنجليزية",
+      i18n.msg("rate", "xx") == i18n.msg("rate", "en") and i18n.welcome("xx", 5) == i18n.welcome(None, 5))
+# اللوحة بكل اللغات المدعومة / The dashboard in every supported language
+dash_en = set(i18n.LOCALES["en"]["dashboard"])
+check("قسم «dashboard» في كل ملف ترجمة بمفاتيح الإنجليزية نفسها",
+      all(set(loc["dashboard"]) == dash_en for loc in i18n.LOCALES.values()) and len(dash_en) > 300,
+      {c: sorted(set(loc.get("dashboard", {})) ^ dash_en)[:5] for c, loc in i18n.LOCALES.items()
+       if set(loc.get("dashboard", {})) != dash_en})
+check("متغيرات نصوص اللوحة متطابقة في كل لغة",
+      all(set(re.findall(r"\{\w+\}", loc["dashboard"][k])) == set(re.findall(r"\{\w+\}", i18n.LOCALES["en"]["dashboard"][k]))
+          for loc in i18n.LOCALES.values() for k in dash_en))
+r_pt = client.get("/admin?lang=pt-BR")
+pt_dash = i18n.LOCALES["pt-BR"]["dashboard"]
+check("اللوحة تُعرض بالبرتغالية البرازيلية من اليسار",
+      r_pt.status_code == 200 and '<html lang="pt-BR" dir="ltr"' in r_pt.text
+      and pt_dash["nav_home"] in r_pt.text and pt_dash["logout"] in r_pt.text
+      and "Dashboard" not in r_pt.text.split("<nav>")[1].split("</nav>")[0]
+      and f"{server.dashboard.LANG_COOKIE}=pt-BR" in r_pt.headers.get("set-cookie", ""),
+      (r_pt.status_code, r_pt.headers.get("set-cookie")))
+r_ur = client.get("/admin?lang=ur")
+check("اللوحة تُعرض بالأردية من اليمين",
+      '<html lang="ur" dir="rtl"' in r_ur.text and i18n.LOCALES["ur"]["dashboard"]["nav_home"] in r_ur.text
+      and 'class="brand">بيان' in r_ur.text)
+check("قائمة اللغات تسرد كل لغة باسمها، والمختارة معلَّمة",
+      all(f'<option value="{c}" lang="{c}"' in r_ur.text and i18n.LOCALES[c]["language"]["native"] in r_ur.text
+          for c in i18n.SUPPORTED_LANGUAGES)
+      and '<option value="ur" lang="ur" selected>' in r_ur.text and '<select name="lang"' in r_ur.text
+      and '<form method="get" action="/admin" class="langform">' in r_ur.text)
+check("الكوكي يثبّت اللغة، ولغة غير مدعومة في الرابط تُهمل، وبلا كوكي الإنجليزية",
+      '<html lang="ur"' in client.get("/admin").text
+      and '<html lang="ur"' in client.get("/admin?lang=xx").text
+      and '<html lang="en" dir="ltr"' in client.get("/admin", cookies={server.dashboard.LANG_COOKIE: "xx"}).text)
+r_role = client.get("/admin/role?lang=es")
+check("صفحة «دور بيان» بالإسبانية: الواجهة مترجمة والحقول عربية وإنجليزية",
+      r_role.status_code == 200 and i18n.LOCALES["es"]["dashboard"]["nav_role"] in r_role.text
+      and 'name="refusal_ar"' in r_role.text and 'name="refusal_en"' in r_role.text
+      and "Refusal message" in r_role.text and i18n.LOCALES["es"]["dashboard"]["lang_go"] in r_role.text)
+check("صفحة الخصوصية العامة تبقى بالعربية والإنجليزية",
+      client.get("/privacy").status_code == 200 and 'section lang="en"' in client.get("/privacy").text)
+client.get("/admin?lang=ar")  # يعيد كوكي العربية لما بعده / restores the Arabic cookie
+
 # ── ٥د. استدعاء النموذج دون شبكة / The model call, offline ─────────
 # يُعترض الطلب قبل أن يغادر الجهاز: شكله، ثم معالجة كل حالة توقّف.
 # The request is intercepted before it leaves the machine: its shape, then
@@ -654,6 +772,18 @@ check("إجابة عادية تمرّ، والطبقة ٤ تحذف الرابط 
       res["outcome"] == "answered" and "AstraaDev" not in res["text"], res["text"])
 
 check("المصادر مرقّمة في السياق المرسل", 'رقم="1"' in req["messages"][-1]["content"])
+reply.update(content=[{"type": "text", "text": "Hunchly es una herramienta de documentación.\n[SOURCES: 1]"}],
+             stop_reason="end_turn")
+res_es = brain.answer("¿Qué es la herramienta Hunchly?", "admin", "console")
+req_es = json.loads(sent[-1].content)["messages"][-1]["content"]
+check("سؤال إسباني: وسم <لغة_الإجابة> يحمل اسم اللغة، والمصادر بالإنجليزية",
+      "<لغة_الإجابة>Spanish</لغة_الإجابة>" in req_es and res_es["lang"] == "es"
+      and res_es["outcome"] == "answered" and "Name: Hunchly" in req_es
+      and "Verification grade:" in req_es and "درجة التحقق:" not in req_es,
+      (res_es["lang"], res_es["outcome"], req_es[:300]))
+check("تعليمات النظام تأمر بالإجابة بأي لغة يسمّيها الوسم وبالترجمة الأمينة",
+      "أيّاً كانت" in brain.SYSTEM_PROMPT and "البرتغالية" in brain.SYSTEM_PROMPT
+      and "بأمانة" in brain.SYSTEM_PROMPT and "كل اللغات" in brain.SYSTEM_PROMPT)
 check("بلا سطر مصادر: صفحة الدليل لسؤال عن أداة",
       res["sources"] == [f"{config.SITE_URL}/osint-tools"], res["sources"])
 
@@ -1888,6 +2018,10 @@ check("نص الرفض الجديد يُستعمل فوراً باللغتين",
       "role_saved" in r.headers["location"]
       and i18n.msg("out_of_scope", "ar") == "خارج نطاقي. اسألني عن الدليل."
       and i18n.msg("out_of_scope", "en") == "Outside my scope. Ask me about the guide.")
+check("تعديل الرفض من اللوحة لا يمسّ اللغات الأخرى، وصفحة الدور تقول ذلك",
+      i18n.msg("out_of_scope", "pt-BR").startswith("Desculpe")
+      and brain.handle("Qual é a capital da França?", "telegram", "u-pt-role").startswith("Desculpe")
+      and "app/locales" in client.get("/admin/role").text)
 check("الصفحة تعلّم المعدَّل، والنص الأطول من الحدّ يُرفض",
       "معدَّل من اللوحة" in client.get("/admin/role").text
       and "error=role" in client.post("/admin/role/save", follow_redirects=False,
