@@ -277,6 +277,40 @@ check("طلبات httpx لا تُسجَّل، فتوكن تيليغرام في �
       all(logging.getLogger(n).getEffectiveLevel() >= logging.WARNING
           for n in ("httpx", "httpx2")))
 
+# سجلّ الطلبات: رمز Google وتوكن تحقق ميتا في سلسلة الاستعلام يُحجبان
+# The access log: the Google code and the Meta verify token in the query
+# string are hidden
+from app import logfilter  # noqa: E402
+
+
+def access_record(path, method="GET"):
+    return logging.LogRecord("uvicorn.access", logging.INFO, "h11_impl.py", 0,
+                             '%s - "%s %s HTTP/%s" %d',
+                             ("1.2.3.4:5", method, path, "1.1", 303), None)
+
+
+access_filter = logfilter.RedactQueryFilter()
+rec = access_record("/admin/auth/google/callback?state=st4te&code=4/0Asecret")
+access_filter.filter(rec)
+check("رجوع Google في سجلّ الطلبات بلا code ولا state",
+      rec.args[2] == "/admin/auth/google/callback?…" and "secret" not in rec.getMessage()
+      and rec.getMessage().endswith('"GET /admin/auth/google/callback?… HTTP/1.1" 303'),
+      rec.getMessage())
+rec = access_record("/webhooks/meta?hub.mode=subscribe&hub.verify_token=vt&hub.challenge=1")
+access_filter.filter(rec)
+check("تحقق ميتا في سجلّ الطلبات بلا hub.verify_token",
+      rec.args[2] == "/webhooks/meta?…" and "verify_token" not in rec.getMessage())
+rec = access_record("/admin/messages?lang=ar&page=2")
+access_filter.filter(rec)
+check("طلب عادي باستعلام يبقى كما هو في السجلّ",
+      rec.args[2] == "/admin/messages?lang=ar&page=2")
+rec = access_record("/admin/auth/google/callback")
+access_filter.filter(rec)
+check("الرجوع بلا استعلام يبقى كما هو", rec.args[2] == "/admin/auth/google/callback")
+check("المرشّح مركّب على uvicorn.access مرة واحدة عند تحميل الخادم",
+      sum(isinstance(f, logfilter.RedactQueryFilter)
+          for f in logging.getLogger("uvicorn.access").filters) == 1)
+
 config.ADMIN_PASSWORD = "correct horse battery"
 config.SESSION_SECRET = "s" * 40
 r = client.get("/admin", follow_redirects=False)
