@@ -13,8 +13,8 @@ import time
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 
-from . import (brain, config, dashboard, embed, i18n, ingest, keys, privacy, retrieve, role,
-               sources, store)
+from . import (brain, config, dashboard, embed, i18n, ingest, keys, logfilter, privacy,
+               retrieve, role, sources, store)
 from .channels import messenger, telegram, whatsapp
 
 logging.basicConfig(
@@ -28,6 +28,10 @@ log = logging.getLogger("server")
 # only on errors
 for name in ("httpx", "httpx2", "httpcore"):
     logging.getLogger(name).setLevel(logging.WARNING)
+# رجوع Google وتحقق ميتا يحملان سراً في سلسلة الاستعلام، فتُحجب من سجلّ الطلبات
+# The Google callback and the Meta verification carry a secret in the query
+# string, so it is hidden from the access log
+logfilter.install()
 
 # كل كم دقيقة يُستعمل نموذج المتجهات المحلي كي يبقى في الذاكرة: على خادم مشترك
 # تنقل لينكس الذاكرة الخاملة إلى ملف المبادلة، فيستغرق أول سؤال بعد ساعات
