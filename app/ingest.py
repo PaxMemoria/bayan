@@ -23,7 +23,7 @@ import sys
 import threading
 from pathlib import Path
 
-from . import config, embed, safety, store
+from . import config, embed, safety, sources, store
 from .arabic import normalize_ar
 
 
@@ -255,13 +255,19 @@ def _run(pull: bool) -> tuple[bool, str]:
         # Digital safety from its two external sources; their failure does not
         # fail the cycle
         chunks += safety.collect(log, pull)
+        # مصادر الفريق من جدولها، فلا تضيع عند الفهرسة الكاملة
+        # Team sources from their table, so a full reindex keeps them
+        team = sources.all_chunks()
+        if team:
+            log.append(f"مصادر الفريق: {len(team)} مقطع")
+        chunks += team
         index(chunks, tools, log)
         c = store.counts()
         log.append(
             f"مفهرس: {c['_chunks']} مقطع "
             f"({c.get('investigation', 0)} تحقيقات، {c.get('tool', 0)} أدوات، "
-            f"{c.get('tool_removed', 0)} مُزالة، {c.get('safety', 0)} سلامة رقمية) | "
-            f"{c['_tools']} سجل أداة"
+            f"{c.get('tool_removed', 0)} مُزالة، {c.get('safety', 0)} سلامة رقمية، "
+            f"{c.get('team', 0)} مصادر الفريق) | {c['_tools']} سجل أداة"
         )
         detail = "\n".join(log)
         store.finish_run(run_id, True, c["_chunks"], c["_tools"], detail)

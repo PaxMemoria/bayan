@@ -1737,6 +1737,199 @@ check("إعادة الافتراضي تعيد نصوص الكود وتعليما
       and any(a["action"] == "role_reset" for a in store.audit_log(8))
       and any(a["action"] == "role_saved" and a.get("target") == "rules" for a in store.audit_log(20)))
 
+# ── مصادر الفريق من اللوحة / Team sources from the dashboard ──
+print("\n── مصادر الفريق ──")
+import io  # noqa: E402
+import zipfile  # noqa: E402
+from app import sources  # noqa: E402
+
+config.VOYAGE_API_KEY = "test"
+embed.embed = fake_vectors
+real_getaddrinfo = sources.socket.getaddrinfo
+
+
+def fake_getaddrinfo(host, port, *a, **k):
+    ip = {"localhost": "127.0.0.1", "127.0.0.1": "127.0.0.1", "10.0.0.5": "10.0.0.5",
+          "192.168.1.1": "192.168.1.1", "169.254.1.1": "169.254.1.1"}.get(host, "93.184.216.34")
+    return [(2, 1, 6, "", (ip, 0))]
+
+
+sources.socket.getaddrinfo = fake_getaddrinfo
+NOTE = ("سياسة باكس ميموريا في التحقق من الصور: نعتمد ثلاث خطوات، البحث العكسي ثم مقارنة "
+        "المعالم ثم تحديد الوقت بالظلال. ") * 3
+r = client.post("/admin/sources/note", data={"title": "سياسة التحقق من الصور", "text": NOTE},
+                follow_redirects=False)
+srcs = store.team_sources()
+check("إضافة ملاحظة من اللوحة تُفهرس فوراً بمتجهاتها دون إعادة فهرسة كاملة",
+      "msg=src_added" in r.headers["location"] and len(srcs) == 1 and srcs[0]["kind"] == "note"
+      and store.counts().get("team", 0) >= 1 and store.embedded_count() == store.chunk_count(),
+      (r.headers.get("location"), store.counts()))
+note_id = srcs[0]["id"]
+res = retrieve.search("ما سياسة التحقق من الصور بالظلال؟")
+hit = [p for p in res["passages"] if p["type"] == "team"]
+check("الاسترجاع يجد الملاحظة بعد إعادة التحميل التلقائي",
+      hit and hit[0]["meta"]["source"] == "سياسة التحقق من الصور",
+      [(p["type"], p["title"]) for p in res["passages"]])
+ctx, urls = brain.build_context({**res, "passages": hit[:1], "corrections": [], "opportunities": [],
+                                 "tools": [], "category_tools": [], "category": None}, "ar")
+check("سياق الملاحظة بوسم مصدر_الفريق وعنوانها، وبلا رابط عام",
+      ctx.startswith('<مصدر_الفريق رقم="1" العنوان="سياسة التحقق من الصور">')
+      and "مستند أضافه فريق" in ctx and "(ملاحظة)" in ctx and urls[1] == "", ctx[:200])
+check("موضوع السؤال «مصادر الفريق» بعنوان المستند",
+      brain.topic_of({"passages": hit[:1], "tools": [], "category_tools": []}, "answered")
+      == ("team", "سياسة التحقق من الصور") and "team" in brain.TOPICS
+      and "<مصدر_الفريق>" in brain.SYSTEM_PROMPT)
+r = client.post("/admin/sources/note", data={"title": "", "text": "قصير"}, follow_redirects=False)
+check("ملاحظة بلا عنوان أو بنص قصير تُرفض", "error=text" in r.headers["location"])
+check("المشاهد يقرأ الصفحة ولا يضيف",
+      viewer.get("/admin/sources").status_code == 200
+      and viewer.post("/admin/sources/note", data={"title": "x", "text": NOTE}).status_code == 403)
+page_text = client.get("/admin/sources").text
+check("الصفحة تعرض المصدر ونوعه وعدد مقاطعه ومن أضافه",
+      "سياسة التحقق من الصور" in page_text and "ملاحظة" in page_text and "المالك" in page_text
+      and "مصادر الفريق:" in client.get("/admin").text)
+
+rejected = []
+for bad in ("ftp://example.org/x", "http://localhost/x", "http://127.0.0.1/x", "http://10.0.0.5/x",
+            "http://192.168.1.1/", "http://169.254.1.1/", "javascript:alert(1)", "http:///", "x"):
+    try:
+        sources.check_url(bad)
+    except ValueError:
+        rejected.append(bad)
+check("الروابط المحلية والخاصة وغير http تُرفض قبل الجلب", len(rejected) == 9, rejected)
+
+PAGE = {"text": ("<html><head><title>دليل التوثيق</title></head><body><nav>قائمة التنقّل</nav>"
+                 "<main><h1>خطوات التوثيق</h1><p>" + "احفظ الصفحة بتاريخها وبصمتها الرقمية. " * 5
+                 + "</p></main><footer>تذييل</footer></body></html>")}
+def make_pdf(text: str) -> bytes:
+    """ملف PDF صغير صحيح البنية (جدول xref محسوب) بصفحة فيها سطر نص.
+    A small well-formed PDF (computed xref table) with one line of text."""
+    body = f"BT /F1 18 Tf 20 100 Td ({text}) Tj ET".encode()
+    objs = [b"<</Type/Catalog/Pages 2 0 R>>", b"<</Type/Pages/Kids[3 0 R]/Count 1>>",
+            b"<</Type/Page/Parent 2 0 R/MediaBox[0 0 400 144]/Contents 4 0 R"
+            b"/Resources<</Font<</F1 5 0 R>>>>>>",
+            b"<</Length " + str(len(body)).encode() + b">>stream\n" + body + b"\nendstream",
+            b"<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>"]
+    out, offsets = bytearray(b"%PDF-1.4\n"), []
+    for i, o in enumerate(objs, 1):
+        offsets.append(len(out))
+        out += f"{i} 0 obj\n".encode() + o + b"\nendobj\n"
+    xref = len(out)
+    out += f"xref\n0 {len(objs) + 1}\n0000000000 65535 f \n".encode()
+    for off in offsets:
+        out += f"{off:010d} 00000 n \n".encode()
+    out += f"trailer\n<</Size {len(objs) + 1}/Root 1 0 R>>\nstartxref\n{xref}\n%%EOF\n".encode()
+    return bytes(out)
+
+
+PDF = make_pdf("Bayan PDF test document for the team sources page of the dashboard")
+
+
+def fake_site(request):
+    if request.url.path == "/redirect":
+        return httpx.Response(302, headers={"location": "http://127.0.0.1/secret"})
+    if request.url.path == "/pdf":
+        return httpx.Response(200, headers={"content-type": "application/pdf"}, content=PDF)
+    return httpx.Response(200, headers={"content-type": "text/html; charset=utf-8"}, text=PAGE["text"])
+
+
+real_src_client = sources.httpx.Client
+sources.httpx.Client = lambda **kw: real_src_client(transport=httpx.MockTransport(fake_site), **kw)
+r = client.post("/admin/sources/url", data={"url": "http://docs.example.org/guide"}, follow_redirects=False)
+u = [s for s in store.team_sources() if s["kind"] == "url"]
+u_text = store.team_source(u[0]["id"])["text"] if u else ""
+check("رابط صفحة يُجلب ويُستخرج نصه من <main> دون التنقّل والتذييل",
+      "msg=src_added" in r.headers["location"] and u and u[0]["title"] == "دليل التوثيق"
+      and "قائمة التنقّل" not in u_text and "تذييل" not in u_text
+      and u_text.startswith("## خطوات التوثيق"), (r.headers.get("location"), u_text[:80]))
+res = retrieve.search("كيف أحفظ الصفحة ببصمتها الرقمية؟")
+hit = [p for p in res["passages"] if p["type"] == "team" and p["meta"].get("kind") == "url"]
+_, urls = brain.build_context({**res, "passages": hit[:1], "corrections": [], "opportunities": [],
+                               "tools": [], "category_tools": [], "category": None}, "ar")
+check("سطر المصدر لرابط الفريق هو رابطه", hit and urls[1] == "http://docs.example.org/guide", urls)
+r = client.post("/admin/sources/url", data={"url": "http://docs.example.org/redirect"}, follow_redirects=False)
+check("تحويلة إلى عنوان محلي تُرفض", "error=url" in r.headers["location"] and len(store.team_sources()) == 2)
+r = client.post("/admin/sources/url", data={"url": "http://docs.example.org/pdf"}, follow_redirects=False)
+pdf_src = [s for s in store.team_sources() if s["origin"].endswith("/pdf")]
+check("رابط PDF يُقرأ نصه", "msg=src_added" in r.headers["location"] and pdf_src
+      and "Bayan PDF test document" in store.team_source(pdf_src[0]["id"])["text"],
+      r.headers.get("location"))
+
+
+def team_chunk_texts(source_id):
+    with store.db() as conn:
+        return [row["text"] for row in conn.execute(
+            "SELECT text FROM chunks WHERE ext_id LIKE ?", (f"team:{source_id}:%",)).fetchall()]
+
+
+PAGE["text"] = PAGE["text"].replace("احفظ الصفحة", "أرشف الصفحة")
+r = client.post("/admin/sources/sync", data={"id": str(u[0]["id"])}, follow_redirects=False)
+check("المزامنة تلتقط التغيير وتعيد فهرسة مقاطع المصدر وحده",
+      "msg=src_synced" in r.headers["location"]
+      and "أرشف الصفحة" in store.team_source(u[0]["id"])["text"]
+      and all("أرشف" in t for t in team_chunk_texts(u[0]["id"])) and team_chunk_texts(note_id),
+      r.headers.get("location"))
+r = client.post("/admin/sources/sync", data={"id": str(u[0]["id"])}, follow_redirects=False)
+check("بلا تغيير: لا إعادة فهرسة", "msg=src_same" in r.headers["location"])
+sources.httpx.Client = lambda **kw: real_src_client(
+    transport=httpx.MockTransport(lambda req: httpx.Response(503)), **kw)
+n_chunks = len(team_chunk_texts(u[0]["id"]))
+r = client.post("/admin/sources/sync", data={"id": str(u[0]["id"])}, follow_redirects=False)
+check("تعذّر الجلب يُسجَّل في حال المصدر وتبقى مقاطعه",
+      "error=fetch" in r.headers["location"] and store.team_source(u[0]["id"])["status"] == "error"
+      and len(team_chunk_texts(u[0]["id"])) == n_chunks
+      and "تعذّرت المزامنة" in client.get("/admin/sources").text)
+check("sync_all يعدّ الروابط والمتعذّر منها",
+      sources.sync_all() == {"changed": 0, "failed": 2, "total": 2}, sources.sync_all())
+sources.httpx.Client = real_src_client
+
+MD = ("# دليل الأرشفة\n\nالأرشفة تحفظ الصفحة كما كانت وقت التوثيق.\n\n" * 3).encode()
+r = client.post("/admin/sources/file", files={"file": ("دليل الأرشفة.md", MD, "text/markdown")},
+                follow_redirects=False)
+f_md = [s for s in store.team_sources() if s["origin"] == "دليل الأرشفة.md"]
+check("ملف Markdown يُرفع ويُحفظ نصه لا الملف، وعنوانه من اسمه",
+      "msg=src_added" in r.headers["location"] and f_md and f_md[0]["title"] == "دليل الأرشفة"
+      and store.team_source(f_md[0]["id"])["text"].startswith("## دليل الأرشفة"),
+      r.headers.get("location"))
+buf = io.BytesIO()
+with zipfile.ZipFile(buf, "w") as z:
+    z.writestr("word/document.xml",
+               '<w:document><w:body><w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>سياسة '
+               'الاقتباس</w:t></w:r></w:p><w:p><w:r><w:t>ننقل الاقتباس كما ورد &amp; نذكر مصدره دائماً. '
+               'ولا نحذف منه شيئاً.</w:t></w:r></w:p></w:body></w:document>')
+r = client.post("/admin/sources/file", files={"file": ("policy.docx", buf.getvalue(),
+                                                       "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+                follow_redirects=False)
+f_docx = [s for s in store.team_sources() if s["origin"] == "policy.docx"]
+check("ملف Word يُقرأ بعناوينه وفقراته",
+      "msg=src_added" in r.headers["location"] and f_docx
+      and store.team_source(f_docx[0]["id"])["text"] ==
+      "## سياسة الاقتباس\n\nننقل الاقتباس كما ورد & نذكر مصدره دائماً. ولا نحذف منه شيئاً.",
+      store.team_source(f_docx[0]["id"])["text"] if f_docx else r.headers.get("location"))
+r = client.post("/admin/sources/file", files={"file": ("virus.exe", b"MZ" * 100, "application/octet-stream")},
+                follow_redirects=False)
+check("نوع ملف غير مدعوم يُرفض", "error=type" in r.headers["location"])
+try:
+    sources.extract("big.txt", b"a" * (sources.MAX_UPLOAD + 1))
+    big_ok = False
+except ValueError as exc:
+    big_ok = str(exc) == "big"
+check("ملف أكبر من الحدّ يُرفض", big_ok)
+check("المشاهد لا يرفع ملفاً",
+      viewer.post("/admin/sources/file", files={"file": ("a.md", MD, "text/markdown")}).status_code == 403)
+
+n_team = store.counts().get("team", 0)
+okk, detail = ingest.run(pull=False)
+check("الفهرسة الكاملة تعيد مصادر الفريق من جدولها",
+      okk and store.counts().get("team", 0) == n_team and "مصادر الفريق:" in detail, detail[-200:])
+r = client.post("/admin/sources/delete", data={"id": str(note_id)}, follow_redirects=False)
+check("الحذف يزيل المصدر ومقاطعه ويُسجَّل",
+      "msg=src_deleted" in r.headers["location"] and store.team_source(note_id) is None
+      and not team_chunk_texts(note_id)
+      and any(a["action"] == "source_delete" for a in store.audit_log(5))
+      and any(a["action"] == "source_add" and a.get("target") == f"note:{note_id}" for a in store.audit_log(40)))
+sources.socket.getaddrinfo = real_getaddrinfo
+
 embed.embed = real_embed
 print(f"\nالنتيجة: {ok}/{ok + fail}")
 sys.exit(0 if fail == 0 else 1)

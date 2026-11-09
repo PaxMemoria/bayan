@@ -168,6 +168,13 @@ def _build_prompt(scope: str, rules: str = "") -> str:
 - أدوات هذه المصادر (مديرو كلمات السرّ وتطبيقات المراسلة وغيرها) ليست من دليل
   أدوات {config.ORG_NAME}: لا تنسبها إليه ولا تعطها درجة تحقق.
 
+## مصادر الفريق — من <مصدر_الفريق>
+مستندات وصفحات وملاحظات أضافها فريق {config.ORG_NAME} من لوحة التحكم، وهي ضمن
+نطاقك حكماً كالتصحيحات المعتمدة فلا ترفض سؤالاً تجيب عنه بـ `{OUT_OF_SCOPE_TAG}`.
+اعتمد عليها كما هي، واذكر عنوان المستند في جوابك حين تعتمد عليه («وفق
+مستند…»). الروابط التي ترد فيها تخضع لقواعد الأدوات: لا رابط لأداة حسّاسة أو
+مُزالة ولو ورد في المستند.
+
 ## قواعد التحقيقات — إلزامية
 تتناول تحقيقاتنا وقائع قتل وقصف. التزم بالمنشور حرفياً في المعنى:
 - لا تنسب مسؤولية ولا نيّة إلا بالصيغة التي وردت في التحقيق نفسه.
@@ -427,6 +434,18 @@ def build_context(result: dict, lang: str = "ar") -> tuple[str, dict[int, str]]:
                 head += f" | روجِعت الصفحة: {m['date']}"
             add("سلامة_رقمية", f"{head}\n{p['text']}", p["url"],
                 f' المصدر="{m.get("source", "")}" الرخصة="{m.get("licence", "")}"')
+        elif p["type"] == "team":
+            m = p["meta"]
+            kind = {"note": "ملاحظة", "url": "صفحة ويب", "file": "ملف"}.get(m.get("kind"), "")
+            head = f"مستند أضافه فريق {config.ORG_NAME}: {m.get('source', '')}"
+            if kind:
+                head += f" ({kind})"
+            if m.get("date"):
+                head += f" | أُضيف أو حُدّث: {m['date']}"
+            # الملاحظة والملف بلا رابط عام، فلا سطر مصدر لهما
+            # A note or a file has no public link, so no source line for them
+            add("مصدر_الفريق", f"{head}\n{p['text']}", p["url"] or "",
+                f' العنوان="{m.get("source", "")}"')
         else:
             add("مقطع", _worded_grade(p["text"], lang), p["url"])
 
@@ -760,7 +779,7 @@ def warm_local() -> bool:
 # مواضيع الأسئلة، بترتيب العرض في اللوحة. أعداد فقط: لا يُحفظ من السؤال إلا جزؤه.
 # Question topics, in dashboard order. Counts only: nothing of the question is
 # kept but its part.
-TOPICS = ("tools", "investigations", "opportunities", "safety", "about", "other",
+TOPICS = ("tools", "investigations", "opportunities", "safety", "team", "about", "other",
           "unanswered")
 
 
@@ -793,6 +812,8 @@ def topic_of(result: dict | None, outcome: str) -> tuple[str, str]:
             return "about", ""
         if kind == "safety":
             return "safety", meta.get("source") or ""
+        if kind == "team":
+            return "team", meta.get("source") or ""
         return "tools", meta.get("category_en") or ""
     return "other", ""
 

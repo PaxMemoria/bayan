@@ -40,7 +40,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from . import (brain, broadcast, config, embed, ingest, keys, opportunities, retrieve, role,
-               store)
+               sources, store)
 
 log = logging.getLogger("dashboard")
 router = APIRouter()
@@ -140,8 +140,8 @@ TEXT: dict[str, tuple[str, str]] = {
     "vec_on": ("تعمل", "On"),
     "vec_off": ("معطّلة", "Off"),
     "c_chunks": ("مقاطع قاعدة المعرفة", "Knowledge base passages"),
-    "c_chunks_d": ("التحقيقات: {i}، الأدوات: {t}، الأدوات المُزالة: {r}، السلامة الرقمية: {s}.",
-                   "Investigations: {i}, tools: {t}, removed tools: {r}, digital safety: {s}."),
+    "c_chunks_d": ("التحقيقات: {i}، الأدوات: {t}، الأدوات المُزالة: {r}، السلامة الرقمية: {s}، مصادر الفريق: {m}.",
+                   "Investigations: {i}, tools: {t}, removed tools: {r}, digital safety: {s}, team sources: {m}."),
     "c_tools": ("أدوات الدليل", "Guide tools"),
     "c_tools_d": ("الحسّاسة: {s}، المُزالة: {r}.", "Sensitive: {s}, removed: {r}."),
     "c_vec": ("المتجهات ({p})", "Vectors ({p})"),
@@ -390,6 +390,7 @@ TEXT: dict[str, tuple[str, str]] = {
     "tp_investigations": ("التحقيقات", "Investigations"),
     "tp_opportunities": ("الفرص", "Opportunities"),
     "tp_safety": ("السلامة الرقمية", "Digital safety"),
+    "tp_team": ("مصادر الفريق", "Team sources"),
     "tp_about": ("من نحن", "About"),
     "tp_other": ("أخرى", "Other"),
     "tp_unanswered": ("بلا جواب", "Unanswered"),
@@ -446,6 +447,48 @@ TEXT: dict[str, tuple[str, str]] = {
     "err_member": ("البريد غير صالح أو ليس من نطاق {d}.", "The email is invalid or not on the {d} domain."),
     "err_self": ("لا يمكنك تعطيل نفسك أو خفض دورك.", "You cannot deactivate yourself or lower your own role."),
     "flash_member_saved": ("حُفظ العضو.", "Member saved."),
+    "nav_sources": ("مصادر البيانات", "Data sources"),
+    "src_help": ("الجزء الخامس من معرفة بيان، يضيفه الفريق من هنا: ملاحظة تكتبها، أو رابط صفحة "
+                 "يُجلب نصها ويُزامَن يومياً، أو ملف (PDF أو Word أو Markdown أو نص أو HTML) يُحفظ "
+                 "نصه لا الملف. يدخل الفهرس فوراً ويعتمده بيان كمصدر ضمن نطاقه، ويذكر عنوان "
+                 "المستند في جوابه. المحرر فأعلى يضيف ويحذف.",
+                 "The fifth part of Bayan's knowledge, added by the team here: a note you write, "
+                 "a page link whose text is fetched and synced daily, or a file (PDF, Word, "
+                 "Markdown, text or HTML) whose text is kept, not the file. It enters the index at "
+                 "once, Bayan treats it as a source within its scope, and names the document in "
+                 "its answer. Editors and above add and delete."),
+    "src_add_note": ("ملاحظة", "Note"),
+    "src_add_url": ("رابط صفحة", "Page link"),
+    "src_add_file": ("ملف", "File"),
+    "src_title": ("العنوان", "Title"),
+    "src_text": ("النص", "Text"),
+    "src_url": ("الرابط", "Link"),
+    "src_file": ("الملف (PDF، DOCX، MD، TXT، HTML؛ حتى 15 ميغابايت)",
+                 "File (PDF, DOCX, MD, TXT, HTML; up to 15 MB)"),
+    "src_add": ("أضف", "Add"),
+    "src_list": ("المصادر المضافة", "Added sources"),
+    "src_none": ("لا مصادر بعد.", "No sources yet."),
+    "th_kind": ("النوع", "Kind"),
+    "th_chars": ("الأحرف", "Characters"),
+    "th_chunks": ("المقاطع", "Chunks"),
+    "th_added": ("أُضيف", "Added"),
+    "th_synced": ("آخر مزامنة", "Last sync"),
+    "src_ok": ("سليم", "OK"),
+    "src_error": ("تعذّرت المزامنة", "Sync failed"),
+    "src_sync": ("زامن الآن", "Sync now"),
+    "src_delete": ("احذف", "Delete"),
+    "flash_src_added": ("أُضيف المصدر وفُهرس، وبيان يعتمده الآن.", "Source added and indexed; Bayan uses it now."),
+    "flash_src_added_novec": ("أُضيف المصدر بلا متجهات (البحث الدلالي معطّل)؛ يعمل بالبحث النصي حتى تُعاد الفهرسة.",
+                              "Source added without vectors (semantic search is off); it works through text search until the next reindex."),
+    "flash_src_deleted": ("حُذف المصدر ومقاطعه.", "Source and its chunks deleted."),
+    "flash_src_synced": ("تغيّرت الصفحة وأُعيدت فهرستها.", "The page changed and was reindexed."),
+    "flash_src_same": ("الصفحة كما هي، لا تغيير.", "The page is unchanged."),
+    "err_src_text": ("العنوان مطلوب، والنص 40 حرفاً على الأقل.", "A title is required, and the text at least 40 characters."),
+    "err_src_url": ("رابط غير مقبول: http أو https فقط، ولا عناوين محلية.", "Link not accepted: http or https only, and no local addresses."),
+    "err_src_fetch": ("تعذّر جلب الصفحة.", "The page could not be fetched."),
+    "err_src_type": ("نوع الملف غير مدعوم.", "Unsupported file type."),
+    "err_src_big": ("الملف أكبر من الحدّ.", "The file is over the limit."),
+    "err_src_empty": ("لم يُستخرج نص كافٍ من المصدر.", "Not enough text could be extracted from the source."),
     "nav_role": ("دور بيان", "Bayan's role"),
     "role_help": ("للمدير وحده. ما يُحفظ هنا يُطبَّق فوراً على كل القنوات دون إعادة تشغيل، ويتقدّم على "
                   "قيمة .env. الحقل الفارغ يعيد الافتراضي. القواعد الثابتة (لا معرفة عامة، لا روابط "
@@ -493,7 +536,9 @@ FLASH_KIND = {"reindex": "ok", "busy": "warn", "saved": "ok", "blocked": "ok",
               "unblocked": "ok", "rated": "ok", "fix_saved": "ok", "fix_novec": "warn",
               "fix_deleted": "ok", "opp_saved": "ok", "opp_deleted": "ok", "opp_sent": "ok",
               "member_saved": "ok", "member_deleted": "ok", "key_saved": "ok",
-              "key_cleared": "ok", "role_saved": "ok"}
+              "key_cleared": "ok", "role_saved": "ok", "src_added": "ok",
+              "src_added_novec": "warn", "src_deleted": "ok", "src_synced": "ok",
+              "src_same": "warn"}
 RATINGS = ("up", "down", "none")
 # نموذج التصحيح أكبر من غيره: الحرف العربي 6 بايتات بعد ترميز الرابط
 # The correction form is larger than the others: an Arabic character takes
@@ -801,6 +846,9 @@ font-weight:600}
 .keys form.row{flex-wrap:nowrap;margin:0}
 .keys form.row input{width:auto;flex:1 1 160px}
 .keys td form+form{margin-top:8px}
+.sources-add h3{margin:0 0 4px}
+.sources-add label{margin-top:10px}
+.sources-add input[type=file]{padding:6px}
 .fields{display:grid;gap:14px}
 .fields.two{grid-template-columns:1fr 1fr}
 .fields label{margin-top:0;display:flex;gap:8px;align-items:center}
@@ -841,6 +889,7 @@ ICONS = {
     "settings": '<circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.4-2.3 1a7 7 0 0 0-2-1.2L14 3h-4l-.6 2.7a7 7 0 0 0-2 1.2l-2.3-1-2 3.4 2 1.5A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.5 2 3.4 2.3-1a7 7 0 0 0 2 1.2L10 21h4l.6-2.7a7 7 0 0 0 2-1.2l2.3 1 2-3.4-2-1.5c.1-.4.1-.8.1-1.2z"/>',
     "blocked": '<circle cx="12" cy="12" r="9"/><path d="M6 6l12 12"/>',
     "role": '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+    "sources": '<path d="M4 4h16v16H4z"/><path d="M8 9h8M8 13h8M8 17h5"/>',
     "team": '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17" cy="9" r="2.5"/><path d="M16 15a5 5 0 0 1 5.5 5"/>',
 }
 
@@ -854,6 +903,7 @@ NAV = [
     ("/admin/try", "nav_try", "try"),
     ("/admin/corrections", "nav_corrections", "corrections"),
     ("/admin/opportunities", "nav_opps", "opportunities"),
+    ("/admin/sources", "nav_sources", "sources"),
     ("/admin/role", "nav_role", "role"),
     ("/admin/settings", "nav_settings", "settings"),
     ("/admin/blocked", "nav_blocked", "blocked"),
@@ -1154,7 +1204,8 @@ async def overview(request: Request, msg: str = ""):
     cards = f"""<div class="grid">
 <div class="card stat"><span>{T("c_chunks")}</span><b>{counts['_chunks']}</b>
 <span>{T("c_chunks_d", i=counts.get('investigation', 0), t=counts.get('tool', 0),
-          r=counts.get('tool_removed', 0), s=counts.get('safety', 0))}</span></div>
+          r=counts.get('tool_removed', 0), s=counts.get('safety', 0),
+          m=counts.get('team', 0))}</span></div>
 <div class="card stat"><span>{T("c_tools")}</span><b>{counts['_tools']}</b>
 <span>{T("c_tools_d", s=counts['_tools_sensitive'], r=counts['_tools_removed'])}</span></div>
 <div class="card stat"><span>{e(T("c_vec", p=_provider_label(T)))}</span><b>{vec_ok}</b>
@@ -1986,6 +2037,157 @@ def _keys_rows(T, lang: str) -> str:
         )
     return (f'<tr><th>{T("th_key")}</th><th>{T("th_source")}</th><th>{T("key_new")}</th></tr>'
             + "".join(rows))
+
+
+@router.get("/admin/sources")
+async def sources_page(request: Request, msg: str = "", error: str = ""):
+    if denied := _gate(request):
+        return denied
+    lang = req_lang(request)
+    T = tr(lang)
+    err = {"text": "err_src_text", "url": "err_src_url", "fetch": "err_src_fetch",
+           "type": "err_src_type", "big": "err_src_big", "empty": "err_src_empty"}.get(error)
+    err_html = f'<div class="alert bad">{T(err)}</div>' if err else ""
+    can_edit = RANK.get(request.state.member["role"], -1) >= RANK["editor"]
+    forms = ""
+    if can_edit:
+        forms = f"""<div class="grid sources-add">
+<div class="card"><form method="post" action="/admin/sources/note">
+<h3>{T("src_add_note")}</h3>
+<label for="nt">{T("src_title")}</label><input id="nt" name="title" maxlength="{sources.MAX_TITLE}" required>
+<label for="ntx">{T("src_text")}</label><textarea id="ntx" name="text" rows="7" required></textarea>
+<p class="row"><button type="submit">{T("src_add")}</button></p></form></div>
+<div class="card"><form method="post" action="/admin/sources/url">
+<h3>{T("src_add_url")}</h3>
+<label for="su">{T("src_url")}</label>
+<input id="su" name="url" type="url" placeholder="https://" dir="ltr" required>
+<p class="row"><button type="submit">{T("src_add")}</button></p></form></div>
+<div class="card"><form method="post" action="/admin/sources/file" enctype="multipart/form-data">
+<h3>{T("src_add_file")}</h3>
+<label for="sf">{T("src_file")}</label>
+<input id="sf" name="file" type="file" accept=".pdf,.docx,.md,.markdown,.txt,.html,.htm" required>
+<p class="row"><button type="submit">{T("src_add")}</button></p></form></div></div>"""
+    counts_by = sources.chunk_counts()
+    rows = []
+    for s in store.team_sources():
+        if s["kind"] == "url":
+            title = (f'<a href="{e(s["origin"])}" rel="noopener noreferrer" target="_blank">'
+                     f'{e(s["title"])}</a>')
+        else:
+            title = e(s["title"])
+            if s["origin"]:
+                title += f'<div class="muted"><code>{e(s["origin"])}</code></div>'
+        state = (f'<span class="badge ok">{T("src_ok")}</span>' if s["status"] == "ok"
+                 else f'<span class="badge bad">{T("src_error")}</span>'
+                      f'<div class="muted">{e(s["error"])}</div>')
+        actions = ""
+        if can_edit:
+            if s["kind"] == "url":
+                actions += (f'<form method="post" action="/admin/sources/sync">'
+                            f'<input type="hidden" name="id" value="{s["id"]}">'
+                            f'<button class="ghost small" type="submit">{T("src_sync")}</button></form>')
+            actions += (f'<form method="post" action="/admin/sources/delete">'
+                        f'<input type="hidden" name="id" value="{s["id"]}">'
+                        f'<button class="danger small" type="submit">{T("src_delete")}</button></form>')
+        rows.append(
+            f'<tr><td class="wrap">{title}</td>'
+            f'<td><span class="badge muted">{e(sources.kind_label(s["kind"], lang))}</span></td>'
+            f'<td>{s["chars"]:,}</td><td>{counts_by.get(s["id"], 0)}</td>'
+            f'<td>{state}</td>'
+            f'<td class="muted">{e(s["added_by"])}<br>{when(s["added"])}</td>'
+            f'<td class="muted">{when(s["synced"]) if s["kind"] == "url" else "—"}</td>'
+            f'<td><div class="row">{actions}</div></td></tr>'
+        )
+    table = (f'<table><tr><th>{T("src_title")}</th><th>{T("th_kind")}</th><th>{T("th_chars")}</th>'
+             f'<th>{T("th_chunks")}</th><th>{T("th_state")}</th><th>{T("th_added")}</th>'
+             f'<th>{T("th_synced")}</th><th></th></tr>{"".join(rows)}</table>'
+             if rows else f'<p class="muted">{T("src_none")}</p>')
+    body = (f'{err_html}<p class="help">{T("src_help")}</p>{forms}'
+            f'<h2>{T("src_list")}</h2><div class="card">{table}</div>')
+    return page(request, T("nav_sources"), body, "sources", flash=msg)
+
+
+def _src_error(exc: Exception) -> str:
+    """رمز الخطأ للوحة من ValueError في app/sources.py. The dashboard's error code
+    from a ValueError in app/sources.py."""
+    code = str(exc)
+    return code if code in ("text", "url", "fetch", "type", "big") else "fetch"
+
+
+@router.post("/admin/sources/note")
+async def sources_add_note(request: Request):
+    denied, form = await _post_gate(request, limit=2_000_000)
+    if denied:
+        return denied
+    try:
+        _, vectors = sources.add_note(form.get("title", ""), form.get("text", ""), who(request))
+    except ValueError:
+        return _back("/admin/sources", error="text")
+    return _back("/admin/sources", msg="src_added" if vectors else "src_added_novec")
+
+
+@router.post("/admin/sources/url")
+async def sources_add_url(request: Request):
+    denied, form = await _post_gate(request)
+    if denied:
+        return denied
+    try:
+        _, vectors = await asyncio.to_thread(sources.add_url, form.get("url", ""), who(request))
+    except ValueError as exc:
+        return _back("/admin/sources", error=_src_error(exc))
+    except Exception:  # noqa: BLE001 — فشل الشبكة أو الخادم البعيد / network or remote failure
+        log.warning("تعذّر جلب مصدر فريق", exc_info=True)
+        return _back("/admin/sources", error="fetch")
+    return _back("/admin/sources", msg="src_added" if vectors else "src_added_novec")
+
+
+@router.post("/admin/sources/file")
+async def sources_add_file(request: Request):
+    if denied := _gate(request, "editor"):
+        return denied
+    if not _same_origin(request):
+        return _plain("origin_denied", 403)
+    if int(request.headers.get("content-length") or 0) > sources.MAX_UPLOAD + 65_536:
+        return _back("/admin/sources", error="big")
+    form = await request.form(max_files=1, max_fields=4)
+    upload = form.get("file")
+    if upload is None or not getattr(upload, "filename", ""):
+        return _back("/admin/sources", error="type")
+    data = await upload.read(sources.MAX_UPLOAD + 1)
+    try:
+        _, vectors = await asyncio.to_thread(sources.add_file, upload.filename, data, who(request))
+    except ValueError as exc:
+        return _back("/admin/sources", error=_src_error(exc))
+    except Exception:  # noqa: BLE001 — ملف تالف / a broken file
+        log.warning("تعذّر قراءة ملف مرفوع", exc_info=True)
+        return _back("/admin/sources", error="type")
+    return _back("/admin/sources", msg="src_added" if vectors else "src_added_novec")
+
+
+@router.post("/admin/sources/sync")
+async def sources_sync(request: Request):
+    denied, form = await _post_gate(request)
+    if denied:
+        return denied
+    sid = form.get("id", "")
+    if not sid.isdigit():
+        return _back("/admin/sources", error="url")
+    changed = await asyncio.to_thread(sources.sync_url, int(sid))
+    src = store.team_source(int(sid)) or {}
+    if src.get("status") == "error":
+        return _back("/admin/sources", error="fetch")
+    return _back("/admin/sources", msg="src_synced" if changed else "src_same")
+
+
+@router.post("/admin/sources/delete")
+async def sources_delete(request: Request):
+    denied, form = await _post_gate(request)
+    if denied:
+        return denied
+    sid = form.get("id", "")
+    if sid.isdigit():
+        sources.remove(int(sid), who(request))
+    return _back("/admin/sources", msg="src_deleted")
 
 
 @router.get("/admin/role")

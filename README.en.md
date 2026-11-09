@@ -287,6 +287,14 @@ least 32 characters, `python -c "import secrets;print(secrets.token_urlsafe(48))
   `scripts/check_corrections.py` asks their questions again after any change.
 - **Try Bayan** («جرّب بيان»): a question without a channel, with the
   retrieved passages and the matching corrections.
+- **Data sources** («مصادر البيانات», editors and above): the fifth part of
+  the knowledge, added by the team from the dashboard: a note, a page link
+  whose text is fetched and synced daily, or a file (PDF, Word, Markdown, text
+  or HTML) whose text is kept, not the file. It enters the index at once with
+  its vectors, without a full reindex (`app/sources.py`), and Bayan treats it
+  as a source within its scope and names the document. Links are checked
+  before fetching (http/https only, no local or private addresses, every
+  redirect checked, 8 MB cap) and files up to 15 MB.
 - **Bayan's role** («دور بيان», admin only): Bayan's scope, extra team rules
   appended to the system instructions, and the refusal, welcome and paused
   texts in both languages, edited from the dashboard, applied at once and

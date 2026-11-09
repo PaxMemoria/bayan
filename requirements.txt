@@ -5,6 +5,9 @@ httpx==0.28.1
 anthropic==2.1.0
 numpy>=1.26
 python-dotenv==1.2.2
+# مصادر الفريق من اللوحة: رفع الملفات وقراءة PDF / Team sources from the dashboard: uploads and PDF reading
+python-multipart==0.0.32
+pypdf==6.21.4
 # المتجهات المحلية (voyage-4-nano). في Docker يُثبَّت torch من فهرس المعالج.
 torch==2.14.1
 transformers==5.19.0
