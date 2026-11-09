@@ -1,0 +1,14 @@
+Bayan — Pax Memoria's assistant
+Copyright 2026 Pax Memoria (https://paxmemoria.org)
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+The name "Pax Memoria", the name "بيان / Bayan" as used by Pax Memoria, and
+the avatar in assets/ are not covered by the licence; see the "License"
+section of the README.
+
+Knowledge that Bayan fetches at run time is not part of this repository and
+keeps its own licences:
+- Security in a Box (Front Line Defenders): CC BY-SA 4.0
+- Digital First Aid Kit (RaReNet and CiviCERT): CC BY 4.0
+- The Pax Memoria tools guide and investigations: see paxmemoria.org
