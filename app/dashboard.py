@@ -216,20 +216,27 @@ TEXT: dict[str, tuple[str, str]] = {
     "nobody": ("لا أحد محظور.", "Nobody is blocked."),
     "reason_dashboard": ("حُظر من اللوحة", "Blocked from the dashboard"),
     "question": ("السؤال", "Question"),
-    "ask_btn": ("اسأل بيان", "Ask Bayan"),
-    "try_note": ("التجربة لا تُسجَّل في سجل الأسئلة. السؤال الذي يتجاوز البوابة يستدعي "
-                 "النموذج فعلاً.",
-                 "Tries are not saved to the question log. A question that passes the "
-                 "gate does call the model."),
+    "try_note": ("محادثتك الخاصة مع بيان من داخل اللوحة: يتذكّر آخر {n} دورات كما في القنوات "
+                 "العامة، ويراها كل عضو لنفسه وحده. لا تدخل في سجل الأسئلة ولا في الأعداد، ولا "
+                 "يحدّها الحدّ اليومي، وتُحذف بعد مدة الاحتفاظ كغيرها. السؤال الذي يتجاوز البوابة "
+                 "يستدعي النموذج فعلاً.",
+                 "Your own conversation with Bayan inside the dashboard: it remembers the last "
+                 "{n} turns as on the public channels, and each member sees only their own. It "
+                 "is not part of the question log or the counts, the daily limit does not apply, "
+                 "and it is deleted after the retention period like everything else. A question "
+                 "that passes the gate does call the model."),
+    "send_btn": ("أرسل", "Send"),
+    "new_conv": ("محادثة جديدة", "New conversation"),
+    "thread_empty": ("لا محادثة بعد. اسأل بيان شيئاً.", "No conversation yet. Ask Bayan something."),
+    "you_label": ("أنت", "You"),
+    "retr_details": ("تفاصيل الاسترجاع", "Retrieval details"),
+    "sources_label": ("المصادر:", "Sources:"),
     "nothing": ("لا شيء", "None"),
     "cat_shown": ("{c}، والأدوات المعروضة منه: {n}", "{c}, tools shown: {n}"),
     "mode_vec": ("متجهات ونص", "vectors and text"),
     "mode_text": ("نص فقط", "text only"),
     "thr_v": ("العتبة {t}", "Threshold {t}"),
     "search_mode": ("البحث: {m}", "Search: {m}"),
-    "answer_lang": ("لغة الإجابة: {l}", "Answer language: {l}"),
-    "lang_ar": ("العربية", "Arabic"),
-    "lang_en": ("الإنجليزية", "English"),
     "th_name_match": ("أدوات مطابقة بالاسم", "Tools matched by name"),
     "th_cat_match": ("تصنيف مطابق", "Matched category"),
     "passages": ("المقاطع المسترجعة", "Retrieved passages"),
@@ -844,6 +851,9 @@ border:1px solid var(--line);border-radius:8px;padding:8px 11px;width:100%}
 input:focus,textarea:focus,select:focus{outline:2px solid var(--accent);outline-offset:0;
 border-color:var(--accent)}
 .rate{margin-top:8px}.rate form{max-width:560px}
+.turn{margin:14px 0}.turn .meta{margin-bottom:2px}
+.turn.me .reply{background:var(--accent-soft);margin-inline-start:12%}
+.turn.bot .reply{margin-inline-end:12%}.turn details{margin-inline-end:12%}
 .rated{margin-top:6px}
 input[type=checkbox]{width:auto}
 label{display:block;margin:12px 0 5px;font-weight:600;font-size:13.5px}
@@ -1547,74 +1557,113 @@ async def unblock(request: Request):
 
 
 # ─────────────────────────────────────────────────────── التجربة / Try Bayan
+# محادثة كل عضو مع بيان داخل اللوحة: قناة «team» ومعرّف المستخدم هو بريد العضو
+# (أو «owner» لصاحب كلمة المرور)، فتُحفظ ذاكرتها كما تُحفظ لأي قناة عامة
+# Each member's conversation with Bayan inside the dashboard: the «team»
+# channel with the member's email as the user id (or «owner» for the password
+# login), so its memory is kept exactly as for any public channel
+def _team_user(request: Request) -> str:
+    m = getattr(request.state, "member", None) or current_member(request) or {}
+    return m.get("email") or "owner"
+
+
 def _try_form(T, q: str = "") -> str:
     return f"""<div class="card"><form method="post" action="/admin/try">
 <label for="q">{T("question")}</label>
 <textarea id="q" name="q" rows="3" maxlength="{config.MAX_QUESTION_CHARS}" required>{e(q)}</textarea>
-<p class="row"><button type="submit">{T("ask_btn")}</button>
-<span class="muted">{T("try_note")}</span></p></form></div>"""
+<p class="row"><button type="submit" name="action" value="ask">{T("send_btn")}</button>
+<button type="submit" class="ghost" name="action" value="new" formnovalidate>{T("new_conv")}</button>
+</p></form></div>"""
+
+
+def _retrieval_details(r: dict | None, T, lang: str) -> str:
+    """تفاصيل الاسترجاع لإجابة واحدة، من الملخّص المحفوظ معها.
+    One answer's retrieval details, from the summary saved with it."""
+    if not r:
+        return ""
+    sep = ", " if lang == "en" else "، "
+    tools = sep.join(e(t) for t in r.get("tools", [])) or T("nothing")
+    cat = r.get("category")
+    cat_name = ((cat.get("en") if lang == "en" else None) or cat.get("ar", "")) if cat else ""
+    cat_html = e(T("cat_shown", c=cat_name, n=cat.get("n", 0))) if cat else T("nothing")
+    passages = "".join(
+        f'<tr><td>{e(T("type_" + p["type"]) if ("type_" + p["type"]) in TEXT else p["type"])}</td>'
+        f'<td class="wrap">{e(p.get("title") or "")}</td>'
+        f'<td class="wrap"><a href="{e(p["url"])}" rel="noreferrer">{e(p["url"])}</a></td></tr>'
+        for p in r.get("passages", [])
+    )
+    fixes = sep.join(
+        f'<a href="/admin/corrections/edit?id={int(c["id"])}">{e(c["question"])}</a> '
+        f'<span class="muted">({T("fix_sim", s=c["similarity"])})</span>'
+        for c in r.get("corrections", [])
+    ) or T("nothing")
+    mode = T("mode_vec") if r.get("used_vectors") else T("mode_text")
+    table = (f'<table><tr><th>{T("th_type")}</th><th>{T("th_title")}</th>'
+             f'<th>{T("th_link")}</th></tr>{passages}</table>'
+             if passages else f'<p class="muted">{T("no_passages")}</p>')
+    return f"""<details><summary>{T("retr_details")}</summary>
+<div class="meta"><span>{T("search_mode", m=mode)}</span></div>
+<table><tr><th>{T("fix_matched")}</th><td>{fixes}</td></tr>
+<tr><th>{T("th_name_match")}</th><td>{tools}</td></tr>
+<tr><th>{T("th_cat_match")}</th><td>{cat_html}</td></tr></table>
+<h3>{T("passages")}</h3>{table}</details>"""
+
+
+def _thread(request: Request, T, lang: str) -> str:
+    """خيط محادثة العضو: فقاعات متناوبة، الأحدث في الأسفل.
+    The member's thread: alternating bubbles, newest at the bottom."""
+    turns = store.thread(store.TEAM_CHANNEL, _team_user(request), 20)
+    if not turns:
+        return f'<div class="card"><p class="muted">{T("thread_empty")}</p></div>'
+    thr = brain.threshold()
+    parts = []
+    for m in turns:
+        if m["role"] == "user":
+            parts.append(f"""<div class="turn me"><div class="meta"><span>{T("you_label")}</span>
+<span>{when(m['ts'])}</span></div><div class="reply" dir="auto">{e(m['content'])}</div></div>""")
+            continue
+        bubbles = "".join(f'<div class="reply" dir="auto">{e(part)}</div>'
+                          for part in brain.messages(m["content"]))
+        links = "".join(f' <a href="{e(u)}" rel="noreferrer">{e(u)}</a>' for u in m["sources"])
+        src = f'<span>{T("sources_label")}{links}</span>' if links else ""
+        conf = f"{m['confidence']:.3f}" if m["confidence"] is not None else "—"
+        parts.append(f"""<div class="turn bot"><div class="meta"><span>{e(config.BOT_NAME_EN if lang == "en" else config.BOT_NAME)}</span>
+{badge(m['outcome'], T)}<span>{T("conf", c=conf)}</span><span>{T("thr_v", t=f"{thr:.2f}")}</span>{src}</div>
+{bubbles}{_retrieval_details(m.get("retrieval"), T, lang)}</div>""")
+    return f'<div class="card">{"".join(parts)}</div>'
 
 
 @router.get("/admin/try")
 async def try_form(request: Request, q: str = ""):
     if denied := _gate(request):
         return denied
-    T = tr(req_lang(request))
+    lang = req_lang(request)
+    T = tr(lang)
     # ?q= يملأ الخانة فقط (من رابط «جرّبه» في التصحيحات)، ولا يستدعي النموذج
     # ?q= only fills in the box (from the "Try it" link on a correction), and
     # does not call the model
-    return page(request, T("nav_try"), _try_form(T, q[: config.MAX_QUESTION_CHARS]), "try")
+    body = (f'<p class="help">{T("try_note", n=config.HISTORY_TURNS)}</p>'
+            + _thread(request, T, lang) + _try_form(T, q[: config.MAX_QUESTION_CHARS]))
+    return page(request, T("nav_try"), body, "try")
 
 
 @router.post("/admin/try")
 async def try_ask(request: Request):
-    denied, form = await _post_gate(request)
+    # المشاهد يحادث أيضاً: المحادثة لا تغيّر المعرفة / Viewers chat too: the
+    # conversation changes nothing in the knowledge base
+    denied, form = await _post_gate(request, role="viewer")
     if denied:
         return denied
-    lang = req_lang(request)
-    T = tr(lang)
+    user = _team_user(request)
+    if form.get("action") == "new":
+        store.clear_history(store.TEAM_CHANNEL, user)
+        return _back("/admin/try")
     q = (form.get("q") or "").strip()[: config.MAX_QUESTION_CHARS]
-    if not q:
-        return page(request, T("nav_try"), _try_form(T), "try")
-    res = await asyncio.to_thread(brain.answer, q, "admin", "console")
-    r = res["retrieval"] or {"tools": [], "category": None, "category_tools": [],
-                             "passages": [], "used_vectors": False}
-    thr = brain.threshold()
-    sep = ", " if lang == "en" else "، "
-    tools = sep.join(e(t["name"]) for t in r["tools"]) or T("nothing")
-    cat = r["category"]
-    cat_name = (cat.get("category_en") if lang == "en" else None) or cat["category_ar"] \
-        if cat else ""
-    cat_html = (e(T("cat_shown", c=cat_name, n=len(r["category_tools"])))
-                if cat else T("nothing"))
-    passages = "".join(
-        f'<tr><td>{e(T("type_" + p["type"]) if ("type_" + p["type"]) in TEXT else p["type"])}</td>'
-        f'<td class="wrap">{e(p["title"] or "")}</td>'
-        f'<td class="wrap"><a href="{e(p["url"])}" rel="noreferrer">{e(p["url"])}</a></td></tr>'
-        for p in r["passages"]
-    )
-    fixes = sep.join(
-        f'<a href="/admin/corrections/edit?id={c["id"]}">{e(c["question"])}</a> '
-        f'<span class="muted">({T("fix_sim", s=round(c["similarity"], 2))})</span>'
-        for c in r.get("corrections", [])
-    ) or T("nothing")
-    mode = T("mode_vec") if r.get("used_vectors") else T("mode_text")
-    answer_lang = T("lang_en") if res.get("lang") == "en" else T("lang_ar")
-    table = (f'<table><tr><th>{T("th_type")}</th><th>{T("th_title")}</th>'
-             f'<th>{T("th_link")}</th></tr>{passages}</table>'
-             if passages else f'<p class="muted">{T("no_passages")}</p>')
-    body = _try_form(T, q) + f"""<div class="card">
-<div class="meta">{badge(res['outcome'], T)}<span>{T("conf", c=f"{res['confidence']:.3f}")}</span>
-<span>{T("thr_v", t=f"{thr:.2f}")}</span><span>{T("search_mode", m=mode)}</span>
-<span>{T("answer_lang", l=answer_lang)}</span></div>
-<div class="reply" dir="auto">{e(res['text'])}</div></div>
-<div class="card"><table>
-<tr><th>{T("fix_matched")}</th><td>{fixes}</td></tr>
-<tr><th>{T("th_name_match")}</th><td>{tools}</td></tr>
-<tr><th>{T("th_cat_match")}</th><td>{cat_html}</td></tr></table></div>
-<h2>{T("passages")}</h2>
-<div class="card">{table}</div>"""
-    return page(request, T("nav_try"), body, "try")
+    if q:
+        await asyncio.to_thread(brain.converse, q, store.TEAM_CHANNEL, user)
+    # إعادة التوجيه إلى الصفحة فلا يُعاد إرسال السؤال عند التحديث
+    # Redirect to the page so a refresh does not send the question again
+    return _back("/admin/try")
 
 
 # ─────────────────────────────────────────── التصحيحات المعتمدة / Approved corrections

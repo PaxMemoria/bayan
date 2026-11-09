@@ -275,7 +275,7 @@ def _migrate(conn) -> None:
     Columns added after the database was created: CREATE TABLE IF NOT EXISTS does
     not add them to an existing table."""
     cols = {r[1] for r in conn.execute("PRAGMA table_info(messages)").fetchall()}
-    for col in ("topic", "detail"):
+    for col in ("topic", "detail", "retrieval"):
         if col not in cols:
             conn.execute(f"ALTER TABLE messages ADD COLUMN {col} TEXT")
     for table in ("corrections", "ratings"):
@@ -473,6 +473,17 @@ def link_rules() -> tuple[list[str], list[str]]:
 
 
 # ──────────────────────────────────────────────────── المحادثات / Conversations
+# قناة الفريق: محادثة كل عضو مع بيان من صفحة «جرّب بيان». رسائلها تُحفظ كغيرها
+# (وتخضع لمدة الحذف نفسها)، لكنها ليست من الجمهور، فتُستبعد من صفحة الأسئلة
+# والأعداد والمواضيع بالشرط PUBLIC أدناه
+# The team channel: each member's conversation with Bayan from the "Try Bayan"
+# page. Its messages are saved like the others (and purged on the same
+# schedule), but they are not from the public, so the PUBLIC condition below
+# leaves them out of the questions page, the counts and the topics
+TEAM_CHANNEL = "team"
+PUBLIC = f"channel != '{TEAM_CHANNEL}'"
+
+
 def history(channel: str, user_id: str, turns: int) -> list[dict]:
     with db() as conn:
         rows = conn.execute(
@@ -483,19 +494,43 @@ def history(channel: str, user_id: str, turns: int) -> list[dict]:
     return [{"role": r["role"], "content": r["content"]} for r in reversed(rows)]
 
 
+def thread(channel: str, user_id: str, turns: int) -> list[dict]:
+    """آخر turns دورة من محادثة واحدة بكل حقولها، الأقدم أولاً، لعرضها كخيط.
+    The last turns of one conversation with all their fields, oldest first,
+    to show as a thread."""
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM messages WHERE channel=? AND user_id=? ORDER BY id DESC LIMIT ?",
+            (channel, user_id, turns * 2),
+        ).fetchall()
+    out = []
+    for r in reversed(rows):
+        d = dict(r)
+        d["sources"] = json.loads(d["sources"] or "[]")
+        d["retrieval"] = json.loads(d["retrieval"] or "null")
+        out.append(d)
+    return out
+
+
 def remember(
     channel: str, user_id: str, role: str, content: str,
     outcome: str | None = None, confidence: float | None = None,
     sources: list[str] | None = None,
     topic: str | None = None, detail: str | None = None,
+    retrieval: dict | None = None,
 ) -> None:
+    """retrieval: ملخّص الاسترجاع لإجابة في قناة الفريق، لعرضه مع الخيط لاحقاً.
+    retrieval: the retrieval summary of a team-channel answer, to show with
+    the thread later."""
     with db() as conn:
         conn.execute(
             "INSERT INTO messages(channel,user_id,role,content,outcome,"
-            "confidence,sources,topic,detail,ts) VALUES(?,?,?,?,?,?,?,?,?,?)",
+            "confidence,sources,topic,detail,retrieval,ts) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
             (
                 channel, user_id, role, content, outcome, confidence,
-                json.dumps(sources or [], ensure_ascii=False), topic, detail, time.time(),
+                json.dumps(sources or [], ensure_ascii=False), topic, detail,
+                json.dumps(retrieval, ensure_ascii=False) if retrieval is not None else None,
+                time.time(),
             ),
         )
         conn.execute(
@@ -586,7 +621,7 @@ def _rollup_usage(conn) -> None:
     conn.execute(
         "INSERT INTO usage_daily(day, channel, questions, users) "
         "SELECT date(ts,'unixepoch'), channel, COUNT(*), COUNT(DISTINCT user_id) "
-        "FROM messages WHERE role='user' AND date(ts,'unixepoch') < date('now') "
+        f"FROM messages WHERE role='user' AND {PUBLIC} AND date(ts,'unixepoch') < date('now') "
         "GROUP BY 1, 2 "
         "ON CONFLICT(day, channel) DO UPDATE SET "
         "questions=MAX(questions, excluded.questions), users=MAX(users, excluded.users)"
@@ -594,7 +629,7 @@ def _rollup_usage(conn) -> None:
     conn.execute(
         "INSERT INTO topic_daily(day, topic, detail, questions) "
         "SELECT date(ts,'unixepoch'), topic, COALESCE(detail, ''), COUNT(*) "
-        "FROM messages WHERE role='user' AND topic IS NOT NULL "
+        f"FROM messages WHERE role='user' AND {PUBLIC} AND topic IS NOT NULL "
         "AND date(ts,'unixepoch') < date('now') GROUP BY 1, 2, 3 "
         "ON CONFLICT(day, topic, detail) DO UPDATE SET "
         "questions=MAX(questions, excluded.questions)"
@@ -617,8 +652,8 @@ def topic_stats(since: float) -> dict:
     Question topics since `since`, from the messages still present."""
     with db() as conn:
         rows = conn.execute(
-            "SELECT topic, COALESCE(detail,'') detail, COUNT(*) n FROM messages "
-            "WHERE role='user' AND topic IS NOT NULL AND ts >= ? GROUP BY 1, 2",
+            f"SELECT topic, COALESCE(detail,'') detail, COUNT(*) n FROM messages "
+            f"WHERE role='user' AND {PUBLIC} AND topic IS NOT NULL AND ts >= ? GROUP BY 1, 2",
             (since,),
         ).fetchall()
     return _topic_tree(rows)
@@ -633,7 +668,7 @@ def topic_totals() -> dict:
             "SELECT topic, detail, SUM(n) n FROM ("
             "SELECT topic, detail, questions n FROM topic_daily "
             "UNION ALL SELECT topic, COALESCE(detail,''), COUNT(*) FROM messages "
-            "WHERE role='user' AND topic IS NOT NULL AND date(ts,'unixepoch') >= date('now') "
+            f"WHERE role='user' AND {PUBLIC} AND topic IS NOT NULL AND date(ts,'unixepoch') >= date('now') "
             "GROUP BY 1, 2) GROUP BY 1, 2"
         ).fetchall()
     return _topic_tree(rows)
@@ -665,7 +700,7 @@ def usage_totals() -> dict:
             "SELECT channel, SUM(questions) q, SUM(users) u, MIN(day) first "
             "FROM (SELECT day, channel, questions, users FROM usage_daily "
             "UNION ALL SELECT date(ts,'unixepoch'), channel, COUNT(*), COUNT(DISTINCT user_id) "
-            "FROM messages WHERE role='user' AND date(ts,'unixepoch') >= date('now') "
+            f"FROM messages WHERE role='user' AND {PUBLIC} AND date(ts,'unixepoch') >= date('now') "
             "GROUP BY 1, 2) GROUP BY channel"
         ).fetchall()
     return {r["channel"]: {"questions": r["q"], "users": r["u"], "first": r["first"]}
@@ -1079,8 +1114,8 @@ def delete_chunks(ext_prefix: str) -> int:
 def outcome_stats(since: float) -> dict[str, int]:
     with db() as conn:
         rows = conn.execute(
-            "SELECT outcome, COUNT(*) c FROM messages "
-            "WHERE role='user' AND ts >= ? GROUP BY outcome",
+            f"SELECT outcome, COUNT(*) c FROM messages "
+            f"WHERE role='user' AND {PUBLIC} AND ts >= ? GROUP BY outcome",
             (since,),
         ).fetchall()
     return {r["outcome"] or "": r["c"] for r in rows}
@@ -1089,8 +1124,8 @@ def outcome_stats(since: float) -> dict[str, int]:
 def channel_stats(since: float) -> dict[str, dict]:
     with db() as conn:
         rows = conn.execute(
-            "SELECT channel, COUNT(*) c, COUNT(DISTINCT user_id) u FROM messages "
-            "WHERE role='user' AND ts >= ? GROUP BY channel",
+            f"SELECT channel, COUNT(*) c, COUNT(DISTINCT user_id) u FROM messages "
+            f"WHERE role='user' AND {PUBLIC} AND ts >= ? GROUP BY channel",
             (since,),
         ).fetchall()
     return {r["channel"]: {"questions": r["c"], "users": r["u"]} for r in rows}
@@ -1103,7 +1138,7 @@ def questions(outcome: str = "", channel: str = "", before: int = 0,
     rating: up أو down أو none لتصفيتها بالتقييم.
     Questions from the public with Bayan's reply to each and its rating,
     newest first. rating: up, down or none to filter by rating."""
-    where, args = ["u.role='user'"], []
+    where, args = ["u.role='user'", f"u.{PUBLIC}"], []
     if outcome:
         where.append("u.outcome=?")
         args.append(outcome)
