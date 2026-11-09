@@ -4,6 +4,7 @@ Facebook Messenger: Messenger Platform.
 """
 from datetime import datetime
 import logging
+import time
 
 import httpx
 
@@ -182,7 +183,14 @@ async def fetch_recent_comments() -> list[tuple[str, str, str, str]]:
             if not cid or not text or (page_id and sender_id == page_id):
                 continue
             user_id = sender_id or f"comment:{cid}"
-            out.append((f"fb_comment:{cid}", user_id, cid, text))
+            # وقت التعليق، ليميّز الإقلاع ما وصل أثناء إعادة التشغيل مما سبقها
+            # The comment's time, so startup can tell what arrived during the
+            # restart from what came before it
+            try:
+                created = datetime.strptime(cm.get("created_time", ""), "%Y-%m-%dT%H:%M:%S%z").timestamp()
+            except ValueError:
+                created = time.time()
+            out.append((f"fb_comment:{cid}", user_id, cid, text, created))
     return out
 
 

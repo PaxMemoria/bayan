@@ -103,6 +103,12 @@ LOCAL_LLM_TIMEOUT = int(os.getenv("LOCAL_LLM_TIMEOUT", "900"))
 # reply, so it can bear the local model's slowness (about a minute and a half
 # on the server), while chats stay on the general provider.
 COMMENT_ANSWER_MODEL = os.getenv("COMMENT_ANSWER_MODEL", "").strip()
+# عند الإقلاع: تعليقات فيسبوك الأحدث من هذه المهلة التي لم يُردّ عليها تُجاب،
+# والأقدم تُعدّ مقروءة. إعادة التشغيل لا تُضيّع تعليقاً وصل أثناءها.
+# At startup: Facebook comments newer than this that were not replied to are
+# answered, older ones count as seen. A restart does not lose a comment that
+# arrived during it.
+COMMENT_CATCHUP_MINUTES = int(os.getenv("COMMENT_CATCHUP_MINUTES", "60"))
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 GEMINI_ENDPOINT = os.getenv(

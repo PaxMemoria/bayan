@@ -382,7 +382,10 @@ def search(question: str, lang: str | None = None) -> dict:
 # A general question about opportunities without a number returns the latest
 # week, and with a number returns that week.
 _WEEKLY_Q = re.compile(r"^فرص(?: هذا)? الاسبوع (\d{1,2})$")
-_OPPORTUNITY_WORDS = {"فرص", "الفرص"}
+# بعد التطبيع (ة←ه): «فرصة» بالمفرد تطلب القائمة أيضاً، كما يكتبها كثيرون في التعليقات
+# After normalization (ة to ه): the singular «فرصة» asks for the list too, as
+# many write it in comments
+_OPPORTUNITY_WORDS = {"فرص", "الفرص", "فرصه", "الفرصه"}
 
 
 def _weekly_corrections() -> dict[int, dict]:
