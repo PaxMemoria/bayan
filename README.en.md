@@ -285,8 +285,11 @@ least 32 characters, `python -c "import secrets;print(secrets.token_urlsafe(48))
   other sources and takes precedence over them, from the moment it is saved and
   without reindexing. They are also a test set that grows over time:
   `scripts/check_corrections.py` asks their questions again after any change.
-- **Try Bayan** («جرّب بيان»): a question without a channel, with the
-  retrieved passages and the matching corrections.
+- **Try Bayan** («جرّب بيان»): each member's own conversation with Bayan
+  inside the dashboard, remembering the last `HISTORY_TURNS` turns like a
+  public channel, with the retrieved passages and matching corrections under
+  each answer; it stays out of the question log and the counts, and the daily
+  limit does not apply.
 - **Data sources** («مصادر البيانات», editors and above): the fifth part of
   the knowledge, added by the team from the dashboard: a note, a page link
   whose text is fetched and synced daily, or a file (PDF, Word, Markdown, text

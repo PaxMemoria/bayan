@@ -969,6 +969,47 @@ def answer(question: str, channel: str, user_id: str, model: str | None = None) 
     return done(out, outcome, sources)
 
 
+def retrieval_summary(result: dict | None) -> dict | None:
+    """ملخّص الاسترجاع الذي يُحفظ مع إجابة في قناة الفريق ويُعرض في خيطها لاحقاً:
+    أسماء الأدوات المطابقة، والتصنيف، وعناوين المقاطع وروابطها، والتصحيحات
+    المطابقة، دون نصوص المقاطع.
+    The retrieval summary saved with a team-channel answer and shown in its
+    thread later: the matched tools' names, the category, the passages'
+    titles and links, and the matching corrections, without the passages'
+    text."""
+    if not result:
+        return None
+    cat = result.get("category")
+    return {
+        "tools": [t["name"] for t in result.get("tools", [])],
+        "category": ({"ar": cat["category_ar"], "en": cat.get("category_en"),
+                      "n": len(result.get("category_tools", []))} if cat else None),
+        "passages": [{"type": p["type"], "title": p.get("title") or "", "url": p["url"]}
+                     for p in result.get("passages", [])],
+        "corrections": [{"id": c["id"], "question": c["question"],
+                         "similarity": round(c["similarity"], 2)}
+                        for c in result.get("corrections", [])],
+        "used_vectors": bool(result.get("used_vectors")),
+    }
+
+
+def converse(question: str, channel: str, user_id: str) -> dict:
+    """دورة في محادثة الفريق من اللوحة: يجيب بذاكرة آخر HISTORY_TURNS دورات كما في
+    القنوات العامة، ويحفظ الدورتين، لكن بلا حدّ معدل ولا حدّ يومي ولا أوامر.
+    One turn of the team conversation from the dashboard: answers with the
+    memory of the last HISTORY_TURNS turns as on the public channels, and saves
+    both turns, but with no rate limit, no daily limit and no commands."""
+    question = question.strip()[: config.MAX_QUESTION_CHARS]
+    res = answer(question, channel, user_id)
+    store.remember(channel, user_id, "user", question,
+                   outcome=res["outcome"], confidence=res["confidence"],
+                   sources=res["sources"], topic=res.get("topic"), detail=res.get("detail"))
+    store.remember(channel, user_id, "assistant", res["text"],
+                   outcome=res["outcome"], confidence=res["confidence"],
+                   sources=res["sources"], retrieval=retrieval_summary(res["retrieval"]))
+    return res
+
+
 def source_lines(sources: list[str], result: dict) -> list[str]:
     """سطور المصادر: الرابط، ولمصدر السلامة الرقمية اسمه ورخصته بعده.
 

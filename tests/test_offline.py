@@ -1229,6 +1229,96 @@ anon.post("/admin/team/delete", data={"id": str(ed_id)})
 check("حذف عضو", store.member(ed_id) is None)
 check("المالك بكلمة المرور ما زال يدخل مديراً",
       client.get("/admin/team").status_code == 200 and "المالك" in client.get("/admin").text)
+# ── محادثة الفريق في «جرّب بيان» / The team conversation on "Try Bayan" ──
+print("\n── محادثة الفريق ──")
+team_sent, team_reply = [], {}
+
+
+def team_api(request):
+    team_sent.append(request)
+    return httpx2.Response(200, json={
+        "id": "msg_team", "type": "message", "role": "assistant", "model": config.ANSWER_MODEL,
+        "stop_sequence": None, "usage": {"input_tokens": 10, "output_tokens": 5}, **team_reply})
+
+
+brain._client = anthropic.Anthropic(
+    api_key="test", max_retries=0,
+    http_client=anthropic.DefaultHttpxClient(transport=httpx2.MockTransport(team_api)))
+old_daily = store.setting("daily_limit", "")
+store.set_setting("daily_limit", "2")
+week_ago = time.time() - 7 * 86400
+before_stats = (store.usage_totals(), store.topic_totals(), store.topic_stats(week_ago),
+                store.channel_stats(week_ago), store.outcome_stats(week_ago))
+# السؤال المرفوض بالبوابة الذي جرّبه المالك أعلاه محفوظ في خيطه بشارته
+# The gate-refused question the owner tried above is kept in the thread with its badge
+r = client.get("/admin/try")
+check("سؤال التجربة السابق في خيط المالك مع شارة الرفض",
+      "ما هي عاصمة فرنسا؟" in r.text and "رفضته البوابة" in r.text)
+store.clear_history("team", "owner")
+check("خيط المالك فارغ بعد مسحه", "لا محادثة بعد" in client.get("/admin/try").text)
+team_reply.update(content=[{"type": "text", "text": "Hunchly أداة توثيق الصفحات.\n[SOURCES: 1]"}],
+                  stop_reason="end_turn")
+r = client.post("/admin/try", data={"q": "ما هي أداة Hunchly؟", "action": "ask"})
+check("السؤال الأول يُجاب ويظهر مع إجابته في الخيط",
+      r.status_code == 200 and "ما هي أداة Hunchly؟" in r.text and "Hunchly أداة توثيق الصفحات." in r.text
+      and "تفاصيل الاسترجاع" in r.text, r.status_code)
+team_reply.update(content=[{"type": "text", "text": "نعم، وهي مجانية للصحفيين."}], stop_reason="end_turn")
+r = client.post("/admin/try", data={"q": "هل أداة Hunchly مجانية؟", "action": "ask"})
+req = json.loads(team_sent[-1].content)
+check("السؤال الثاني يصل إلى النموذج مع الدورة الأولى سجلاً",
+      len(req["messages"]) == 3 and req["messages"][0] == {"role": "user", "content": "ما هي أداة Hunchly؟"}
+      and req["messages"][1]["role"] == "assistant" and "Hunchly أداة توثيق الصفحات." in req["messages"][1]["content"],
+      [m["role"] for m in req["messages"]])
+page_text = client.get("/admin/try").text
+order = [page_text.find(t) for t in ("ما هي أداة Hunchly؟", "Hunchly أداة توثيق الصفحات.",
+                                      "هل أداة Hunchly مجانية؟", "نعم، وهي مجانية للصحفيين.")]
+check("الخيط يعود عند فتح الصفحة بدورتيه بالترتيب، الأحدث في الأسفل",
+      all(i >= 0 for i in order) and order == sorted(order), order)
+turns = store.thread("team", "owner", 20)
+check("الدورتان محفوظتان بدوريهما ونتيجتهما وثقتهما",
+      [t["role"] for t in turns] == ["user", "assistant"] * 2
+      and all(t["outcome"] == "answered" and t["confidence"] is not None for t in turns)
+      and turns[1]["retrieval"] and turns[1]["retrieval"]["passages"], turns and turns[1].get("retrieval"))
+vw_page = vw.get("/admin/try?lang=en").text
+check("عضو آخر يرى خيطاً فارغاً", "No conversation yet" in vw_page and "ما هي أداة Hunchly؟" not in vw_page)
+team_reply.update(content=[{"type": "text", "text": "ردّ للمشاهد وحده."}], stop_reason="end_turn")
+r = vw.post("/admin/try", data={"q": "ما هي أداة Hunchly؟", "action": "ask"})
+check("المشاهد يحادث أيضاً، ومحادثته له وحده",
+      r.status_code == 200 and "ردّ للمشاهد وحده." in r.text and "نعم، وهي مجانية للصحفيين." not in r.text
+      and len(store.thread("team", "vw@paxmemoria.org", 20)) == 2
+      and "ردّ للمشاهد وحده." not in client.get("/admin/try").text)
+check("رسائل الفريق لا تظهر في صفحة الأسئلة",
+      "هل أداة Hunchly مجانية؟" not in client.get("/admin/messages").text
+      and all(q["channel"] != "team" for q in store.questions()))
+check("رسائل الفريق لا تدخل في الإجماليات ولا المواضيع ولا أعداد القنوات",
+      (store.usage_totals(), store.topic_totals(), store.topic_stats(week_ago),
+       store.channel_stats(week_ago), store.outcome_stats(week_ago)) == before_stats
+      and "team" not in store.usage_totals(), store.usage_totals())
+r = client.post("/admin/try", data={"q": "سؤال ثالث عن Hunchly؟", "action": "ask"})
+for i in range(2):
+    brain.handle(f"سؤال {i}", "telegram", "u-cap")
+check("الحدّ اليومي (2 هنا) يُطبَّق على القناة العامة لا على الفريق",
+      "الحدّ المسموح" not in r.text and "سؤال ثالث عن Hunchly؟" in r.text
+      and store.questions_since("team", "owner", time.time() - 86400) == []
+      and "الحدّ المسموح" in brain.handle("ما هي أداة Hunchly؟", "telegram", "u-cap"))
+r = client.post("/admin/try", data={"action": "new"})
+check("«محادثة جديدة» تمسح الخيط",
+      r.status_code == 200 and "لا محادثة بعد" in r.text and store.thread("team", "owner", 20) == []
+      and store.history("team", "owner", 4) == [])
+check("خيط المشاهد لم يتأثر", len(store.thread("team", "vw@paxmemoria.org", 20)) == 2)
+with store.db() as c:
+    c.execute("INSERT INTO messages(channel,user_id,role,content,ts) VALUES(?,?,?,?,?)",
+              ("team", "vw@paxmemoria.org", "user", "قديم", time.time() - 31 * 86400))
+store.purge_old_messages(30)
+check("رسائل الفريق تخضع لمدة الحذف كغيرها",
+      all(t["content"] != "قديم" for t in store.thread("team", "vw@paxmemoria.org", 20)))
+store.clear_history("team", "vw@paxmemoria.org")
+check("الإنجليزية في صفحة المحادثة", "New conversation" in client.get("/admin/try?lang=en").text
+      and "No conversation yet" in client.get("/admin/try?lang=en").text)
+client.get("/admin/try?lang=ar")
+store.set_setting("daily_limit", old_daily)
+brain._client = None
+
 config.GOOGLE_CLIENT_ID = ""
 check("بلا عميل Google تبقى صفحة الدخول بكلمة المرور وحدها", "/admin/auth/google" not in anon.get("/admin/login").text)
 dash.httpx.AsyncClient = real_dash_async
