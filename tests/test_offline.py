@@ -1658,6 +1658,21 @@ page_text = client.get("/admin/settings").text
 check("اللوحة تعرض آخر أربعة أحرف فقط ومصدر المفتاح",
       "••••abcd" in page_text and "sk-ant-test" not in page_text and "من اللوحة" in page_text
       and "مفاتيح API" in page_text)
+old_pub = config.PUBLIC_URL
+config.PUBLIC_URL = "https://bayan.test"
+r = client.post("/admin/keys/set", follow_redirects=False,
+                data={"name": "GOOGLE_CLIENT_ID", "value": "123-abc.apps.googleusercontent.com"})
+client.post("/admin/keys/set", data={"name": "GOOGLE_CLIENT_SECRET", "value": "GOCSPX-test-secret-1234"})
+check("معرّف عميل Google وسرّه يُضبطان من اللوحة فيظهر زر الدخول بحساب Google فوراً",
+      "key_saved" in r.headers["location"] and config.GOOGLE_CLIENT_ID.endswith("googleusercontent.com")
+      and dash.google_enabled() and "auth/google" in TestClient(server.app).get("/admin/login").text,
+      (r.headers.get("location"), dash.google_enabled()))
+client.post("/admin/keys/clear", data={"name": "GOOGLE_CLIENT_ID"})
+client.post("/admin/keys/clear", data={"name": "GOOGLE_CLIENT_SECRET"})
+check("مسحهما يعيد قيم .env ويخفي الزر", config.GOOGLE_CLIENT_ID == keys.ENV_VALUES["GOOGLE_CLIENT_ID"]
+      and not dash.google_enabled()
+      and "auth/google" not in TestClient(server.app).get("/admin/login").text)
+config.PUBLIC_URL = old_pub
 acts = store.audit_log(20)
 check("القيمة في القاعدة، وفي سجلّ الإجراءات اسم المفتاح لا قيمته",
       store.api_keys()[0]["value"] == "sk-ant-test-1234567890abcd"
