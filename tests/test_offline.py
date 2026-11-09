@@ -1148,7 +1148,11 @@ r = google_login(anon, {"email": "boss@paxmemoria.org", "email_verified": True, 
 check("حالة خاطئة تُرفض", "error=google" in r.headers["location"], r.headers.get("location"))
 r = google_login(anon, {"email": "boss@paxmemoria.org", "email_verified": True, "hd": "paxmemoria.org", "name": "Boss"})
 boss = store.member_by_email("boss@paxmemoria.org")
-check("بريد ADMIN_EMAILS يدخل مديراً ويُنشأ عضواً", r.status_code == 303 and r.headers["location"] == "/admin"
+check("العودة من Google صفحة هبوط من موقعنا تنتقل إلى اللوحة (كوكي Strict لا يُرسل في تحويلة من موقع آخر)",
+      r.status_code == 200 and 'http-equiv="refresh" content="0; url=/admin"' in r.text
+      and 'href="/admin"' in r.text and "bayan_admin" in r.cookies
+      and "default-src 'none'" in r.headers.get("content-security-policy", ""), r.status_code)
+check("بريد ADMIN_EMAILS يدخل مديراً ويُنشأ عضواً", r.status_code == 200
       and boss and boss["role"] == "admin" and boss["name"] == "Boss", boss)
 r = anon.get("/admin?lang=ar")
 check("الشريط الجانبي يعرض اسم العضو ودوره", r.status_code == 200 and "Boss" in r.text and "مدير" in r.text)
