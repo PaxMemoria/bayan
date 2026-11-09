@@ -974,6 +974,31 @@ for q in ("«بيان ما هي أداة Hunchly؟»", "بيان، ما هي أ�
     reply = brain.handle_comment(q, "messenger", "fb-c3")
     check(f"الاسم يُلتقط مع علامة ملتصقة: {q[:12]}", reply and "رد محلي" in reply, reply)
 check("تعليق لا يذكر بيان ولا يطابق تصحيحاً يُترك", brain.handle_comment("ما هي أداة Hunchly؟", "messenger", "fb-c4") is None)
+# «فرصة» بالمفرد مثل «فرص»: تعليق يطلب القائمة بأي صيغة يُجاب بها
+# «فرصة» (singular) like «فرص»: a comment asking for the list in any form gets it
+from app import opportunities  # noqa: E402
+from app.arabic import normalize_ar  # noqa: E402
+wk = store.save_correction("فرص الأسبوع 46", "قائمة الأسبوع 46:\n1. زمالة تجريبية\nhttps://example.org/46",
+                           "", True, None, None)
+retrieve.warm()
+singular = {q: brain.handle_comment(q, "messenger", f"fb-s{i}") for i, q in enumerate(("فرصة", "الفرصة", "فرصه"))}
+check("تعليقات «فرصة» و«الفرصة» و«فرصه» تُجاب بقائمة الأسبوع",
+      all(r and "قائمة الأسبوع 46" in r for r in singular.values()), {k: (v or "")[:30] for k, v in singular.items()})
+check("«فرصة» تُعدّ نيّة فرصة في الاسترجاع أيضاً",
+      retrieve._asked_weekly(normalize_ar("فرصة")) is not None and opportunities.wants_opportunity("فرصة"))
+store.delete_correction(wk)
+# أول فحص بعد الإقلاع: القديم يُعدّ مقروءاً، والحديث غير المسجّل يُجاب
+# First poll after startup: old counts as seen, recent unrecorded gets answered
+now = time.time()
+batch = [("fb_comment:old1", "u-old", "old1", "فرص", now - 5 * 3600),
+         ("fb_comment:new1", "u-new", "new1", "فرص", now - 10 * 60),
+         ("fb_comment:new2", "u-new2", "new2", "بيان ما هي Hunchly؟", now - 2 * 60)]
+first = server._new_comments(batch, first_poll=True, now=now)
+check("عند الإقلاع يُردّ على ما وصل خلال آخر ساعة فقط",
+      [c[1] for c in first] == ["new1", "new2"], first)
+again = server._new_comments(batch + [("fb_comment:new3", "u3", "new3", "فرص", now)], first_poll=False, now=now)
+check("الفحص التالي يردّ على الجديد وحده ولا يكرّر", [c[1] for c in again] == ["new3"], again)
+check("التعليق القديم سُجّل مقروءاً دون ردّ", not store.first_time("fb_comment:old1"))
 config.COMMENT_ANSWER_MODEL = config.LOCAL_LLM_MODEL = ""
 local_reply.clear()
 brain.httpx.Client = lambda **kw: real_client(transport=httpx.MockTransport(fake_gemini), **kw)

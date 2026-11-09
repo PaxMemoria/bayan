@@ -135,22 +135,42 @@ async def _reply_comment_task(user_id: str, comment_id: str, text: str) -> None:
         await _reply_comment(user_id, comment_id, text)
 
 
+def _new_comments(comments: list[tuple], first_poll: bool, now: float | None = None) -> list[tuple]:
+    """التعليقات التي تستحق ردّاً من دفعة فحص: ما لم يُرَ من قبل.
+
+    في أول فحص بعد الإقلاع، ما هو أقدم من COMMENT_CATCHUP_MINUTES يُعدّ مقروءاً
+    بلا ردّ (قديم أو رُدّ عليه قبل إعادة التشغيل)، وما هو أحدث يُردّ عليه إن لم
+    يكن مسجّلاً. وهكذا لا يضيع تعليق وصل أثناء النشر.
+
+    The comments in a poll batch that deserve a reply: those not seen before.
+    On the first poll after startup, those older than COMMENT_CATCHUP_MINUTES
+    count as seen without a reply (old, or answered before the restart), and
+    newer ones are answered if not recorded. So a comment that arrived during
+    a deploy is not lost.
+    """
+    now = time.time() if now is None else now
+    cutoff = now - config.COMMENT_CATCHUP_MINUTES * 60
+    out = []
+    for event_id, user_id, comment_id, text, created in comments:
+        if first_poll and created < cutoff:
+            store.first_time(event_id)
+            continue
+        if store.first_time(event_id):
+            out.append((user_id, comment_id, text))
+    return out
+
+
 async def _comment_poll_loop() -> None:
-    seeded = False
+    first_poll = True
     while True:
         if not config.MESSENGER_PAGE_TOKEN:
             await asyncio.sleep(15)
             continue
         try:
             comments = await messenger.fetch_recent_comments()
-            if not seeded:
-                for event_id, _, _, _ in comments:
-                    store.first_time(event_id)
-                seeded = True
-            else:
-                for event_id, user_id, comment_id, text in comments:
-                    if store.first_time(event_id):
-                        asyncio.create_task(_reply_comment_task(user_id, comment_id, text))
+            for user_id, comment_id, text in _new_comments(comments, first_poll):
+                asyncio.create_task(_reply_comment_task(user_id, comment_id, text))
+            first_poll = False
         except Exception:  # noqa: BLE001
             log.exception("تعذّر فحص تعليقات فيسبوك الدورية")
         await asyncio.sleep(15)
