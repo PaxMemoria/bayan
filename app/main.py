@@ -14,7 +14,7 @@ from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 
 from . import (brain, config, dashboard, embed, i18n, ingest, keys, privacy, retrieve, role,
-               store)
+               sources, store)
 from .channels import messenger, telegram, whatsapp
 
 logging.basicConfig(
@@ -64,6 +64,8 @@ async def startup() -> None:
     # Delete questions older than the retention period: at startup, then
     # every 6 hours
     app.state.retention = asyncio.create_task(_retention_loop())
+    # روابط مصادر الفريق تُزامَن يومياً / The team's link sources are synced daily
+    app.state.sources_sync = asyncio.create_task(_sources_sync_loop())
     app.state.comment_poll = asyncio.create_task(_comment_poll_loop())
     if config.EMBED_PROVIDER == "local":
         app.state.keep_warm = asyncio.create_task(_keep_warm_loop())
@@ -160,6 +162,22 @@ async def _retention_loop() -> None:
         except Exception:  # noqa: BLE001
             log.exception("تعذّر حذف الرسائل القديمة")
         await asyncio.sleep(6 * 3600)
+
+
+async def _sources_sync_loop() -> None:
+    """مزامنة روابط مصادر الفريق: بعد 10 دقائق من الإقلاع ثم كل 24 ساعة.
+    Sync the team's link sources: 10 minutes after startup, then every 24
+    hours."""
+    await asyncio.sleep(600)
+    while True:
+        try:
+            r = await asyncio.to_thread(sources.sync_all)
+            if r["total"]:
+                log.info("مزامنة مصادر الفريق: %d رابط، تغيّر %d، تعذّر %d",
+                         r["total"], r["changed"], r["failed"])
+        except Exception:  # noqa: BLE001
+            log.exception("تعذّرت مزامنة مصادر الفريق")
+        await asyncio.sleep(24 * 3600)
     n = store.chunk_count()
     log.info("بيان جاهز — %d مقطع في قاعدة المعرفة", n)
     if n == 0:

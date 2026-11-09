@@ -194,6 +194,24 @@ CREATE TABLE IF NOT EXISTS api_keys (
     by      TEXT
 );
 
+-- مصادر الفريق (app/sources.py): ملاحظات وروابط وملفات يضيفها الفريق من اللوحة.
+-- يُحفظ النص المستخرَج لا الملف، وتُبنى منه مقاطع من نوع team في الفهرس.
+-- Team sources (app/sources.py): notes, links and files the team adds from
+-- the dashboard. The extracted text is kept, not the file, and chunks of
+-- type team are built from it in the index.
+CREATE TABLE IF NOT EXISTS team_sources (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind     TEXT NOT NULL,            -- note | url | file
+    title    TEXT NOT NULL,
+    origin   TEXT NOT NULL DEFAULT '', -- الرابط أو اسم الملف / the URL or the file name
+    text     TEXT NOT NULL,
+    status   TEXT NOT NULL DEFAULT 'ok',
+    error    TEXT NOT NULL DEFAULT '',
+    added_by TEXT NOT NULL DEFAULT '',
+    added    REAL NOT NULL,
+    synced   REAL NOT NULL
+);
+
 -- تقييم الفريق لإجابة بيان على سؤال، برقم رسالة السؤال. يُحذف مع الرسالة.
 -- The team's rating of Bayan's answer to a question, keyed by the question's
 -- message number. Deleted together with the message.
@@ -957,6 +975,104 @@ def set_api_key(name: str, value: str, by: str) -> None:
 def clear_api_key(name: str) -> None:
     with db() as conn:
         conn.execute("DELETE FROM api_keys WHERE name=?", (name,))
+
+
+# ───────────────────────────────────────── مصادر الفريق / Team sources
+def team_sources() -> list[dict]:
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT id, kind, title, origin, LENGTH(text) chars, status, error, added_by, "
+            "added, synced FROM team_sources ORDER BY added DESC"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def team_source(source_id: int) -> dict | None:
+    with db() as conn:
+        row = conn.execute("SELECT * FROM team_sources WHERE id=?", (source_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def add_team_source(kind: str, title: str, origin: str, text: str, by: str) -> int:
+    now = time.time()
+    with db() as conn:
+        cur = conn.execute(
+            "INSERT INTO team_sources(kind,title,origin,text,added_by,added,synced) "
+            "VALUES(?,?,?,?,?,?,?)", (kind, title, origin, text, by, now, now),
+        )
+        return cur.lastrowid
+
+
+def update_team_source(source_id: int, text: str | None, status: str, error: str = "",
+                       title: str | None = None) -> None:
+    """بعد مزامنة: النص الجديد إن تغيّر، وحال المزامنة. text=None يُبقي النص.
+    After a sync: the new text if it changed, and the sync state. text=None
+    keeps the text."""
+    with db() as conn:
+        if text is not None:
+            conn.execute("UPDATE team_sources SET text=?, synced=? WHERE id=?",
+                         (text, time.time(), source_id))
+        if title:
+            conn.execute("UPDATE team_sources SET title=? WHERE id=?", (title, source_id))
+        conn.execute("UPDATE team_sources SET status=?, error=? WHERE id=?",
+                     (status, error[:400], source_id))
+
+
+def delete_team_source(source_id: int) -> None:
+    with db() as conn:
+        conn.execute("DELETE FROM team_sources WHERE id=?", (source_id,))
+
+
+def _bump_index_version(conn) -> None:
+    conn.execute(
+        "INSERT INTO settings(key,value) VALUES('index_version',?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (repr(time.time()),),
+    )
+
+
+def add_chunks(chunks: list[dict]) -> int:
+    """يضيف مقاطع إلى الفهرس القائم دون استبداله (مصدر فريق جديد)، ويرفع رقم
+    الإصدار فتعيد كل عملية التحميل.
+    Adds chunks to the existing index without replacing it (a new team
+    source), and bumps the version so every process reloads."""
+    with db() as conn:
+        for r in chunks:
+            emb = r.get("embedding")
+            blob = np.asarray(emb, dtype=np.float32).tobytes() if emb is not None else None
+            cur = conn.execute(
+                "INSERT INTO chunks(ext_id,type,title,url,text,norm_text,meta,embedding) "
+                "VALUES(?,?,?,?,?,?,?,?)",
+                (r.get("ext_id"), r["type"], r.get("title"), r["url"], r["text"],
+                 r["norm_text"], json.dumps(r.get("meta", {}), ensure_ascii=False), blob),
+            )
+            conn.execute("INSERT INTO chunks_fts(rowid, norm_text) VALUES(?,?)",
+                         (cur.lastrowid, r["norm_text"]))
+        _bump_index_version(conn)
+    return len(chunks)
+
+
+def delete_chunks(ext_prefix: str) -> int:
+    """يحذف مقاطع معرّفها الخارجي يبدأ بـ ext_prefix (مثل «team:7:»).
+    Deletes the chunks whose external id starts with ext_prefix (such as
+    «team:7:»)."""
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT id, norm_text FROM chunks WHERE ext_id LIKE ? ESCAPE '\\'",
+            (ext_prefix.replace("%", "\\%").replace("_", "\\_") + "%",),
+        ).fetchall()
+        # جدول FTS بلا محتوى: الحذف بأمر 'delete' مع النص الأصلي، لا DELETE
+        # A contentless FTS table: deletion is the 'delete' command with the
+        # original text, not DELETE
+        for r in rows:
+            conn.execute(
+                "INSERT INTO chunks_fts(chunks_fts, rowid, norm_text) VALUES('delete', ?, ?)",
+                (r["id"], r["norm_text"]),
+            )
+        if rows:
+            marks = ",".join("?" * len(rows))
+            conn.execute(f"DELETE FROM chunks WHERE id IN ({marks})", [r["id"] for r in rows])
+        _bump_index_version(conn)
+    return len(rows)
 
 
 # ──────────────────────────────────────────────── استعلامات اللوحة / Dashboard queries
