@@ -44,6 +44,13 @@ KEYS: dict[str, dict] = {
                   "Facebook page token (Messenger and comments)"),
     },
     "WHATSAPP_TOKEN": {"label": ("رمز واتساب", "WhatsApp token")},
+    # دخول Google إلى اللوحة: يُقرآن عند كل طلب، فيعملان فوراً بلا إعادة تشغيل
+    # Google sign-in to the dashboard: read on every request, so they work at
+    # once without a restart
+    "GOOGLE_CLIENT_ID": {"label": ("معرّف عميل Google (دخول اللوحة)",
+                                   "Google client ID (dashboard sign-in)")},
+    "GOOGLE_CLIENT_SECRET": {"label": ("سرّ عميل Google (دخول اللوحة)",
+                                       "Google client secret (dashboard sign-in)")},
 }
 MAX_LEN = 1024
 _VALID = re.compile(r"^[\x21-\x7e]{8,%d}$" % MAX_LEN)
