@@ -1,5 +1,11 @@
 # سجل الإصدارات / Changelog
 
+## Unreleased
+
+**Languages / اللغات**
+- Bayan answers the public in eleven languages: Arabic and English (the originals), Brazilian Portuguese, Spanish, French, Swahili, Hindi, Urdu, Persian, Turkish and Indonesian. Every public text lives in one JSON file per language in `app/locales/`; the detector works from the script and a small word list without libraries, and the model translates faithfully from the Arabic and English sources into the asker's language. The dashboard stays in Arabic and English, and its "Bayan's role" overrides apply to those two languages only.
+- يجيب بيان الجمهور بإحدى عشرة لغة: العربية والإنجليزية (الأصل)، والبرتغالية البرازيلية والإسبانية والفرنسية والسواحلية والهندية والأردية والفارسية والتركية والإندونيسية. كل نص يصل الجمهور في ملف JSON واحد لكل لغة في `app/locales/`؛ وكشف اللغة من الحرف وقائمة كلمات صغيرة بلا مكتبات، والنموذج يترجم بأمانة من المصادر العربية والإنجليزية إلى لغة السائل. اللوحة تبقى بالعربية والإنجليزية، وتعديلات صفحة «دور بيان» تسري على هاتين اللغتين وحدهما.
+
 ## 1.0.0 — 2026-11-09
 
 أول إصدار عام. First public release.

@@ -202,19 +202,48 @@ prompt:
 
 ---
 
-## The two languages and the answer model
+## Languages and the answer model
 
-- **Language detection** (`app/i18n.py`): two or more Arabic letters make a
-  question Arabic; otherwise Latin letters make it English, and any other
-  language is answered in Arabic. Tool names are mostly in Latin letters, so
-  «ما هي أداة Google Earth Pro؟» stays Arabic.
+- **Eleven languages for the public**: Arabic and English (the originals),
+  Brazilian Portuguese, Spanish, French, Swahili, Hindi, Urdu, Persian,
+  Turkish and Indonesian. Every text the public gets (the refusal, welcome,
+  paused, daily-limit and subscription messages, the greeting replies and the
+  privacy gist) lives in one JSON file per language in `app/locales/`
+  (`ar.json`, `en.json`, `pt-BR.json`, ...). Whatever a file lacks falls back
+  to English. The team dashboard stays in Arabic and English only.
+- **Adding a language**: copy `en.json` to `<code>.json`, translate its
+  values (keep «فرص» and the command names such as `/subscribe` as they are,
+  and keep the `{limit}`, `{wait}` and `{bot_name}` placeholders), add the
+  code to `SUPPORTED_LANGUAGES` in `app/i18n.py`, and, if the language uses
+  the Latin script, a set of its common words to `_MARKERS` there so it can
+  be detected. Nothing else changes: the model answers in whatever language
+  `<لغة_الإجابة>` names.
+- **Language detection** (`app/i18n.py`, no libraries): the script first:
+  two or more Arabic letters make a question Arabic, unless it has
+  Urdu-only letters (ے ٹ ڈ ڑ ں ھ ہ, Urdu) or Persian ones (پ چ ژ گ ک ی,
+  Persian); Devanagari is Hindi. For the Latin script, a small list of
+  common words and distinctive characters per language (ã/õ/ç, ñ/¿/¡,
+  ğ/ı/ş) picks Portuguese, Spanish, French, Turkish, Indonesian or Swahili,
+  and anything unknown is English. Tool names are mostly in Latin letters,
+  so «ما هي أداة Google Earth Pro؟» stays Arabic, and a bare tool name such
+  as "Hunchly" is English. Telegram's interface language (`language_code`)
+  sets the language of `/start` and of a message without text.
+- **The sources stay in Arabic and English**: for a question in another
+  language the sources are retrieved in English (Arabic for Urdu and
+  Persian), and the system instructions tell the model to translate
+  faithfully into the language named in `<لغة_الإجابة>` ("Portuguese
+  (Brazil)", "Swahili", ...), keeping tool names and links as they are and
+  applying every rule, including the forbidden words, in that language.
 - **Investigations in both languages**: the extractor exports 20 Arabic and
   13 English investigations. An investigation that has a version in the
   asker's language is not also retrieved in the other language, so one story
   does not take two of the six passage slots.
-- **Fixed messages** (refusal, daily limit, pause, error) exist in both
-  languages; the welcome and `/help` carry both at once, since a command has
-  no language.
+- **Fixed messages** come from the locale of the asker's message; the
+  welcome after `/start` and `/help` carry Arabic and English at once when
+  the interface language is unknown, since a command has no language. The
+  refusal, welcome and paused texts edited on the dashboard's "Bayan's role"
+  page override the Arabic and English files only; the other languages keep
+  their file's text.
 - **The answer model**: `ANSWER_MODEL`, with thinking depth `ANSWER_EFFORT`
   (default `medium`, because the editorial rules are strict). No
   `temperature`: the API removed it on 21 October 2026, and thinking tokens

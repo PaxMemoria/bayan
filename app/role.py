@@ -99,8 +99,13 @@ SECTIONS: list[dict] = [
     {
         "key": "refusal",
         "title": ("رسالة الرفض", "Refusal message"),
-        "help": ("ما يصل السائل حين يكون سؤاله خارج النطاق.",
-                 "What the asker gets when the question is outside the scope."),
+        "help": ("ما يصل السائل حين يكون سؤاله خارج النطاق. الحقلان للعربية والإنجليزية "
+                 "وحدهما؛ بقية اللغات تقرأ نصّها من ملفات الترجمة في app/locales ولا "
+                 "يغيّرها التعديل هنا.",
+                 "What the asker gets when the question is outside the scope. The two "
+                 "fields are for Arabic and English only; the other languages read their "
+                 "text from the translation files in app/locales, and an edit here does "
+                 "not change them."),
         "fields": [("refusal_ar", "OUT_OF_SCOPE_MESSAGE", "ar", 10),
                    ("refusal_en", "OUT_OF_SCOPE_MESSAGE_EN", "en", 10)],
     },
@@ -108,17 +113,23 @@ SECTIONS: list[dict] = [
         "key": "welcome",
         "title": ("رسالة الترحيب", "Welcome message"),
         "help": ("بعد /start أو تحية. يُضاف إليها تلقائياً سطر «أهلاً بك» أو ردّ التحية، "
-                 "وحدّ الأسئلة اليومي، ورابطا الاشتراك والخصوصية.",
+                 "وحدّ الأسئلة اليومي، ورابطا الاشتراك والخصوصية. بالعربية والإنجليزية "
+                 "وحدهما؛ بقية اللغات على نص ملفاتها في app/locales.",
                  "After /start or a greeting. The opening line or greeting reply, the "
-                 "daily limit and the subscribe and privacy lines are added automatically."),
+                 "daily limit and the subscribe and privacy lines are added automatically. "
+                 "Arabic and English only; the other languages keep the text of their "
+                 "files in app/locales."),
         "fields": [("welcome_ar", "WELCOME_MESSAGE_AR", "ar", 14),
                    ("welcome_en", "WELCOME_MESSAGE_EN", "en", 14)],
     },
     {
         "key": "paused",
         "title": ("رسالة الإيقاف المؤقت", "Paused message"),
-        "help": ("ما يصل السائل حين يكون بيان متوقفاً من الإعدادات.",
-                 "What the asker gets while Bayan is paused from Settings."),
+        "help": ("ما يصل السائل حين يكون بيان متوقفاً من الإعدادات. بالعربية والإنجليزية "
+                 "وحدهما؛ بقية اللغات على نص ملفاتها في app/locales.",
+                 "What the asker gets while Bayan is paused from Settings. Arabic and "
+                 "English only; the other languages keep the text of their files in "
+                 "app/locales."),
         "fields": [("paused_ar", "PAUSED_MESSAGE", "ar", 3),
                    ("paused_en", "PAUSED_MESSAGE_EN", "en", 3)],
     },

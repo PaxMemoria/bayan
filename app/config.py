@@ -2,6 +2,7 @@
 
 Bayan's settings, read from environment variables (.env).
 """
+import json
 import os
 from pathlib import Path
 
@@ -179,11 +180,13 @@ CORRECTION_MIN_SIMILARITY = float(os.getenv("CORRECTION_MIN_SIMILARITY", "0.75")
 CORRECTIONS_PER_QUESTION = int(os.getenv("CORRECTIONS_PER_QUESTION", "2"))
 
 # ───────────────────────────────── الهوية / Identity
-# بيان يجيب بلغة السائل: العربية أو الإنجليزية (app/i18n.py). لكل رسالة
-# ثابتة نسختان، والترحيب يجمعهما لأن من يضغط «ابدأ» لم يكتب شيئاً بعد.
-# Bayan answers in the asker's language: Arabic or English (app/i18n.py).
-# Each fixed message has two versions, and the welcome combines both,
-# because someone who presses «ابدأ» (Start) has not written anything yet.
+# بيان يجيب بلغة السائل من اللغات المدعومة في app/i18n.py، ولكل رسالة ثابتة
+# نسخة في ملف لغتها (app/locales). الترحيب بعد «ابدأ» بالعربية والإنجليزية
+# معاً لأن من يضغط الزر لم يكتب شيئاً بعد.
+# Bayan answers in the asker's language, one of those supported in
+# app/i18n.py, and every fixed message has a version in its language's file
+# (app/locales). The welcome after «ابدأ» (Start) is in Arabic and English
+# together, because someone who presses the button has not written anything yet.
 BOT_NAME = os.getenv("BOT_NAME", "بيان")
 BOT_NAME_EN = os.getenv("BOT_NAME_EN", "Bayan")
 ORG_NAME = os.getenv("ORG_NAME", "باكس ميموريا")
@@ -201,44 +204,33 @@ SCOPE_DESCRIPTION_EN = os.getenv(
     f"opportunities, digital-safety guidance from two openly licensed sources, and "
     f"{ORG_NAME_EN} itself",
 )
+# نصوص الجمهور الافتراضية من ملفات الترجمة app/locales (ar.json و en.json هنا؛
+# بقية اللغات يقرؤها app/i18n.py). متغير البيئة أو صفحة «دور بيان» يتقدّمان
+# عليها للعربية والإنجليزية وحدهما.
+# The default public texts from the translation files in app/locales (ar.json
+# and en.json here; app/i18n.py reads the other languages). An environment
+# variable or the "Bayan's role" page overrides them for Arabic and English only.
+LOCALES_DIR = Path(__file__).resolve().parent / "locales"
+
+
+def load_locale(code: str) -> dict:
+    """نصوص لغة من ملفها في app/locales. A language's texts from its file in
+    app/locales."""
+    return json.loads((LOCALES_DIR / f"{code}.json").read_text(encoding="utf-8"))
+
+
+_LOCALE_AR, _LOCALE_EN = load_locale("ar"), load_locale("en")
+_NAMES_AR = {"bot_name": BOT_NAME, "org_name": ORG_NAME, "site_url": SITE_URL}
+_NAMES_EN = {"bot_name": BOT_NAME_EN, "org_name": ORG_NAME_EN, "site_url": SITE_URL}
 # رسالة الرفض تقول ما يعرفه بيان: أجزاؤه الأربعة بكلمات يفهمها من لا يعرف
 # المنظمة. «بلدان الجنوب العالمي» لا أسماء دول (قرار تحريري، 2026-11-09).
 # The refusal says what Bayan knows: its four parts in words a stranger to the
 # organization understands. «Global South», not country names (editorial
 # decision, 2026-11-09).
 OUT_OF_SCOPE_MESSAGE = os.getenv(
-    "OUT_OF_SCOPE_MESSAGE",
-    "أعتذر، هذا خارج ما أستطيع الإجابة عنه.\n"
-    f"أنا {BOT_NAME}، مساعد {ORG_NAME}، وأجيب عن أربعة أشياء:\n"
-    "• دليل الأدوات: نحو 600 أداة مجانية للتحقق من الصور والفيديو، وتحديد مواقع "
-    "الأحداث وتوقيتها، وتتبع الطائرات والسفن، والبحث في المصادر المفتوحة، مع درجة "
-    "تحقق لكل أداة.\n"
-    f"• التحقيقات: تحقيقات {ORG_NAME} المنشورة التي توثّق هجمات ووقائع في بلدان "
-    "الجنوب العالمي بالصور والأقمار الصناعية والشهادات.\n"
-    "• الفرص: قائمة أسبوعية بزمالات ومنح وجوائز وتدريبات للصحفيين.\n"
-    "• السلامة الرقمية: إرشادات عامة لحماية الحسابات والأجهزة والاتصالات، من "
-    "«عدّة الأمان» (Security in a Box) و«عدّة الإسعاف الأولي الرقمي» "
-    "(Digital First Aid Kit).\n"
-    "جرّب سؤالاً مثل «كيف أعرف مكان التقاط صورة؟» أو «ما تحقيقاتكم عن اليمن؟» أو "
-    "«كيف أحمي حسابي بالاستيثاق بمعاملين؟»، أو اكتب «فرص» لتصلك قائمة هذا الأسبوع.",
-)
+    "OUT_OF_SCOPE_MESSAGE", _LOCALE_AR["out_of_scope"].format(**_NAMES_AR))
 OUT_OF_SCOPE_MESSAGE_EN = os.getenv(
-    "OUT_OF_SCOPE_MESSAGE_EN",
-    "Sorry, that is outside what I can answer.\n"
-    f"I'm {BOT_NAME_EN}, {ORG_NAME_EN}'s assistant, and I answer about four things:\n"
-    "• The tools guide: about 600 free tools for verifying photos and videos, locating "
-    "and dating events, tracking aircraft and ships, and searching open sources, each "
-    "with a verification grade.\n"
-    f"• The investigations: {ORG_NAME_EN}'s published investigations documenting attacks "
-    "and events across the Global South through imagery, satellite data and testimony.\n"
-    "• The opportunities: a weekly list of fellowships, grants, awards and trainings "
-    "for journalists.\n"
-    "• Digital safety: general guidance on protecting accounts, devices and "
-    "communications, from Security in a Box and the Digital First Aid Kit.\n"
-    "Try a question like \"How do I find where a photo was taken?\", \"What "
-    "investigations do you have on Yemen?\" or \"How do I protect my account with "
-    "two-factor authentication?\", or write \"فرص\" for this week's list.",
-)
+    "OUT_OF_SCOPE_MESSAGE_EN", _LOCALE_EN["out_of_scope"].format(**_NAMES_EN))
 # الترحيب بلغة السائل، ويقول ما يستطيع بيان فعله وما لا يستطيع. سطر حدّ
 # الأسئلة اليومي يُضاف عند العرض لأن الحدّ يتغيّر من اللوحة (app/i18n.py).
 # The welcome is in the asker's language and says what Bayan can and cannot
@@ -248,50 +240,8 @@ OUT_OF_SCOPE_MESSAGE_EN = os.getenv(
 # بمثلها بعد «السلام عليكم» أو «صباح الخير»).
 # Without the opening greeting line: app/i18n.py adds it ("أهلاً بك" after
 # /start, and a matching reply after "السلام عليكم" or "صباح الخير").
-WELCOME_MESSAGE_AR = os.getenv(
-    "WELCOME_MESSAGE_AR",
-    f"أنا {BOT_NAME}، مساعد {ORG_NAME}.\n\n"
-    "ما أستطيع فعله:\n"
-    "• أعرّفك بأدوات المصادر المفتوحة في دليلنا: ما هي، ولأي غرض، وتحذيراتها، "
-    "ورابطها حين يُسمح بإعطائه، وأقترح أدوات لمهمة ما، مثل معرفة مكان التقاط "
-    "صورة أو تتبّع رحلة طائرة.\n"
-    "• أجيب عن تحقيقاتنا المنشورة: ماذا وثّقت وكيف، مع رابط التحقيق.\n"
-    "• أرسل قائمة الفرص الأسبوعية (زمالات ومنح وجوائز وتدريبات للصحفيين) حين "
-    "تكتب «فرص».\n"
-    "• أقدّم إرشادات عامة في السلامة الرقمية لحماية حساباتك وأجهزتك واتصالاتك، "
-    "من «عدّة الأمان» و«عدّة الإسعاف الأولي الرقمي»، مع ذكر المصدر.\n\n"
-    "ما لا أستطيع فعله:\n"
-    "• الإجابة عن أي موضوع خارج ذلك، كالأخبار والسياسة والصحة.\n"
-    "• فحص صورة أو فيديو أو رابط ترسله إليّ، أو البحث في الإنترنت. أقرأ النص فقط.\n"
-    "• إبداء رأي أو تقدير لم يرد في تحقيقاتنا، أو الحكم على حالتك الأمنية.\n"
-    "• المساعدة في أي عمل قد يؤذي أحداً، كاختراق الحسابات.\n\n"
-    "اكتب سؤالك بالعربية أو بالإنجليزية.",
-)
-WELCOME_MESSAGE_EN = os.getenv(
-    "WELCOME_MESSAGE_EN",
-    f"I'm {BOT_NAME_EN}, {ORG_NAME_EN}'s assistant.\n\n"
-    "What I can do:\n"
-    "• Tell you about the open-source tools in our guide: what they are, what "
-    "they are for, their warnings, and their link where sharing it is allowed, "
-    "and suggest tools for a task, such as finding where a photo was taken or "
-    "tracking a flight.\n"
-    "• Answer questions about our published investigations: what they "
-    "documented and how, with a link to the investigation.\n"
-    "• Send the weekly opportunities list (fellowships, grants, awards and "
-    "trainings for journalists) when you write \"فرص\".\n"
-    "• Give general digital-safety guidance for protecting your accounts, "
-    "devices and communications, from Security in a Box and the Digital First "
-    "Aid Kit, naming the source.\n\n"
-    "What I can't do:\n"
-    "• Answer anything outside that, such as news, politics or health.\n"
-    "• Check a photo, video or link you send me, or search the internet. I read "
-    "text only.\n"
-    "• Give opinions or estimates that our investigations do not contain, or "
-    "judge your own security situation.\n"
-    "• Help with anything that could harm someone, such as breaking into "
-    "accounts.\n\n"
-    "Ask your question in Arabic or English.",
-)
+WELCOME_MESSAGE_AR = os.getenv("WELCOME_MESSAGE_AR", _LOCALE_AR["welcome"].format(**_NAMES_AR))
+WELCOME_MESSAGE_EN = os.getenv("WELCOME_MESSAGE_EN", _LOCALE_EN["welcome"].format(**_NAMES_EN))
 # قواعد إضافية يكتبها الفريق من صفحة «دور بيان» في اللوحة، تُلحق بتعليمات النظام
 # Extra rules the team writes on the dashboard's "Bayan's role" page, appended
 # to the system instructions
@@ -310,18 +260,10 @@ if RESPONSE_TONE not in RESPONSE_TONES:
 RESPONSE_LENGTH = os.getenv("RESPONSE_LENGTH", "medium")
 if RESPONSE_LENGTH not in RESPONSE_LENGTHS:
     RESPONSE_LENGTH = "medium"
-PAUSED_MESSAGE = os.getenv(
-    "PAUSED_MESSAGE",
-    f"{BOT_NAME} متوقف مؤقتاً.\n"
-    f"دليل الأدوات والتحقيقات متاحان على {SITE_URL}",
-)
-PAUSED_MESSAGE_EN = os.getenv(
-    "PAUSED_MESSAGE_EN",
-    f"{BOT_NAME_EN} is paused for now.\n"
-    f"The tools guide and the investigations are available at {SITE_URL}",
-)
-ERROR_MESSAGE = "حدث خلل مؤقت. حاول بعد قليل من فضلك."
-ERROR_MESSAGE_EN = "Something went wrong for a moment. Please try again shortly."
+PAUSED_MESSAGE = os.getenv("PAUSED_MESSAGE", _LOCALE_AR["paused"].format(**_NAMES_AR))
+PAUSED_MESSAGE_EN = os.getenv("PAUSED_MESSAGE_EN", _LOCALE_EN["paused"].format(**_NAMES_EN))
+ERROR_MESSAGE = _LOCALE_AR["error"]
+ERROR_MESSAGE_EN = _LOCALE_EN["error"]
 SHOW_SOURCES = os.getenv("SHOW_SOURCES", "true").lower() == "true"
 
 # ───────────────────────────────── القنوات / Channels
