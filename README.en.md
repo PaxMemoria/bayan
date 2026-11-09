@@ -210,10 +210,12 @@ prompt:
   paused, daily-limit and subscription messages, the greeting replies and the
   privacy gist) lives in one JSON file per language in `app/locales/`
   (`ar.json`, `en.json`, `pt-BR.json`, ...). Whatever a file lacks falls back
-  to English. The team dashboard stays in Arabic and English only.
+  to English. The same files carry a `dashboard` section with every string of
+  the team dashboard, so it is available in all supported languages too.
 - **Adding a language**: copy `en.json` to `<code>.json`, translate its
-  values (keep «فرص» and the command names such as `/subscribe` as they are,
-  and keep the `{limit}`, `{wait}` and `{bot_name}` placeholders), add the
+  values, the `dashboard` section included (keep «فرص» and the command names
+  such as `/subscribe` as they are, and keep the `{limit}`, `{wait}` and
+  `{bot_name}` placeholders), add the
   code to `SUPPORTED_LANGUAGES` in `app/i18n.py`, and, if the language uses
   the Latin script, a set of its common words to `_MARKERS` there so it can
   be detected. Nothing else changes: the model answers in whatever language
@@ -294,8 +296,14 @@ docker compose exec bayan python tests/test_offline.py  # with no keys and no ne
 
 ## Dashboard
 
-At `PUBLIC_URL/admin`, in English by default and in Arabic with a button in the
-sidebar (the choice is kept in a cookie), without JavaScript. It is enabled when
+At `PUBLIC_URL/admin`, in English by default and in any of the supported
+languages (Arabic, Brazilian Portuguese, Spanish, French, Swahili, Hindi, Urdu,
+Persian, Turkish, Indonesian) from the language list in the sidebar, each named
+in its own language; the choice is kept in a cookie, Arabic, Persian and Urdu
+render right-to-left, and it all works without JavaScript. The strings come
+from the `dashboard` section of `app/locales/<code>.json`, with English for
+anything a language lacks; the "Bayan's role" page's editable texts stay
+Arabic and English. It is enabled when
 `.env` sets `ADMIN_PASSWORD` (at least 12 characters) and `SESSION_SECRET` (at
 least 32 characters, `python -c "import secrets;print(secrets.token_urlsafe(48))"`).
 

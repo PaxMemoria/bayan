@@ -39,7 +39,7 @@ import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
-from . import (__version__, brain, broadcast, config, embed, ingest, keys, opportunities,
+from . import (__version__, brain, broadcast, config, embed, i18n, ingest, keys, opportunities,
                retrieve, role, sources, store)
 
 log = logging.getLogger("dashboard")
@@ -67,499 +67,19 @@ OUTCOMES = {
 CHANNELS = ("telegram", "whatsapp", "messenger")
 
 # ───────────────────────────────────────────────────── النصوص / Strings
-# كل نص في اللوحة: (العربية، الإنجليزية). المفاتيح ثابتة، فلا يُعرض في
-# الصفحة نص يأتي من الرابط.
-# Every dashboard string: (Arabic, English). The keys are fixed, so no text
-# that comes from the URL is shown on the page.
-TEXT: dict[str, tuple[str, str]] = {
-    "dashboard": ("لوحة التحكم", "Dashboard"),
-    "other_lang": ("English", "العربية"),
-    "nav_home": ("نظرة عامة", "Overview"),
-    "nav_messages": ("الأسئلة", "Questions"),
-    "nav_try": ("جرّب بيان", "Try Bayan"),
-    "nav_settings": ("الإعدادات", "Settings"),
-    "nav_blocked": ("المحظورون", "Blocked"),
-    "logout": ("خروج", "Log out"),
-    "out_answered": ("أُجيب", "Answered"),
-    "out_tool_list": ("قائمة أدوات", "Tool list"),
-    "out_refused_gate": ("رفضته البوابة", "Refused by the gate"),
-    "out_refused_model": ("رفضه النموذج", "Refused by the model"),
-    "out_error": ("خطأ", "Error"),
-    "ch_telegram": ("تيليغرام", "Telegram"),
-    "ch_whatsapp": ("واتساب", "WhatsApp"),
-    "ch_messenger": ("ماسنجر", "Messenger"),
-    "type_tool": ("أداة", "Tool"),
-    "type_tool_removed": ("أداة مُزالة", "Removed tool"),
-    "type_investigation": ("تحقيق", "Investigation"),
-    "type_about": ("من نحن", "About"),
-    "flash_reindex": ("بدأت الفهرسة، وتستغرق دقائق. حدّث الصفحة بعدها لترى النتيجة.",
-                      "Indexing has started and takes a few minutes. Refresh the page "
-                      "afterwards to see the result."),
-    "flash_busy": ("فهرسة جارية الآن، وستتبعها دورة أخرى تشمل آخر تعديل.",
-                   "Indexing is already running. Another run will follow to include the "
-                   "latest change."),
-    "flash_saved": ("حُفظت الإعدادات.", "Settings saved."),
-    "flash_blocked": ("حُظر المستخدم. لن يتلقى بعد الآن إلا رسالة الرفض.",
-                      "User blocked. From now on they only get the refusal message."),
-    "flash_unblocked": ("رُفع الحظر.", "Block removed."),
-    "off_title": ("اللوحة غير مفعّلة", "Dashboard disabled"),
-    "off_body": ("اللوحة معطّلة لأن ADMIN_PASSWORD أو SESSION_SECRET غير مضبوط في ملف "
-                 "⁦.env⁩، أو أقصر من الحد الأدنى. كلمة المرور 12 حرفاً على "
-                 "الأقل، والسرّ 32 حرفاً على الأقل.",
-                 "The dashboard is off because ADMIN_PASSWORD or SESSION_SECRET is not "
-                 "set in .env, or is too short. The password needs at least 12 "
-                 "characters and the secret at least 32."),
-    "off_gen": ("لتوليد سرّ:", "To generate a secret:"),
-    "origin_denied": ("مصدر الطلب غير مسموح", "Request origin not allowed"),
-    "too_large": ("الطلب أكبر من المسموح", "Request too large"),
-    "login_title": ("الدخول إلى اللوحة", "Log in to the dashboard"),
-    "login_done": ("تم الدخول، جارٍ فتح اللوحة…", "Signed in; opening the dashboard…"),
-    "login_done_link": ("افتح اللوحة", "Open the dashboard"),
-    "login_bad": ("كلمة المرور غير صحيحة.", "Wrong password."),
-    "login_slow": ("محاولات كثيرة. انتظر ربع ساعة ثم أعد المحاولة.",
-                   "Too many attempts. Wait a quarter of an hour, then try again."),
-    "password": ("كلمة المرور", "Password"),
-    "login_btn": ("دخول", "Log in"),
-    "a_paused": ("بيان متوقف الآن.", "Bayan is paused."),
-    "a_paused_d": ("كل سؤال يُجاب برسالة الإيقاف. أعِد تشغيله من الإعدادات.",
-                   "Every question gets the pause message. Turn it back on in Settings."),
-    "a_empty": ("قاعدة المعرفة فارغة.", "The knowledge base is empty."),
-    "a_empty_d": ("بيان يرفض كل سؤال. شغّل الفهرسة من أسفل هذه الصفحة.",
-                  "Bayan refuses every question. Run indexing from the bottom of this page."),
-    "a_novec": ("البحث الدلالي معطّل.", "Semantic search is off."),
-    "a_novec_d": ("{note}. يرفض بيان الآن كل سؤال مصاغ بكلمات غير كلمات الموقع، "
-                  "ومنها أسئلة مشروعة كثيرة.",
-                  "{note}. Bayan now refuses any question worded differently from the "
-                  "site, including many legitimate ones."),
-    "a_thr": ("العتبة على قيمتها الابتدائية {v}.", "The threshold is at its initial value, {v}."),
-    "a_thr_d": ("هذه القيمة معايَرة لـ {cal} لا لـ {cur}. شغّل scripts/calibrate.py "
-                "واضبط العتبة من الإعدادات.",
-                "This value was calibrated for {cal}, not {cur}. Run scripts/calibrate.py "
-                "and set the threshold in Settings."),
-    "a_failed": ("فشلت آخر فهرسة ({when}).", "The last indexing run failed ({when})."),
-    "a_failed_d": ("الفهرس السابق ما زال يعمل. التفاصيل في أسفل الصفحة.",
-                   "The previous index is still in use. Details at the bottom of the page."),
-    "vec_on": ("تعمل", "On"),
-    "vec_off": ("معطّلة", "Off"),
-    "c_chunks": ("مقاطع قاعدة المعرفة", "Knowledge base passages"),
-    "c_chunks_d": ("التحقيقات: {i}، الأدوات: {t}، الأدوات المُزالة: {r}، السلامة الرقمية: {s}، مصادر الفريق: {m}.",
-                   "Investigations: {i}, tools: {t}, removed tools: {r}, digital safety: {s}, team sources: {m}."),
-    "c_tools": ("أدوات الدليل", "Guide tools"),
-    "c_tools_d": ("الحسّاسة: {s}، المُزالة: {r}.", "Sensitive: {s}, removed: {r}."),
-    "c_vec": ("المتجهات ({p})", "Vectors ({p})"),
-    "c_vec_d": ("مقاطع لها متجهات: {n} من {t}.", "Passages with vectors: {n} of {t}."),
-    "c_thr": ("عتبة البوابة", "Gate threshold"),
-    "thr_dash": ("مضبوطة من اللوحة.", "Set from the dashboard."),
-    "thr_init": ("قيمة ابتدائية لم تُعدَّل من اللوحة.",
-                 "Initial value, not changed from the dashboard."),
-    "provider_local": ("على الخادم", "on the server"),
-    "provider_voyage": ("عبر Voyage", "via Voyage"),
-    "week": ("آخر 7 أيام", "Last 7 days"),
-    "total_h": ("منذ البداية (أعداد فقط)", "Since the start (counts only)"),
-    "total_help": ("تبقى هذه الأعداد بعد حذف الرسائل، ولا تحمل نصاً ولا معرّفات. المستخدمون هنا مجموع المستخدمين اليوميين، فمن سأل في يومين يُحسب مرتين.",
-                   "These counts outlive the deleted messages and hold no text or identifiers. Users is the sum of daily users, so someone seen on two days counts twice."),
-    "th_total": ("المجموع", "Total"),
-    "th_first": ("أول يوم", "First day"),
-    "week_n": ("عدد الأسئلة: {n}.", "Questions: {n}."),
-    "th_outcome": ("النتيجة", "Outcome"),
-    "th_count": ("العدد", "Count"),
-    "th_share": ("النسبة", "Share"),
-    "th_channel": ("القناة", "Channel"),
-    "th_questions": ("الأسئلة", "Questions"),
-    "th_users": ("المستخدمون", "Users"),
-    "none_yet": ("لا أسئلة بعد.", "No questions yet."),
-    "run_took": ("، والمدة بالثواني: {s}", ", taking {s} seconds"),
-    "run_running": ("جارية الآن", "running now"),
-    "run_ok": ("نجحت", "succeeded"),
-    "run_failed": ("فشلت", "failed"),
-    "run_line": ("بدأت {when}{took}. الحالة: {state}.", "Started {when}{took}. Status: {state}."),
-    "run_none": ("لم تُشغَّل أي فهرسة بعد.", "No indexing has run yet."),
-    "indexing": ("الفهرسة", "Indexing"),
-    "reindex_btn": ("أعد الفهرسة الآن", "Reindex now"),
-    "reindex_help": ("تسحب آخر نسخة من مستودع الموقع، وتشغّل المُستخرِج، وتولّد المتجهات، "
-                     "وتستغرق بضع دقائق. الفهرس الحالي يبقى يعمل حتى تكتمل.",
-                     "Pulls the latest site repository, runs the extractor and builds the "
-                     "vectors, which takes a few minutes. The current index stays in use "
-                     "until it finishes."),
-    "help_refused_gate": ("أسئلة رفضتها البوابة قبل استدعاء النموذج. رتّبها حسب الثقة: إن "
-                          "وجدت بين الأعلى ثقةً أسئلة مشروعة عن الأدوات أو التحقيقات، "
-                          "فالعتبة أعلى مما ينبغي.",
-                          "Questions the gate refused before calling the model. Sort them by "
-                          "confidence: if the highest-scoring ones include legitimate "
-                          "questions about tools or investigations, the threshold is too high."),
-    "help_refused_model": ("أسئلة تجاوزت البوابة ثم رفضها النموذج. كثرتها تعني أن العتبة "
-                           "أدنى مما ينبغي، وكل واحد منها استدعاء مدفوع للنموذج.",
-                           "Questions that passed the gate and were then refused by the "
-                           "model. Many of them mean the threshold is too low, and each one "
-                           "is a paid model call."),
-    "help_error": ("أسئلة فشل فيها استدعاء النموذج. راجع سجلّ الخادم.",
-                   "Questions where the model call failed. Check the server log."),
-    "q_title": ("أسئلة الجمهور", "Questions from the public"),
-    "all": ("الكل", "All"),
-    "all_channels": ("كل القنوات", "All channels"),
-    "newest": ("الأحدث أولاً", "Newest first"),
-    "highest": ("الأعلى ثقةً أولاً", "Highest confidence first"),
-    "reply": ("ردّ بيان", "Bayan's reply"),
-    "conf": ("الثقة {c}", "Confidence {c}"),
-    "fp_title": ("بصمة المستخدم", "User fingerprint"),
-    "user": ("المستخدم {fp}", "User {fp}"),
-    "block_btn": ("احظر", "Block"),
-    "none_here": ("لا أسئلة هنا.", "No questions here."),
-    "older": ("أقدم", "Older"),
-    "blocked_help": ("المحظور يتلقى رسالة الرفض على كل سؤال، ولا يُستدعى النموذج لأجله.",
-                     "A blocked user gets the refusal message for every question, and the "
-                     "model is never called for them."),
-    "th_user": ("المستخدم", "User"),
-    "th_reason": ("السبب", "Reason"),
-    "th_since": ("منذ", "Since"),
-    "unblock_btn": ("ارفع الحظر", "Unblock"),
-    "nobody": ("لا أحد محظور.", "Nobody is blocked."),
-    "reason_dashboard": ("حُظر من اللوحة", "Blocked from the dashboard"),
-    "question": ("السؤال", "Question"),
-    "try_note": ("محادثتك الخاصة مع بيان من داخل اللوحة: يتذكّر آخر {n} دورات كما في القنوات "
-                 "العامة، ويراها كل عضو لنفسه وحده. لا تدخل في سجل الأسئلة ولا في الأعداد، ولا "
-                 "يحدّها الحدّ اليومي، وتُحذف بعد مدة الاحتفاظ كغيرها. السؤال الذي يتجاوز البوابة "
-                 "يستدعي النموذج فعلاً.",
-                 "Your own conversation with Bayan inside the dashboard: it remembers the last "
-                 "{n} turns as on the public channels, and each member sees only their own. It "
-                 "is not part of the question log or the counts, the daily limit does not apply, "
-                 "and it is deleted after the retention period like everything else. A question "
-                 "that passes the gate does call the model."),
-    "send_btn": ("أرسل", "Send"),
-    "new_conv": ("محادثة جديدة", "New conversation"),
-    "thread_empty": ("لا محادثة بعد. اسأل بيان شيئاً.", "No conversation yet. Ask Bayan something."),
-    "you_label": ("أنت", "You"),
-    "retr_details": ("تفاصيل الاسترجاع", "Retrieval details"),
-    "sources_label": ("المصادر:", "Sources:"),
-    "nothing": ("لا شيء", "None"),
-    "cat_shown": ("{c}، والأدوات المعروضة منه: {n}", "{c}, tools shown: {n}"),
-    "mode_vec": ("متجهات ونص", "vectors and text"),
-    "mode_text": ("نص فقط", "text only"),
-    "thr_v": ("العتبة {t}", "Threshold {t}"),
-    "search_mode": ("البحث: {m}", "Search: {m}"),
-    "th_name_match": ("أدوات مطابقة بالاسم", "Tools matched by name"),
-    "th_cat_match": ("تصنيف مطابق", "Matched category"),
-    "passages": ("المقاطع المسترجعة", "Retrieved passages"),
-    "th_type": ("النوع", "Type"),
-    "th_title": ("العنوان", "Title"),
-    "th_link": ("الرابط", "Link"),
-    "no_passages": ("لا مقاطع.", "No passages."),
-    "st_ok": ("مضبوطة.", "Configured."),
-    "st_missing": ("ينقصها {need}.", "Missing {need}."),
-    "need_tg": ("TELEGRAM_BOT_TOKEN و TELEGRAM_WEBHOOK_SECRET",
-                "TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_SECRET"),
-    "need_wa": ("مفاتيح Meta وواتساب", "the Meta and WhatsApp keys"),
-    "need_ms": ("مفاتيح Meta و MESSENGER_PAGE_TOKEN", "the Meta keys and MESSENGER_PAGE_TOKEN"),
-    "err_threshold": ("العتبة رقم بين 0.05 و 0.90.",
-                      "The threshold is a number between 0.05 and 0.90."),
-    "err_limit": ("الحدّ اليومي عدد صحيح بين 0 و 1000.",
-                  "The daily limit is a whole number between 0 and 1000."),
-    "f_answer_model": ("نموذج الإجابة", "Answer model"),
-    "f_embed_model": ("نموذج المتجهات", "Embedding model"),
-    "f_dim": ("أبعاد المتجه", "Vector dimensions"),
-    "f_top_k": ("المقاطع لكل سؤال", "Passages per question"),
-    "f_max_tools": ("أقصى عدد أدوات في القائمة", "Most tools in one list"),
-    "f_rate": ("أقصى رسائل المستخدم الواحد", "Most messages per user"),
-    "f_window": ("خلال (ثانية)", "Within (seconds)"),
-    "f_history": ("الأسئلة السابقة التي يتذكرها", "Previous questions remembered"),
-    "f_sources": ("عرض المصادر", "Show sources"),
-    "yes": ("نعم", "Yes"),
-    "no": ("لا", "No"),
-    "s_thr": ("عتبة البوابة", "Gate threshold"),
-    "s_thr_help": ("السؤال الذي تقلّ ثقته عن العتبة يُرفض قبل استدعاء النموذج. رفعها يقلّل "
-                   "الإجابات الخاطئة ويزيد رفض الأسئلة المشروعة، وخفضها يفعل العكس. القيمة "
-                   "الابتدائية في ⁦.env⁩ هي {v}.",
-                   "A question whose confidence is below the threshold is refused before the "
-                   "model is called. Raising it means fewer wrong answers and more "
-                   "legitimate questions refused; lowering it does the opposite. The "
-                   "initial value in .env is {v}."),
-    "s_limit": ("حدّ الأسئلة لكل مستخدم في 24 ساعة", "Questions per user in 24 hours"),
-    "s_limit_help": ("يُحسب لكل مستخدم في كل قناة على آخر 24 ساعة. من يبلغه يتلقى رسالة "
-                     "تخبره متى يسأل مجدداً، ولا يُستدعى النموذج. 0 يعني بلا حدّ. القيمة "
-                     "الابتدائية في ⁦.env⁩ هي {v}.",
-                     "Counted per user in each channel over the last 24 hours. Anyone who "
-                     "reaches it gets a message saying when they can ask again, and the "
-                     "model is not called. 0 means no limit. The initial value in .env "
-                     "is {v}."),
-    "s_pause": ("أوقف بيان مؤقتاً", "Pause Bayan"),
-    "s_pause_help": ("حين يتوقف بيان يُجاب كل سؤال بهذه الرسالة: «{m}»",
-                     "While Bayan is paused, every question gets this message: “{m}”"),
-    "save": ("احفظ", "Save"),
-    "reset_thr": ("أعِد العتبة إلى قيمة ⁦.env⁩", "Reset the threshold to the .env value"),
-    "channels": ("القنوات", "Channels"),
-    "env_settings": ("إعدادات من ⁦.env⁩", "Settings from .env"),
-    "env_help": ("تتغيّر بتعديل ملف ⁦.env⁩ على الخادم ثم إعادة تشغيله.",
-                 "Changed by editing .env on the server and restarting."),
-    # التقييم / Ratings
-    "rate_summary": ("قيّم الإجابة", "Rate the answer"),
-    "rate_up": ("👍 جيدة", "👍 Good"),
-    "rate_down": ("👎 تحتاج تصحيحاً", "👎 Needs fixing"),
-    "rate_clear": ("امسح التقييم", "Clear rating"),
-    "rate_reason": ("السبب", "Reason"),
-    "rate_note": ("ملاحظة (اختيارية)", "Note (optional)"),
-    "rated_up": ("التقييم: جيدة", "Rating: good"),
-    "rated_down": ("التقييم: تحتاج تصحيحاً", "Rating: needs fixing"),
-    "rr_none": ("بلا سبب", "No reason"),
-    "rr_wrong": ("معلومة خاطئة", "Wrong information"),
-    "rr_missing": ("معلومة ناقصة", "Missing information"),
-    "rr_refused_wrongly": ("رفض سؤالاً مشروعاً", "Refused a legitimate question"),
-    "rr_should_refuse": ("كان يجب أن يرفض", "Should have refused"),
-    "rr_format": ("التنسيق أو اللغة", "Formatting or language"),
-    "rr_other": ("سبب آخر", "Other"),
-    "r_all": ("كل التقييمات", "All ratings"),
-    "r_none": ("بلا تقييم", "Unrated"),
-    "write_fix": ("اكتب تصحيحاً", "Write a correction"),
-    "flash_rated": ("حُفظ التقييم.", "Rating saved."),
-    "c_ratings": ("التقييمات، آخر 7 أيام", "Ratings, last 7 days"),
-    "c_ratings_d": ("👍 {up}، 👎 {down}. التصحيحات المفعّلة: {fixes}.",
-                    "👍 {up}, 👎 {down}. Active corrections: {fixes}."),
-    # التصحيحات / Corrections
-    "nav_corrections": ("التصحيحات", "Corrections"),
-    "fix_title": ("التصحيحات المعتمدة", "Approved corrections"),
-    "fix_help": ("إجابات يكتبها الفريق لأسئلة أخطأ فيها بيان أو قصّر. حين يشبه سؤالٌ جديد "
-                 "سؤالَ تصحيحٍ بما يكفي، يُرسل التصحيح إلى النموذج قبل غيره من المصادر "
-                 "ويُقدَّم عليها، من لحظة حفظه ودون إعادة فهرسة.",
-                 "Answers the team writes for questions Bayan got wrong or answered "
-                 "poorly. When a new question is close enough to a correction's question, "
-                 "the correction is sent to the model ahead of the other sources and takes "
-                 "precedence over them, from the moment it is saved and without reindexing."),
-    "fix_new": ("تصحيح جديد", "New correction"),
-    "fix_edit": ("عدّل التصحيح", "Edit the correction"),
-    "fix_q": ("السؤال", "Question"),
-    "fix_q_help": ("اكتبه بكلماتك كما قد يسأله الناس، دون أي اسم أو رقم أو تفصيل شخصي من "
-                   "الرسالة الأصلية، فالتصحيح يبقى بعد حذف الرسائل.",
-                   "Write it in your own words, as people might ask it, without any name, "
-                   "number or personal detail from the original message: the correction "
-                   "stays after the messages are deleted."),
-    "fix_a": ("الإجابة المعتمدة", "Approved answer"),
-    "fix_a_help": ("ما يجب أن يقوله بيان. يعيد صياغتها بلغة السائل، وتبقى قواعد الروابط "
-                   "سارية عليها.",
-                   "What Bayan should say. It rewords it in the asker's language, and the "
-                   "link rules still apply to it."),
-    "fix_url": ("رابط المصدر (اختياري)", "Source link (optional)"),
-    "fix_url_help": ("صفحة من {site} تُعرض مصدراً حين يستعمل بيان هذا التصحيح. إن تُرك "
-                     "فارغاً تُعرض صفحة الدليل.",
-                     "A page on {site}, shown as the source when Bayan uses this "
-                     "correction. Left empty, the guide page is shown."),
-    "fix_active": ("مفعّل: يستعمله بيان", "Active: Bayan uses it"),
-    "fix_orig": ("السؤال الأصلي وردّ بيان عليه، للرجوع إليهما فقط",
-                 "The original question and Bayan's reply, for reference only"),
-    "fix_none": ("لا تصحيحات بعد. ابدأ من صفحة الأسئلة: «اكتب تصحيحاً» تحت أي إجابة.",
-                 "No corrections yet. Start from the Questions page: “Write a correction” "
-                 "under any answer."),
-    "fix_try": ("جرّبه", "Try it"),
-    "fix_delete": ("احذف", "Delete"),
-    "fix_on": ("مفعّل", "Active"),
-    "fix_off": ("معطّل", "Inactive"),
-    "fix_novec": ("بلا متجه: يطابق السؤال نفسه وحده", "No vector: matches the same question only"),
-    "fix_updated": ("آخر تعديل {when}", "Last edited {when}"),
-    "fix_matched": ("تصحيحات مطابقة", "Matching corrections"),
-    "fix_sim": ("الشبه {s}", "Similarity {s}"),
-    "err_fix": ("السؤال والإجابة مطلوبان: السؤال حتى {q} حرف، والإجابة حتى {a} حرف.",
-                "The question and the answer are required: up to {q} characters for the "
-                "question and {a} for the answer."),
-    "err_fix_url": ("رابط المصدر يجب أن يكون صفحة من {site}.",
-                    "The source link must be a page on {site}."),
-    "flash_fix_saved": ("حُفظ التصحيح، ويستعمله بيان من الآن.",
-                        "Correction saved. Bayan uses it from now on."),
-    "flash_fix_novec": ("حُفظ التصحيح، لكن تعذّر توليد متجه سؤاله، فلن يطابق الآن إلا السؤال "
-                        "نفسه. يُعاد توليده عند إعادة تشغيل الخادم.",
-                        "Correction saved, but its question's vector could not be produced, "
-                        "so for now it only matches the same question. It is produced again "
-                        "when the server restarts."),
-    "flash_fix_deleted": ("حُذف التصحيح.", "Correction deleted."),
-    "nav_opps": ("الفرص", "Opportunities"),
-    "opp_title": ("الفرص الأسبوعية", "Weekly opportunities"),
-    "opp_help": ("الصق قائمة الأسبوع (بنود مرقّمة، وتحت كل بند رابطه). تُقسَّم إلى فرصة لكل بند وتُحفظ برقم أسبوعها، ويبحث بيان فيها حين يُسأل عن زمالة أو منحة أو جائزة أو تدريب، في آخر {n} أسابيع فقط. ويُحفظ معها تصحيح «فرص الأسبوع N» ليبقى الجواب على «فرص» قائمة الأسبوع الأحدث. إعادة لصق أسبوع تستبدل قائمته.",
-                 "Paste the week's list (numbered items, each with its link below). It is split into one opportunity per item and saved with its week number. Bayan searches them when asked for a fellowship, grant, award or training, in the last {n} weeks only. A «فرص الأسبوع N» correction is saved too, so «فرص» answers with the newest week's list. Pasting a week again replaces its list."),
-    "opp_new": ("إضافة قائمة أسبوع", "Add a week's list"),
-    "opp_week": ("رقم الأسبوع (ISO)", "Week number (ISO)"),
-    "opp_year": ("السنة", "Year"),
-    "opp_paste": ("القائمة", "The list"),
-    "opp_save": ("احفظ القائمة", "Save the list"),
-    "opp_none": ("لا قوائم بعد.", "No lists yet."),
-    "opp_count": ("{n} فرص", "{n} opportunities"),
-    "opp_delete": ("احذف الأسبوع", "Delete the week"),
-    "err_opp": ("تأكد من رقم الأسبوع (1–53) والسنة، ومن أن القائمة فيها بند واحد على الأقل: سطر «1. العنوان» ورابطه.",
-                "Check the week number (1–53) and the year, and that the list has at least one item: a «1. Title» line and its link."),
-    "flash_opp_saved": ("حُفظت قائمة الأسبوع، ويبحث فيها بيان من الآن.",
-                        "The week's list is saved. Bayan searches it from now on."),
-    "flash_opp_deleted": ("حُذفت قائمة الأسبوع.", "The week's list was deleted."),
-    "c_unanswered": ("بلا جواب، آخر 7 أيام", "Unanswered, last 7 days"),
-    "c_unanswered_d": ("رفضتها البوابة: {g}، رفضها النموذج: {m}. افتحها لتكتب لها تصحيحات معتمدة.",
-                       "Refused by the gate: {g}, by the model: {m}. Open them to write approved corrections."),
-    "topics_h": ("مواضيع الأسئلة", "Question topics"),
-    "topics_help": ("الجزء الذي أجاب منه بيان، وأكثر ما سُئل عنه. أعداد فقط تبقى بعد حذف الرسائل، ولا تحمل نصاً ولا معرّفات.",
-                    "The part Bayan answered from, and what was asked about most. Counts only, kept after messages are deleted, with no text and no identifiers."),
-    "th_topic": ("الموضوع", "Topic"),
-    "th_week": ("آخر 7 أيام", "Last 7 days"),
-    "th_all": ("منذ البداية", "Since the start"),
-    "top_h": ("الأكثر سؤالاً، آخر 7 أيام", "Most asked about, last 7 days"),
-    "tp_tools": ("الأدوات", "Tools"),
-    "tp_investigations": ("التحقيقات", "Investigations"),
-    "tp_opportunities": ("الفرص", "Opportunities"),
-    "tp_safety": ("السلامة الرقمية", "Digital safety"),
-    "tp_team": ("مصادر الفريق", "Team sources"),
-    "tp_about": ("من نحن", "About"),
-    "tp_other": ("أخرى", "Other"),
-    "tp_unanswered": ("بلا جواب", "Unanswered"),
-    "sub_h": ("المشتركون في قائمة الفرص", "Opportunities subscribers"),
-    "sub_help": ("يشترك المستخدم بكتابة /subscribe في أي قناة، ويلغي بـ /unsubscribe. تُبثّ القائمة على القنوات المفعّلة في BROADCAST_CHANNELS فقط؛ واتساب وماسنجر ينتظران موافقة Meta، ويبقى مشتركوهما مسجّلين حتى تُفعَّل.",
-                 "A user subscribes by sending /subscribe on any channel, and leaves with /unsubscribe. The list is broadcast only on the channels enabled in BROADCAST_CHANNELS; WhatsApp and Messenger await Meta's approval, and their subscribers stay recorded until they are enabled."),
-    "sub_on": ("مفعّلة للبث", "broadcast enabled"),
-    "sub_off": ("بلا بث بعد", "no broadcast yet"),
-    "th_state": ("الحالة", "State"),
-    "opp_send": ("أرسل للمشتركين", "Send to subscribers"),
-    "last_broadcast": ("آخر بثّ: الأسبوع {w}، {when}. أُرسل إلى {s}، فشل {f}، تُرك {k} على قنوات بلا بث.",
-                       "Last broadcast: week {w}, {when}. Sent to {s}, failed {f}, skipped {k} on channels without broadcast."),
-    "nav_team": ("الفريق", "Team"),
-    "owner_label": ("المالك", "Owner"),
-    "role_admin": ("مدير", "Admin"),
-    "role_editor": ("محرر", "Editor"),
-    "role_viewer": ("مشاهد", "Viewer"),
-    "login_google": ("الدخول بحساب Google لباكس ميموريا", "Sign in with your Pax Memoria Google account"),
-    "login_google_help": ("للفريق: حساب @{d}. التحقق بخطوتين ومفاتيح المرور تديرها Google.",
-                          "For the team: an @{d} account. Two-step verification and passkeys are managed by Google."),
-    "login_owner": ("أو بكلمة مرور المالك", "Or with the owner password"),
-    "login_domain": ("هذا الحساب ليس من نطاق {d}.", "That account is not on the {d} domain."),
-    "login_unknown": ("حسابك من النطاق لكنه غير مضاف إلى الفريق. اطلب من مدير أن يضيفك.",
-                      "Your account is on the domain but not on the team. Ask an admin to add you."),
-    "login_inactive": ("حسابك معطّل في الفريق.", "Your team account is deactivated."),
-    "login_google_fail": ("تعذّر الدخول بحساب Google. حاول مجدداً.", "Google sign-in failed. Try again."),
-    "forbidden": ("ليس لدورك صلاحية هذا الإجراء", "Your role does not allow this action"),
-    "team_title": ("الفريق", "Team"),
-    "team_help": ("من يدخل اللوحة ودوره. المدير يرى كل شيء ويدير الفريق والإعدادات، والمحرر يكتب التصحيحات والفرص ويقيّم ويحظر، والمشاهد يقرأ فقط. يدخل كل عضو بحساب Google من نطاق {d}، فلا كلمات مرور هنا.",
-                  "Who signs in to the dashboard and their role. An admin sees everything and manages the team and settings, an editor writes corrections and opportunities, rates and blocks, and a viewer only reads. Everyone signs in with a Google account on the {d} domain, so no passwords live here."),
-    "team_add": ("إضافة عضو", "Add a member"),
-    "team_email": ("البريد", "Email"),
-    "team_name": ("الاسم (اختياري، يُحدَّث من Google عند الدخول)", "Name (optional, updated from Google on sign-in)"),
-    "team_role": ("الدور", "Role"),
-    "th_email": ("البريد", "Email"),
-    "th_name": ("الاسم", "Name"),
-    "th_role": ("الدور", "Role"),
-    "th_last_login": ("آخر دخول", "Last sign-in"),
-    "th_when": ("الوقت", "When"),
-    "th_action": ("الإجراء", "Action"),
-    "th_target": ("على", "Target"),
-    "m_active": ("مفعّل", "Active"),
-    "m_inactive": ("معطّل", "Deactivated"),
-    "m_you": ("أنت", "you"),
-    "team_save": ("احفظ", "Save"),
-    "team_deactivate": ("عطّل", "Deactivate"),
-    "team_activate": ("فعّل", "Activate"),
-    "team_delete": ("احذف", "Delete"),
-    "team_none": ("لا أعضاء بعد. المالك يدخل بكلمة المرور، وعناوين ADMIN_EMAILS تدخل مديرين مباشرة.",
-                  "No members yet. The owner signs in with the password, and ADMIN_EMAILS sign in as admins directly."),
-    "audit_h": ("سجلّ الإجراءات", "Action log"),
-    "audit_help": ("آخر 100 إجراء في اللوحة: من فعل ماذا ومتى. لا يحوي نصوص أسئلة ولا معرّفات الجمهور.",
-                   "The last 100 dashboard actions: who did what, when. No question text and no audience identifiers."),
-    "err_member": ("البريد غير صالح أو ليس من نطاق {d}.", "The email is invalid or not on the {d} domain."),
-    "err_self": ("لا يمكنك تعطيل نفسك أو خفض دورك.", "You cannot deactivate yourself or lower your own role."),
-    "flash_member_saved": ("حُفظ العضو.", "Member saved."),
-    "nav_sources": ("مصادر البيانات", "Data sources"),
-    "src_help": ("الجزء الخامس من معرفة بيان، يضيفه الفريق من هنا: ملاحظة تكتبها، أو رابط صفحة "
-                 "يُجلب نصها ويُزامَن يومياً، أو ملف (PDF أو Word أو Markdown أو نص أو HTML) يُحفظ "
-                 "نصه لا الملف. يدخل الفهرس فوراً ويعتمده بيان كمصدر ضمن نطاقه، ويذكر عنوان "
-                 "المستند في جوابه. المحرر فأعلى يضيف ويحذف.",
-                 "The fifth part of Bayan's knowledge, added by the team here: a note you write, "
-                 "a page link whose text is fetched and synced daily, or a file (PDF, Word, "
-                 "Markdown, text or HTML) whose text is kept, not the file. It enters the index at "
-                 "once, Bayan treats it as a source within its scope, and names the document in "
-                 "its answer. Editors and above add and delete."),
-    "src_add_note": ("ملاحظة", "Note"),
-    "src_add_url": ("رابط صفحة", "Page link"),
-    "src_add_file": ("ملف", "File"),
-    "src_title": ("العنوان", "Title"),
-    "src_text": ("النص", "Text"),
-    "src_url": ("الرابط", "Link"),
-    "src_file": ("الملف (PDF، DOCX، MD، TXT، HTML؛ حتى 15 ميغابايت)",
-                 "File (PDF, DOCX, MD, TXT, HTML; up to 15 MB)"),
-    "src_add": ("أضف", "Add"),
-    "src_list": ("المصادر المضافة", "Added sources"),
-    "src_none": ("لا مصادر بعد.", "No sources yet."),
-    "th_kind": ("النوع", "Kind"),
-    "th_chars": ("الأحرف", "Characters"),
-    "th_chunks": ("المقاطع", "Chunks"),
-    "th_added": ("أُضيف", "Added"),
-    "th_synced": ("آخر مزامنة", "Last sync"),
-    "src_ok": ("سليم", "OK"),
-    "src_error": ("تعذّرت المزامنة", "Sync failed"),
-    "src_sync": ("زامن الآن", "Sync now"),
-    "src_delete": ("احذف", "Delete"),
-    "flash_src_added": ("أُضيف المصدر وفُهرس، وبيان يعتمده الآن.", "Source added and indexed; Bayan uses it now."),
-    "flash_src_added_novec": ("أُضيف المصدر بلا متجهات (البحث الدلالي معطّل)؛ يعمل بالبحث النصي حتى تُعاد الفهرسة.",
-                              "Source added without vectors (semantic search is off); it works through text search until the next reindex."),
-    "flash_src_deleted": ("حُذف المصدر ومقاطعه.", "Source and its chunks deleted."),
-    "flash_src_synced": ("تغيّرت الصفحة وأُعيدت فهرستها.", "The page changed and was reindexed."),
-    "flash_src_same": ("الصفحة كما هي، لا تغيير.", "The page is unchanged."),
-    "err_src_text": ("العنوان مطلوب، والنص 40 حرفاً على الأقل.", "A title is required, and the text at least 40 characters."),
-    "err_src_url": ("رابط غير مقبول: http أو https فقط، ولا عناوين محلية.", "Link not accepted: http or https only, and no local addresses."),
-    "err_src_fetch": ("تعذّر جلب الصفحة.", "The page could not be fetched."),
-    "err_src_type": ("نوع الملف غير مدعوم.", "Unsupported file type."),
-    "err_src_big": ("الملف أكبر من الحدّ.", "The file is over the limit."),
-    "err_src_empty": ("لم يُستخرج نص كافٍ من المصدر.", "Not enough text could be extracted from the source."),
-    "nav_role": ("دور بيان", "Bayan's role"),
-    "role_help": ("للمدير وحده. ما يُحفظ هنا يُطبَّق فوراً على كل القنوات دون إعادة تشغيل، ويتقدّم على "
-                  "قيمة .env. الحقل الفارغ يعيد الافتراضي. القواعد الثابتة (لا معرفة عامة، لا روابط "
-                  "لأدوات حسّاسة أو مُزالة، قواعد التحقيقات) لا تُغيَّر من هنا.",
-                  "Admin only. What is saved here applies at once on every channel, with no restart, "
-                  "and takes precedence over the .env value. An empty field restores the default. "
-                  "The fixed rules (no general knowledge, no links to sensitive or removed tools, "
-                  "the investigation rules) cannot be changed here."),
-    "role_ar": ("بالعربية", "Arabic"),
-    "role_en": ("بالإنجليزية", "English"),
-    "role_custom": ("معدَّل من اللوحة", "Edited here"),
-    "role_default": ("الافتراضي", "Default"),
-    "role_reset": ("أعد الافتراضي", "Reset to default"),
-    "role_preview": ("تعليمات النظام الفعلية الآن", "The system instructions now in use"),
-    "role_scen_h": ("معاينة السيناريوهات", "Scenario preview"),
-    "role_scen_help": ("اختر حالة ولغة السائل لترى كيف يردّ بيان بالإعدادات الحالية (النطاق والقواعد "
-                       "والنصوص أعلاه). التحية والإيقاف بلا نموذج؛ البقية تستدعي النموذج فعلاً وقد يختلف "
-                       "الردّ في كل مرة. المعاينة لا تُسجَّل في سجل الأسئلة.",
-                       "Pick a case and the asker's language to see how Bayan replies with the current "
-                       "settings (the scope, rules and texts above). The greeting and paused cases need "
-                       "no model; the others really call the model, and the reply may differ each time. "
-                       "The preview is not logged."),
-    "role_scen": ("السيناريو", "Scenario"),
-    "role_scen_lang": ("لغة السائل", "Asker's language"),
-    "role_scen_btn": ("ولّد مثالاً", "Generate an example"),
-    "role_scen_again": ("ولّد مثالاً آخر", "Generate another example"),
-    "role_scen_q": ("السؤال", "Question"),
-    "role_scen_reply": ("ردّ بيان", "Bayan's reply"),
-    "role_scen_msg": ("رسالة {n}", "Message {n}"),
-    "err_scen": ("سيناريو غير معروف.", "Unknown scenario."),
-    "flash_role_saved": ("حُفظ وطُبّق فوراً.", "Saved and applied at once."),
-    "err_role": ("نص أطول من {n} حرف.", "A text is longer than {n} characters."),
-    "err_role_name": ("اسم البوت من حرف إلى {n} حرفاً في سطر واحد.",
-                      "The bot name is one to {n} characters on one line."),
-    "err_role_choice": ("اختيار غير معروف.", "Unknown choice."),
-    "keys_h": ("مفاتيح API", "API keys"),
-    "keys_help": ("للمدير وحده. المفتاح المحفوظ هنا يتقدّم على قيمة .env ويعمل فوراً بلا إعادة تشغيل، "
-                  "ويُحفظ في قاعدة بيان على الخادم، ولا يُعرض بعد حفظه إلا آخر أربعة أحرف. "
-                  "كل حفظ أو مسح يُسجَّل في سجلّ الإجراءات. رمز تيليغرام وسرّ Meta يبقيان في .env لأن تغييرهما يحتاج إعادة تشغيل.",
-                  "Admin only. A key saved here takes precedence over the .env value and works at once, "
-                  "with no restart; it is kept in Bayan's database on the server, and after saving only its "
-                  "last four characters are shown. Every save or clear goes to the action log. The Telegram "
-                  "token and the Meta app secret stay in .env, since changing them needs a restart."),
-    "th_key": ("المفتاح", "Key"),
-    "th_source": ("المصدر", "Source"),
-    "key_dash": ("من اللوحة", "From the dashboard"),
-    "key_env": ("من .env", "From .env"),
-    "key_none": ("غير مضبوط", "Not set"),
-    "key_by": ("بواسطة {who}، {when}", "by {who}, {when}"),
-    "key_new": ("قيمة جديدة", "New value"),
-    "key_save": ("احفظ", "Save"),
-    "key_clear": ("امسح وعُد إلى .env", "Clear, back to .env"),
-    "flash_key_saved": ("حُفظ المفتاح وصار معمولاً به.", "Key saved and now in use."),
-    "flash_key_cleared": ("مُسح المفتاح، وعادت قيمة .env.", "Key cleared; the .env value is back."),
-    "err_key": ("المفتاح غير صالح: أحرف لاتينية وأرقام ورموز بلا مسافات، 8 أحرف على الأقل.",
-                "Invalid key: Latin letters, digits and symbols without spaces, at least 8 characters."),
-    "flash_member_deleted": ("حُذف العضو.", "Member deleted."),
-    "by": ("بواسطة {who}", "by {who}"),
-    "th_by": ("بواسطة", "By"),
-    "flash_opp_sent": ("بدأ إرسال قائمة الأسبوع إلى المشتركين على القنوات المفعّلة، والنتيجة تظهر هنا بعد اكتماله.",
-                       "The week's list is being sent to subscribers on the enabled channels; the result appears here once it is done."),
-}
+# كل نص في اللوحة من القسم "dashboard" في ملف لغته (app/locales/<code>.json)،
+# وما ينقص من لغة يُؤخذ من الإنجليزية. المفاتيح ثابتة، فلا يُعرض في الصفحة نص
+# يأتي من الرابط.
+# Every dashboard string comes from the "dashboard" section of its language's
+# file (app/locales/<code>.json), and whatever a language lacks is taken from
+# English. The keys are fixed, so no text that comes from the URL is shown on
+# the page.
+def _strings(lang: str) -> dict[str, str]:
+    return i18n.LOCALES.get(lang, {}).get("dashboard") or i18n.LOCALES["en"]["dashboard"]
+
+
+# الإنجليزية: مجموعة المفاتيح والاحتياط / English: the key set and the fallback
+TEXT: dict[str, str] = _strings("en")
 FLASH_KIND = {"reindex": "ok", "busy": "warn", "saved": "ok", "blocked": "ok",
               "unblocked": "ok", "rated": "ok", "fix_saved": "ok", "fix_novec": "warn",
               "fix_deleted": "ok", "opp_saved": "ok", "opp_deleted": "ok", "opp_sent": "ok",
@@ -576,25 +96,39 @@ FIX_ANSWER_CHARS = 3000
 
 
 def tr(lang: str):
-    """دالة ترجمة للغة الطلب: T("key", v=...).
-    A translation function for the request's language: T("key", v=...)."""
-    i = 1 if lang == "en" else 0
+    """دالة ترجمة للغة الطلب: T("key", v=...)، والإنجليزية لما ينقص من لغتها.
+    A translation function for the request's language: T("key", v=...), with
+    English for whatever its language lacks."""
+    texts = _strings(lang)
 
     def T(key: str, **kw) -> str:
-        text = TEXT[key][i]
+        text = texts.get(key) or TEXT[key]
         return text.format(**kw) if kw else text
 
     return T
 
 
 def req_lang(request: Request) -> str:
-    """?lang= يتقدّم على الكوكي، والافتراضي الإنجليزية (قرار 2026-11-09).
-    ?lang= takes precedence over the cookie, and the default is English
-    (decided 2026-11-09)."""
+    """?lang= يتقدّم على الكوكي، واللغة من SUPPORTED_LANGUAGES، والافتراضي
+    الإنجليزية (قرار 2026-11-09).
+    ?lang= takes precedence over the cookie, the language is one of
+    SUPPORTED_LANGUAGES, and the default is English (decided 2026-11-09)."""
     q = request.query_params.get("lang")
-    if q in ("ar", "en"):
+    if q in i18n.SUPPORTED_LANGUAGES:
         return q
-    return "ar" if request.cookies.get(LANG_COOKIE) == "ar" else "en"
+    c = request.cookies.get(LANG_COOKIE)
+    return c if c in i18n.SUPPORTED_LANGUAGES else "en"
+
+
+def _dir(lang: str) -> str:
+    """اتجاه الصفحة: من اليمين للغات الحرف العربي (العربية والفارسية والأردية).
+    The page direction: right-to-left for the Arabic-script languages (Arabic,
+    Persian, Urdu)."""
+    return "rtl" if i18n.script_of(lang) == "arabic" else "ltr"
+
+
+def _bot_name(lang: str) -> str:
+    return config.BOT_NAME if i18n.script_of(lang) == "arabic" else config.BOT_NAME_EN
 
 
 # ─────────────────────────────────────────────────────── الدخول / Login
@@ -691,7 +225,7 @@ def _same_origin(request: Request) -> bool:
 def _plain(key: str, status: int) -> Response:
     """رد نصي قصير باللغتين، لطلبات لا صفحة لها.
     A short plain-text response in both languages, for requests with no page."""
-    ar, en = TEXT[key]
+    ar, en = _strings("ar")[key], TEXT[key]
     return Response(f"{ar} / {en}", status_code=status)
 
 
@@ -792,8 +326,12 @@ display:flex;flex-direction:column;gap:8px}
 .side .actions button,.side .actions a{display:block;width:100%;text-align:center;
 background:transparent;color:var(--side-ink);border:1px solid rgba(255,255,255,.18);
 border-radius:8px;padding:6px 8px;font-size:13px;text-decoration:none;white-space:nowrap}
-.side .actions a.lang{flex:1 1 auto}
-.side .actions a.lang{font-weight:600}
+.side .actions form.langform{display:flex;gap:4px;flex:2 1 auto}
+.side .actions form.langform select{flex:1 1 auto;min-width:0;background:transparent;
+color:var(--side-ink);border:1px solid rgba(255,255,255,.18);border-radius:8px;
+padding:6px 4px;font-size:13px}
+.side .actions form.langform select option{color:#1c1c1a}
+.side .actions form.langform button{width:auto;flex:0 0 auto}
 .side .actions button:hover,.side .actions a:hover{background:var(--side-on)}
 .content{min-width:0;padding:28px 36px 72px;max-width:1240px}
 .top{display:flex;align-items:center;justify-content:space-between;gap:16px;
@@ -896,7 +434,8 @@ body.bare h1{font-size:22px}
 body.bare .brand{font-weight:700;font-size:22px}
 body.bare .brand small{color:var(--muted);font-weight:500;font-size:13px;display:block}
 body.bare .card{max-width:none !important}
-body.bare .lang{display:inline-block;margin-top:14px;font-size:14px}
+body.bare .langform{display:inline-flex;gap:6px;margin-top:14px;font-size:14px}
+body.bare .langform select,body.bare .langform button{padding:4px 8px;font-size:14px}
 @media (max-width:900px){
 .shell{grid-template-columns:1fr}
 .side{position:static;height:auto;padding:12px 14px;gap:10px}
@@ -958,29 +497,39 @@ HEADERS = {
 }
 
 
-def _lang_link(request: Request, other: str) -> str:
-    """رابط الصفحة نفسها باللغة الأخرى، مع بقية معاملاتها.
-    A link to the same page in the other language, keeping its other parameters."""
-    params = {k: v for k, v in request.query_params.items() if k not in ("lang", "msg")}
-    params["lang"] = other
-    return f"{request.url.path}?{urlencode(params)}"
+def _lang_form(request: Request, lang: str, T) -> str:
+    """قائمة اللغات: الصفحة نفسها بلغة أخرى مع بقية معاملاتها. نموذج GET بلا
+    سكربت (سياسة أمن المحتوى تمنعه)، فزرّ صغير يطبّق الاختيار. كل لغة باسمها
+    بلغتها.
+    The language list: the same page in another language, keeping its other
+    parameters. A GET form without a script (the content-security policy
+    forbids one), so a small button applies the choice. Each language by its
+    own name in that language."""
+    hidden = "".join(
+        f'<input type="hidden" name="{e(k)}" value="{e(v)}">'
+        for k, v in request.query_params.items() if k not in ("lang", "msg")
+    )
+    options = "".join(
+        f'<option value="{code}" lang="{code}"{" selected" if code == lang else ""}>'
+        f'{e(i18n.LOCALES[code]["language"]["native"])}</option>'
+        for code in i18n.SUPPORTED_LANGUAGES
+    )
+    return (f'<form method="get" action="{e(request.url.path)}" class="langform">{hidden}'
+            f'<select name="lang" aria-label="{e(T("lang_label"))}">{options}</select>'
+            f'<button type="submit">{e(T("lang_go"))}</button></form>')
 
 
 def page(request: Request, title: str, body: str, active: str = "", nav: bool = True,
          status: int = 200, flash: str = "") -> HTMLResponse:
     lang = req_lang(request)
     T = tr(lang)
-    other = "ar" if lang == "en" else "en"
-    # زر اللغة: يحمل اسم اللغة الأخرى بلغتها / The language button carries the
-    # other language's name in that language
-    lang_btn = (f'<a class="lang" href="{e(_lang_link(request, other))}" '
-                f'lang="{other}" hreflang="{other}">{T("other_lang")}</a>')
+    lang_btn = _lang_form(request, lang, T)
     note = ""
     if flash in FLASH_KIND:
         note = f'<div class="alert {FLASH_KIND[flash]}">{e(T("flash_" + flash))}</div>'
-    name = config.BOT_NAME_EN if lang == "en" else config.BOT_NAME
+    name = _bot_name(lang)
     head = f"""<!doctype html>
-<html lang="{lang}" dir="{'ltr' if lang == 'en' else 'rtl'}"><head><meta charset="utf-8">
+<html lang="{lang}" dir="{_dir(lang)}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow">
 <title>{e(title)} · {e(name)}</title><style>{CSS}</style></head>"""
@@ -1009,7 +558,7 @@ def page(request: Request, title: str, body: str, active: str = "", nav: bool = 
 <small>{T("dashboard")}</small></div><h1>{e(title)}</h1></div>{note}{body}
 <p style="text-align:center">{lang_btn}</p></main></body></html>"""
     resp = HTMLResponse(doc, status_code=status, headers=HEADERS)
-    if request.query_params.get("lang") in ("ar", "en"):
+    if request.query_params.get("lang") in i18n.SUPPORTED_LANGUAGES:
         resp.set_cookie(LANG_COOKIE, lang, max_age=365 * 86400, httponly=True,
                         samesite="strict", path="/admin",
                         secure=config.PUBLIC_URL.startswith("https://"))
@@ -1096,7 +645,7 @@ def _session_response(member_id: int, to: str = "/admin", landing: str | None = 
     else:
         T = tr(landing)
         resp = HTMLResponse(
-            f'<!doctype html><html lang="{landing}" dir="{"ltr" if landing == "en" else "rtl"}">'
+            f'<!doctype html><html lang="{landing}" dir="{_dir(landing)}">'
             f'<head><meta charset="utf-8"><meta http-equiv="refresh" content="0; url={to}">'
             f'<meta name="robots" content="noindex,nofollow"><title>{e(T("login_done"))}</title>'
             f"<style>{CSS}</style></head><body class=\"bare\"><main class=\"content\">"
@@ -1225,7 +774,7 @@ def _alerts(T, lang: str, counts: dict, emb: int, status: dict, last: dict | Non
         out.append(("bad", T("a_paused"), T("a_paused_d")))
     if counts["_chunks"] == 0:
         out.append(("bad", T("a_empty"), T("a_empty_d")))
-    note = status["vector_note_en"] if lang == "en" else status["vector_note"]
+    note = status["vector_note"] if lang == "ar" else status["vector_note_en"]
     if note:
         out.append(("bad", T("a_novec"), T("a_novec_d", note=note)))
     elif (emb and store.setting("min_relevance", "") == ""
@@ -1584,10 +1133,10 @@ def _retrieval_details(r: dict | None, T, lang: str) -> str:
     One answer's retrieval details, from the summary saved with it."""
     if not r:
         return ""
-    sep = ", " if lang == "en" else "، "
+    sep = "، " if _dir(lang) == "rtl" else ", "
     tools = sep.join(e(t) for t in r.get("tools", [])) or T("nothing")
     cat = r.get("category")
-    cat_name = ((cat.get("en") if lang == "en" else None) or cat.get("ar", "")) if cat else ""
+    cat_name = ((cat.get("en") if lang != "ar" else None) or cat.get("ar", "")) if cat else ""
     cat_html = e(T("cat_shown", c=cat_name, n=cat.get("n", 0))) if cat else T("nothing")
     passages = "".join(
         f'<tr><td>{e(T("type_" + p["type"]) if ("type_" + p["type"]) in TEXT else p["type"])}</td>'
@@ -1630,7 +1179,7 @@ def _thread(request: Request, T, lang: str) -> str:
         links = "".join(f' <a href="{e(u)}" rel="noreferrer">{e(u)}</a>' for u in m["sources"])
         src = f'<span>{T("sources_label")}{links}</span>' if links else ""
         conf = f"{m['confidence']:.3f}" if m["confidence"] is not None else "—"
-        parts.append(f"""<div class="turn bot"><div class="meta"><span>{e(config.BOT_NAME_EN if lang == "en" else config.BOT_NAME)}</span>
+        parts.append(f"""<div class="turn bot"><div class="meta"><span>{e(_bot_name(lang))}</span>
 {badge(m['outcome'], T)}<span>{T("conf", c=conf)}</span><span>{T("thr_v", t=f"{thr:.2f}")}</span>{src}</div>
 {bubbles}{_retrieval_details(m.get("retrieval"), T, lang)}</div>""")
     return f'<div class="card">{"".join(parts)}</div>'
@@ -2056,7 +1605,7 @@ async def settings(request: Request, msg: str = "", error: str = ""):
         (T("f_sources"), T("yes") if config.SHOW_SOURCES else T("no")),
     ]
     fixed_rows = "".join(f"<tr><th>{e(k)}</th><td>{e(str(v))}</td></tr>" for k, v in fixed)
-    paused_msg = config.PAUSED_MESSAGE_EN if lang == "en" else config.PAUSED_MESSAGE
+    paused_msg = i18n.msg("paused", lang)
     body = f"""{err_html}<div class="card"><form method="post" action="/admin/settings">
 <label for="t">{T("s_thr")}</label>
 <p class="help">{T("s_thr_help", v=f"{config.MIN_RELEVANCE:.2f}")}</p>
@@ -2110,7 +1659,7 @@ async def save_settings(request: Request):
 def _keys_rows(T, lang: str) -> str:
     """صفوف مفاتيح API: الاسم وحاله ونموذج حفظ، بلا قيمة المفتاح.
     The API key rows: name, state and a save form, without the key's value."""
-    i = 1 if lang == "en" else 0
+    i = 0 if lang == "ar" else 1
     rows = []
     for k in keys.status():
         if k["source"] == "dashboard":
@@ -2292,7 +1841,7 @@ async def sources_delete(request: Request):
 def _scenario_form(T, lang: str, scenario: str = "", qlang: str = "", result: dict | None = None) -> str:
     """بطاقة معاينة السيناريوهات: النموذج ثم النتيجة إن وُجدت.
     The scenario preview card: the form, then the result if there is one."""
-    i = 1 if lang == "en" else 0
+    i = 0 if lang == "ar" else 1
     options = "".join(
         f'<option value="{s["key"]}"{" selected" if s["key"] == scenario else ""}>'
         f'{e(s["label"][i])}</option>' for s in role.SCENARIOS
@@ -2352,7 +1901,10 @@ def _role_page(request: Request, msg: str = "", error: str = "",
                preview: tuple | None = None) -> HTMLResponse:
     lang = req_lang(request)
     T = tr(lang)
-    i = 1 if lang == "en" else 0
+    # عناوين أقسام الدور وتسمياتها (عربية، إنجليزية) من app/role.py: الإنجليزية
+    # لبقية اللغات / The role sections' titles and labels (Arabic, English) from
+    # app/role.py: English for the other languages
+    i = 0 if lang == "ar" else 1
     err = {"role": T("err_role", n=role.MAX_CHARS), "scen": T("err_scen"),
            "role_name": T("err_role_name", n=role.MAX_NAME_CHARS),
            "role_choice": T("err_role_choice")}.get(error, "")
@@ -2394,7 +1946,7 @@ def _role_page(request: Request, msg: str = "", error: str = "",
         )
     scen = _scenario_form(T, lang, *(preview or ("", "", None)))
     prompt_html = (f'<h2>{T("role_preview")}</h2><div class="card"><details><summary>'
-                   f'{len(brain.system_prompt())} {"characters" if lang == "en" else "حرفاً"}'
+                   f'{T("prompt_chars", n=len(brain.system_prompt()))}'
                    f'</summary><pre dir="rtl">{e(brain.system_prompt())}</pre></details></div>')
     body = f'{err_html}<p class="help">{T("role_help")}</p>{"".join(sections)}{scen}{prompt_html}'
     return page(request, T("nav_role"), body, "role", flash=msg)

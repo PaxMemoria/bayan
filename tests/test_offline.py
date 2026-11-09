@@ -13,6 +13,7 @@ dashboard's security.
 import json
 import os
 import pathlib
+import re
 import sys
 import tempfile
 import time
@@ -358,10 +359,10 @@ check("رابط العودة إلى العربية في الشريط", "lang=ar"
 r = client.get("/admin/messages?lang=ar")
 check("?lang=ar يعيد العربية ومن اليمين",
       "أسئلة الجمهور" in r.text and 'dir="rtl"' in r.text)
-check("قيمة لغة غير معروفة لا تُقبل: تبقى لغة الكوكي", 'dir="rtl"' in client.get("/admin?lang=fr").text)
-check("الشريط الجانبي: زر اللغة الأخرى وخروج والصفحة الفعّالة",
-      'class="lang"' in r.text and "English" in r.text and "/admin/logout" in r.text
-      and 'class="on"' in r.text, r.text[:200])
+check("قيمة لغة غير معروفة لا تُقبل: تبقى لغة الكوكي", 'dir="rtl"' in client.get("/admin?lang=xx").text)
+check("الشريط الجانبي: قائمة اللغات وخروج والصفحة الفعّالة",
+      'class="langform"' in r.text and '<select name="lang"' in r.text and "English" in r.text
+      and "/admin/logout" in r.text and 'class="on"' in r.text, r.text[:200])
 
 msg_id = store.questions()[0]["id"]
 r = client.post("/admin/block", data={"msg_id": str(msg_id), "next": "/admin/messages"},
@@ -691,10 +692,44 @@ check("الإيقاف المؤقت والخطأ بالسواحلية من ملف
       and i18n.msg("error", "sw") == i18n.LOCALES["sw"]["error"])
 check("لغة غير مدعومة في msg تُعامل إنجليزية",
       i18n.msg("rate", "xx") == i18n.msg("rate", "en") and i18n.welcome("xx", 5) == i18n.welcome(None, 5))
-r = client.get("/admin?lang=pt-BR")
-check("اللوحة تبقى بالعربية والإنجليزية وحدهما: ?lang=pt-BR لا يغيّر لغتها",
-      r.status_code == 200 and ('<html lang="en"' in r.text or '<html lang="ar"' in r.text)
-      and 'lang="pt-BR"' not in r.text and "O que posso fazer" not in r.text, r.status_code)
+# اللوحة بكل اللغات المدعومة / The dashboard in every supported language
+dash_en = set(i18n.LOCALES["en"]["dashboard"])
+check("قسم «dashboard» في كل ملف ترجمة بمفاتيح الإنجليزية نفسها",
+      all(set(loc["dashboard"]) == dash_en for loc in i18n.LOCALES.values()) and len(dash_en) > 300,
+      {c: sorted(set(loc.get("dashboard", {})) ^ dash_en)[:5] for c, loc in i18n.LOCALES.items()
+       if set(loc.get("dashboard", {})) != dash_en})
+check("متغيرات نصوص اللوحة متطابقة في كل لغة",
+      all(set(re.findall(r"\{\w+\}", loc["dashboard"][k])) == set(re.findall(r"\{\w+\}", i18n.LOCALES["en"]["dashboard"][k]))
+          for loc in i18n.LOCALES.values() for k in dash_en))
+r_pt = client.get("/admin?lang=pt-BR")
+pt_dash = i18n.LOCALES["pt-BR"]["dashboard"]
+check("اللوحة تُعرض بالبرتغالية البرازيلية من اليسار",
+      r_pt.status_code == 200 and '<html lang="pt-BR" dir="ltr"' in r_pt.text
+      and pt_dash["nav_home"] in r_pt.text and pt_dash["logout"] in r_pt.text
+      and "Dashboard" not in r_pt.text.split("<nav>")[1].split("</nav>")[0]
+      and f"{server.dashboard.LANG_COOKIE}=pt-BR" in r_pt.headers.get("set-cookie", ""),
+      (r_pt.status_code, r_pt.headers.get("set-cookie")))
+r_ur = client.get("/admin?lang=ur")
+check("اللوحة تُعرض بالأردية من اليمين",
+      '<html lang="ur" dir="rtl"' in r_ur.text and i18n.LOCALES["ur"]["dashboard"]["nav_home"] in r_ur.text
+      and 'class="brand">بيان' in r_ur.text)
+check("قائمة اللغات تسرد كل لغة باسمها، والمختارة معلَّمة",
+      all(f'<option value="{c}" lang="{c}"' in r_ur.text and i18n.LOCALES[c]["language"]["native"] in r_ur.text
+          for c in i18n.SUPPORTED_LANGUAGES)
+      and '<option value="ur" lang="ur" selected>' in r_ur.text and '<select name="lang"' in r_ur.text
+      and '<form method="get" action="/admin" class="langform">' in r_ur.text)
+check("الكوكي يثبّت اللغة، ولغة غير مدعومة في الرابط تُهمل، وبلا كوكي الإنجليزية",
+      '<html lang="ur"' in client.get("/admin").text
+      and '<html lang="ur"' in client.get("/admin?lang=xx").text
+      and '<html lang="en" dir="ltr"' in client.get("/admin", cookies={server.dashboard.LANG_COOKIE: "xx"}).text)
+r_role = client.get("/admin/role?lang=es")
+check("صفحة «دور بيان» بالإسبانية: الواجهة مترجمة والحقول عربية وإنجليزية",
+      r_role.status_code == 200 and i18n.LOCALES["es"]["dashboard"]["nav_role"] in r_role.text
+      and 'name="refusal_ar"' in r_role.text and 'name="refusal_en"' in r_role.text
+      and "Refusal message" in r_role.text and i18n.LOCALES["es"]["dashboard"]["lang_go"] in r_role.text)
+check("صفحة الخصوصية العامة تبقى بالعربية والإنجليزية",
+      client.get("/privacy").status_code == 200 and 'section lang="en"' in client.get("/privacy").text)
+client.get("/admin?lang=ar")  # يعيد كوكي العربية لما بعده / restores the Arabic cookie
 
 # ── ٥د. استدعاء النموذج دون شبكة / The model call, offline ─────────
 # يُعترض الطلب قبل أن يغادر الجهاز: شكله، ثم معالجة كل حالة توقّف.
