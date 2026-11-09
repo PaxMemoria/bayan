@@ -523,6 +523,9 @@ TEXT: dict[str, tuple[str, str]] = {
     "err_scen": ("سيناريو غير معروف.", "Unknown scenario."),
     "flash_role_saved": ("حُفظ وطُبّق فوراً.", "Saved and applied at once."),
     "err_role": ("نص أطول من {n} حرف.", "A text is longer than {n} characters."),
+    "err_role_name": ("اسم البوت من حرف إلى {n} حرفاً في سطر واحد.",
+                      "The bot name is one to {n} characters on one line."),
+    "err_role_choice": ("اختيار غير معروف.", "Unknown choice."),
     "keys_h": ("مفاتيح API", "API keys"),
     "keys_help": ("للمدير وحده. المفتاح المحفوظ هنا يتقدّم على قيمة .env ويعمل فوراً بلا إعادة تشغيل، "
                   "ويُحفظ في قاعدة بيان على الخادم، ولا يُعرض بعد حفظه إلا آخر أربعة أحرف. "
@@ -2301,21 +2304,35 @@ def _role_page(request: Request, msg: str = "", error: str = "",
     lang = req_lang(request)
     T = tr(lang)
     i = 1 if lang == "en" else 0
-    err = {"role": T("err_role", n=role.MAX_CHARS), "scen": T("err_scen")}.get(error, "")
+    err = {"role": T("err_role", n=role.MAX_CHARS), "scen": T("err_scen"),
+           "role_name": T("err_role_name", n=role.MAX_NAME_CHARS),
+           "role_choice": T("err_role_choice")}.get(error, "")
     err_html = f'<div class="alert bad">{err}</div>' if err else ""
     sections = []
     for s in role.SECTIONS:
+        kind = s.get("kind", "text")
         boxes = []
-        for field, _attr, flang, rows in s["fields"]:
+        for field, _attr, flabel, extra in s["fields"]:
             value, custom = role.current(field)
             state = (f'<span class="badge ok">{T("role_custom")}</span>' if custom
                      else f'<span class="badge muted">{T("role_default")}</span>')
-            boxes.append(
-                f'<div><label for="{field}">{T("role_" + flang)} {state}</label>'
-                f'<textarea id="{field}" name="{field}" rows="{rows}" lang="{flang}" '
-                f'dir="{"rtl" if flang == "ar" else "ltr"}" maxlength="{role.MAX_CHARS}">'
-                f"{e(value)}</textarea></div>"
-            )
+            # التسمية: «بالعربية/بالإنجليزية» للنصوص باللغتين، أو اسم الحقل الخاص
+            # The label: "Arabic/English" for texts in both languages, or the field's own name
+            label = T("role_" + flabel) if isinstance(flabel, str) else e(flabel[i])
+            if kind == "select":
+                opts = "".join(
+                    f'<option value="{v}"{" selected" if v == value else ""}>{e(names[i])}</option>'
+                    for v, names in extra)
+                control = f'<select id="{field}" name="{field}">{opts}</select>'
+            elif kind == "line":
+                control = (f'<input type="text" id="{field}" name="{field}" lang="{flabel}" '
+                           f'dir="{"rtl" if flabel == "ar" else "ltr"}" maxlength="{extra}" '
+                           f'value="{e(value)}">')
+            else:
+                control = (f'<textarea id="{field}" name="{field}" rows="{extra}" lang="{flabel}" '
+                           f'dir="{"rtl" if flabel == "ar" else "ltr"}" maxlength="{role.MAX_CHARS}">'
+                           f"{e(value)}</textarea>")
+            boxes.append(f'<div><label for="{field}">{label} {state}</label>{control}</div>')
         cols = "two" if len(boxes) == 2 else "one"
         sections.append(
             f'<h2>{e(s["title"][i])}</h2><p class="help">{e(s["help"][i])}</p>'
@@ -2344,10 +2361,11 @@ async def role_save(request: Request):
         return _back("/admin/role", error="role")
     reset = bool(form.get("reset"))
     try:
-        for field, _attr, _lang, _rows in section["fields"]:
+        for field, _attr, _label, _extra in section["fields"]:
             role.save(field, "" if reset else (form.get(field) or ""), who(request))
-    except ValueError:
-        return _back("/admin/role", error="role")
+    except ValueError as exc:
+        return _back("/admin/role",
+                     error={"name": "role_name", "choice": "role_choice"}.get(str(exc), "role"))
     return _back("/admin/role", msg="role_saved")
 
 

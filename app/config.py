@@ -290,6 +290,20 @@ WELCOME_MESSAGE_EN = os.getenv(
 # Extra rules the team writes on the dashboard's "Bayan's role" page, appended
 # to the system instructions
 TEAM_RULES = os.getenv("TEAM_RULES", "")
+# أسلوب الردّ، ويُغيَّر من الصفحة نفسها: النبرة formal (فصحى مبسطة، الافتراضي) أو
+# friendly (ودود ومباشر)، والطول short أو medium (الافتراضي) أو long. قيمة غير
+# معروفة في .env تعود إلى الافتراضي.
+# The response style, changed from the same page: the tone, formal (simplified
+# fusha, the default) or friendly (warm and direct), and the length, short,
+# medium (the default) or long. An unknown value in .env falls back to the default.
+RESPONSE_TONES = ("formal", "friendly")
+RESPONSE_LENGTHS = ("short", "medium", "long")
+RESPONSE_TONE = os.getenv("RESPONSE_TONE", "formal")
+if RESPONSE_TONE not in RESPONSE_TONES:
+    RESPONSE_TONE = "formal"
+RESPONSE_LENGTH = os.getenv("RESPONSE_LENGTH", "medium")
+if RESPONSE_LENGTH not in RESPONSE_LENGTHS:
+    RESPONSE_LENGTH = "medium"
 PAUSED_MESSAGE = os.getenv(
     "PAUSED_MESSAGE",
     f"{BOT_NAME} متوقف مؤقتاً.\n"
