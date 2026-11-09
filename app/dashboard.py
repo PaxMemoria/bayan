@@ -505,6 +505,22 @@ TEXT: dict[str, tuple[str, str]] = {
     "role_default": ("الافتراضي", "Default"),
     "role_reset": ("أعد الافتراضي", "Reset to default"),
     "role_preview": ("تعليمات النظام الفعلية الآن", "The system instructions now in use"),
+    "role_scen_h": ("معاينة السيناريوهات", "Scenario preview"),
+    "role_scen_help": ("اختر حالة ولغة السائل لترى كيف يردّ بيان بالإعدادات الحالية (النطاق والقواعد "
+                       "والنصوص أعلاه). التحية والإيقاف بلا نموذج؛ البقية تستدعي النموذج فعلاً وقد يختلف "
+                       "الردّ في كل مرة. المعاينة لا تُسجَّل في سجل الأسئلة.",
+                       "Pick a case and the asker's language to see how Bayan replies with the current "
+                       "settings (the scope, rules and texts above). The greeting and paused cases need "
+                       "no model; the others really call the model, and the reply may differ each time. "
+                       "The preview is not logged."),
+    "role_scen": ("السيناريو", "Scenario"),
+    "role_scen_lang": ("لغة السائل", "Asker's language"),
+    "role_scen_btn": ("ولّد مثالاً", "Generate an example"),
+    "role_scen_again": ("ولّد مثالاً آخر", "Generate another example"),
+    "role_scen_q": ("السؤال", "Question"),
+    "role_scen_reply": ("ردّ بيان", "Bayan's reply"),
+    "role_scen_msg": ("رسالة {n}", "Message {n}"),
+    "err_scen": ("سيناريو غير معروف.", "Unknown scenario."),
     "flash_role_saved": ("حُفظ وطُبّق فوراً.", "Saved and applied at once."),
     "err_role": ("نص أطول من {n} حرف.", "A text is longer than {n} characters."),
     "keys_h": ("مفاتيح API", "API keys"),
@@ -2221,15 +2237,72 @@ async def sources_delete(request: Request):
     return _back("/admin/sources", msg="src_deleted")
 
 
+def _scenario_form(T, lang: str, scenario: str = "", qlang: str = "", result: dict | None = None) -> str:
+    """بطاقة معاينة السيناريوهات: النموذج ثم النتيجة إن وُجدت.
+    The scenario preview card: the form, then the result if there is one."""
+    i = 1 if lang == "en" else 0
+    options = "".join(
+        f'<option value="{s["key"]}"{" selected" if s["key"] == scenario else ""}>'
+        f'{e(s["label"][i])}</option>' for s in role.SCENARIOS
+    )
+    qlang = qlang or lang
+    out = f"""<h2>{T("role_scen_h")}</h2><p class="help">{T("role_scen_help")}</p>
+<div class="card"><form method="post" action="/admin/role/preview" class="row">
+<label for="scen" style="margin:0">{T("role_scen")}</label>
+<select id="scen" name="scenario" style="max-width:320px">{options}</select>
+<label style="margin:0">{T("role_scen_lang")}</label>
+<select name="lang" style="max-width:160px">
+<option value="ar"{" selected" if qlang == "ar" else ""}>{T("role_ar")}</option>
+<option value="en"{" selected" if qlang == "en" else ""}>{T("role_en")}</option></select>
+<button type="submit">{T("role_scen_again") if result else T("role_scen_btn")}</button></form>"""
+    if result:
+        msgs = "".join(
+            f'<p class="muted" style="margin:10px 0 2px">{T("role_scen_msg", n=n)}</p>'
+            f'<div class="reply" dir="{"ltr" if qlang == "en" else "rtl"}">{e(m)}</div>'
+            for n, m in enumerate(result["messages"], 1)
+        )
+        meta = ""
+        if result["outcome"]:
+            meta = (f'<div class="meta">{badge(result["outcome"], T)}'
+                    f'<span>{T("conf", c=f"{result["confidence"]:.3f}")}</span></div>')
+        srcs = "".join(f'<li><a href="{e(u)}" rel="noreferrer">{e(u)}</a></li>'
+                       for u in result["sources"])
+        q = (f'<p><b>{T("role_scen_q")}:</b> {e(result["question"])}</p>'
+             if result["question"] else "")
+        out += (f'<hr style="border:0;border-top:1px solid var(--line);margin:16px 0">{q}'
+                f'<p><b>{T("role_scen_reply")}</b></p>{meta}{msgs}'
+                + (f"<ul>{srcs}</ul>" if srcs else ""))
+    return out + "</div>"
+
+
+@router.post("/admin/role/preview")
+async def role_preview(request: Request):
+    denied, form = await _post_gate(request, role="admin")
+    if denied:
+        return denied
+    scenario = form.get("scenario", "")
+    qlang = "en" if form.get("lang") == "en" else "ar"
+    try:
+        result = await asyncio.to_thread(role.preview, scenario, qlang)
+    except ValueError:
+        return _back("/admin/role", error="scen")
+    return _role_page(request, preview=(scenario, qlang, result))
+
+
 @router.get("/admin/role")
 async def role_page(request: Request, msg: str = "", error: str = ""):
     if denied := _gate(request, "admin"):
         return denied
+    return _role_page(request, msg, error)
+
+
+def _role_page(request: Request, msg: str = "", error: str = "",
+               preview: tuple | None = None) -> HTMLResponse:
     lang = req_lang(request)
     T = tr(lang)
     i = 1 if lang == "en" else 0
-    err_html = (f'<div class="alert bad">{T("err_role", n=role.MAX_CHARS)}</div>'
-                if error == "role" else "")
+    err = {"role": T("err_role", n=role.MAX_CHARS), "scen": T("err_scen")}.get(error, "")
+    err_html = f'<div class="alert bad">{err}</div>' if err else ""
     sections = []
     for s in role.SECTIONS:
         boxes = []
@@ -2253,10 +2326,11 @@ async def role_page(request: Request, msg: str = "", error: str = ""):
             f'<button class="ghost" type="submit" name="reset" value="1">{T("role_reset")}</button>'
             f"</p></form></div>"
         )
-    preview = (f'<h2>{T("role_preview")}</h2><div class="card"><details><summary>'
-               f'{len(brain.system_prompt())} {"characters" if lang == "en" else "حرفاً"}'
-               f'</summary><pre dir="rtl">{e(brain.system_prompt())}</pre></details></div>')
-    body = f'{err_html}<p class="help">{T("role_help")}</p>{"".join(sections)}{preview}'
+    scen = _scenario_form(T, lang, *(preview or ("", "", None)))
+    prompt_html = (f'<h2>{T("role_preview")}</h2><div class="card"><details><summary>'
+                   f'{len(brain.system_prompt())} {"characters" if lang == "en" else "حرفاً"}'
+                   f'</summary><pre dir="rtl">{e(brain.system_prompt())}</pre></details></div>')
+    body = f'{err_html}<p class="help">{T("role_help")}</p>{"".join(sections)}{scen}{prompt_html}'
     return page(request, T("nav_role"), body, "role", flash=msg)
 
 

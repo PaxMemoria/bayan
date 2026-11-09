@@ -1949,6 +1949,28 @@ check("الحذف يزيل المصدر ومقاطعه ويُسجَّل",
       and any(a["action"] == "source_add" and a.get("target") == f"note:{note_id}" for a in store.audit_log(40)))
 sources.socket.getaddrinfo = real_getaddrinfo
 
+# ── معاينة السيناريوهات في صفحة الدور / Scenario preview on the role page ──
+print("\n── معاينة السيناريوهات ──")
+r = client.get("/admin/role")
+check("صفحة الدور تعرض نموذج المعاينة بكل السيناريوهات",
+      "/admin/role/preview" in r.text and all(f'value="{s["key"]}"' in r.text for s in role.SCENARIOS)
+      and "ولّد مثالاً" in r.text)
+r = client.post("/admin/role/preview", data={"scenario": "greeting", "lang": "ar"})
+check("معاينة التحية: رسالتان، ردّ التحية ثم الترحيب، بلا نموذج",
+      r.status_code == 200 and "وعليكم السلام ورحمة الله وبركاته" in r.text
+      and "ما أستطيع فعله" in r.text and "رسالة 2" in r.text, r.status_code)
+r = client.post("/admin/role/preview", data={"scenario": "paused", "lang": "en"})
+check("معاينة الإيقاف بالإنجليزية", r.status_code == 200 and "is paused for now" in r.text)
+before_q = len(store.questions())
+r = client.post("/admin/role/preview", data={"scenario": "out_of_scope", "lang": "ar"})
+check("معاينة سؤال خارج النطاق تمرّ بالبوابة وتعرض نص الرفض ولا تُسجَّل",
+      r.status_code == 200 and "أربعة أشياء" in r.text and "رفضته البوابة" in r.text
+      and len(store.questions()) == before_q, r.status_code)
+check("سيناريو غير معروف يُرفض، والمشاهد لا يعاين",
+      "error=scen" in client.post("/admin/role/preview", data={"scenario": "x"},
+                                  follow_redirects=False).headers["location"]
+      and viewer.post("/admin/role/preview", data={"scenario": "greeting"}).status_code == 403)
+
 embed.embed = real_embed
 print(f"\nالنتيجة: {ok}/{ok + fail}")
 sys.exit(0 if fail == 0 else 1)
