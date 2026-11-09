@@ -1,413 +1,370 @@
-[English](README.en.md)
+[العربية](README.ar.md)
 
-# بيان — مساعد باكس ميموريا
+# Bayan: a grounded assistant for your organisation's content
 
 [![Security scans](https://github.com/PaxMemoria/bayan/actions/workflows/security-sast.yml/badge.svg?branch=main)](https://github.com/PaxMemoria/bayan/actions/workflows/security-sast.yml) [![Offline tests](https://github.com/PaxMemoria/bayan/actions/workflows/python-app.yml/badge.svg?branch=main)](https://github.com/PaxMemoria/bayan/actions/workflows/python-app.yml)
 
-بوت يجيب الجمهور عن **دليل أدوات المصادر المفتوحة** و**التحقيقات المنشورة**
-في باكس ميموريا و**فرص الأسبوع** و**السلامة الرقمية** من مصدرين مفتوحي
-الرخصة، ولا يخرج عنها. يجيب بلغة السائل، العربية أو الإنجليزية، ويعمل على
-تيليغرام وواتساب وفيسبوك ماسنجر بنفس العقل وقاعدة المعرفة.
+Bayan answers the public's questions **only from the content you give it**:
+your website or document repository, notes and files your team adds from a
+dashboard, lists you publish every week, and openly licensed sources you
+choose. It refuses everything else, answers in the asker's language (Arabic
+and English today, more languages in progress), and runs on Telegram,
+WhatsApp and Facebook Messenger with one brain and one knowledge base.
+
+It was built by [Pax Memoria](https://paxmemoria.org), a non-profit, for its
+own guide and publications, and is released under Apache 2.0 for any
+organisation that needs the same: an assistant that cannot wander off its
+sources, with the editorial rules enforced in code rather than left to a
+model's obedience.
 
 ---
 
-## لماذا مستودع منفصل عن الموقع
+## How you feed it
 
-بيان يخزّن أسئلة الجمهور ومعرّفاتهم — ومعرّف واتساب **هو رقم الهاتف**.
-جمهوركم أناس يسألون عن تحقيقات في عمليات قتل. هذه البيانات لا يجوز أن
-تقترب من مستودع الموقع ولا من سجلّات CI الخاصة به.
+Five kinds of content, all optional except the first:
 
-يضاف إلى ذلك أن من يدفع إلى مستودع الموقع أكثر عدداً بطبيعة العمل، وبيان
-يتكلم باسم المنظمة على واتساب وتيليغرام وفيسبوك: الفصل يجعل تغيير ما
-يقوله البوت يتطلب صلاحية مختلفة عن صلاحية تحرير مقال.
+| Part | Where it comes from | How it is kept fresh |
+|---|---|---|
+| **Your site or repository** | An extractor script of yours exports two files from your content: `knowledge.jsonl` (passages) and `tools.json` (structured entries with fields such as category, link, caution, verification). Bayan pulls the repository with a read-only deploy key and runs the script in isolation. | A workflow in your repository signals Bayan after every merge, and it reindexes in the background (`site-workflow/bayan-reindex.yml`). |
+| **Team sources** | From the dashboard: a note, a page link, or an uploaded file (PDF, Word, Markdown, text, HTML). The extracted text is kept, not the file. | Added to the index at once with its vectors; links are re-fetched daily. |
+| **Weekly lists** | Numbered lists the team pastes into the dashboard each week (for example opportunities, events, announcements), numbered by ISO week. | Published at once; broadcast to subscribers on the enabled channels. |
+| **Openly licensed sources** | External sites or repositories under licences that allow reuse, fetched and attributed per answer (`app/safety.py`; the defaults are two digital-safety guides under CC BY-SA 4.0 and CC BY 4.0). | Re-fetched on every reindex; if a source is down, its previous copy stays. |
+| **Approved corrections** | Answers the team writes in its own words for a question. | Take precedence over every other source from the moment they are saved. |
 
-**ما يبقى في مستودع الموقع**: `scripts/export-bayan-knowledge.mjs` فقط،
-لأنه يقرأ بنية `src/data` الداخلية — بقاؤه بجانب البيانات يعني أن من
-يغيّر شكلها يرى السكربت الذي سيكسره.
+### The export contract
+
+Your extractor produces, in a folder Bayan can read (`EXPORT_DIR`):
+
+- `knowledge.jsonl`: one JSON object per line with `id`, `type` (for example
+  `article`, `page`, `about`), `lang` (`ar` or `en`), `title`, `url`, `text`
+  (the passage, roughly 500–1200 characters) and a free `meta` object
+  (`slug`, `date`, `author`, `position`…). An article available in two
+  languages uses the same slug with an `-en` suffix for the English version,
+  so retrieval shows the asker one version, in their language.
+- `tools.json`: a list of structured entries with `name`, `category_ar`,
+  `category_en`, `summary_ar`, `summary_en`, `link`, `domain`, `verification`,
+  `sensitive`, `caution`, `removed`, `removal_type_ar`, `removal_reason_ar`,
+  `removal_date`, `replacement`, `url`. Any catalogue with categories fits:
+  tools, services, organisations, datasets.
+
+The reference extractor lives in the content repository, next to the data it
+reads, so whoever changes the data's shape sees the script they are about to
+break.
 
 ---
 
-## كيف يُمنع الخروج عن الداتا
+## Why a repository separate from your site's
 
-أربع طبقات، كل واحدة تكفي وحدها:
+Bayan stores the public's questions and channel identifiers, and a WhatsApp
+identifier **is the phone number**. That data must not come near a content
+repository or its CI logs. More people push to a content repository, by the
+nature of the work, and the bot speaks for the organisation on public
+channels: the separation means that changing what the bot says requires a
+different permission from the one needed to edit a page.
 
-| # | الطبقة | أين | ماذا تفعل |
+---
+
+## How Bayan is kept within the data
+
+Four layers, each enough on its own:
+
+| # | Layer | Where | What it does |
 |---|---|---|---|
-| ١ | بوابة الاسترجاع | `retrieve.py` | تحسب ثقة؛ أقل من العتبة ⇒ رفض **قبل** استدعاء النموذج. السؤال خارج النطاق يكلّف صفر استدعاءات. |
-| ٢ | نموذج مقيّد | `brain.py` | يستقبل المقاطع المسترجعة فقط، وتُمنع عليه معرفته العامة. |
-| ٣ | فحص المخرجات | `brain.py` | علامة الرفض أو إجابة فارغة ⇒ رسالة موحّدة. |
-| ٤ | **مرشّح الروابط** | `brain.py` | يعطّل **حتمياً** أي رابط أو نطاق لأداة حسّاسة أو مُزالة **في الدليل كله**، مهما كتب النموذج: النطاق يُكتب بنقاط معطَّلة مثل archive[.]is فيبقى مقروءاً دون أن يصير رابطاً، والأداة المستضافة على منصة مشتركة مثل GitHub تحلّ محلّ رابطها صفحة الدليل. القواعد التحريرية لا تُترك لطاعة نموذج. |
+| 1 | Retrieval gate | `retrieve.py` | Computes a confidence score; below the threshold ⇒ refusal **before** the model is called. An out-of-scope question costs zero calls. |
+| 2 | Restricted model | `brain.py` | Receives only the retrieved passages and is forbidden from using its general knowledge, even to explain a term. |
+| 3 | Output check | `brain.py` | A refusal marker or an empty answer ⇒ a standard message. |
+| 4 | **Link filter** | `brain.py` | **Deterministically** neutralises any link or domain of an entry marked sensitive or removed, **anywhere in the catalogue**, whatever the model wrote: the domain is written with defanged dots (`example[.]org`) so it stays readable without becoming a link, and an entry hosted on a shared platform is replaced by your catalogue page. |
 
-المرشّح يغطي الدليل كله لا الأدوات المسترجعة وحدها، لأن 71 مقطعاً من
-مقاطع المعرفة تحمل هي نفسها رابط أداة حسّاسة أو نطاق أداة مُزالة
-(«نطاقها السابق (لا يُفتح): github.com/…»)، وتصل إلى النموذج عبر المسار
-الدلالي. وتيليغرام وواتساب يحوّلان النطاق المجرد إلى رابط قابل للنقر.
-رابط أداة عادية يشترك في بادئة مع رابط ممنوع (مثل محركات Google المخصصة)
-يُستثنى بالمطابقة التامة.
+The filter covers the whole catalogue, not only the retrieved entries,
+because passages themselves can carry such links and reach the model through
+the semantic path, and messaging apps turn a bare domain into a clickable
+link.
 
 ---
 
-## السلامة الرقمية: الجزء الرابع
+## Two retrieval paths
 
-أجزاء المعرفة الثلاثة الأولى من باكس ميموريا نفسها: الأدوات والتحقيقات من
-مستودع الموقع، والفرص من اللوحة. الجزء الرابع من مصدرين خارجيين مفتوحي
-الرخصة يجلبهما `app/safety.py` عند كل فهرسة:
+Structured entries are a **database**, not text, so they have two paths:
 
-| المصدر | الرخصة | كيف يُجلب |
-|---|---|---|
-| [عدّة الأمان — Security in a Box](https://securityinabox.org/ar/) (Front Line Defenders) | CC BY-SA 4.0 | صفحاته العربية ليست في مستودعه، فتُجلب صفحات `/ar/` من `sitemap.xml` وتُقرأ من HTML (بلا المدونة وصفحات «عن» والسياسات). |
-| [عدّة الإسعاف الأولي الرقمي — Digital First Aid Kit](https://digitalfirstaid.org/ar/) (RaReNet وCiviCERT) | CC BY 4.0 | نسخة ضحلة من مستودعه على GitLab، وتُقرأ ملفات `content/ar` (المواضيع والصفحات ومنظمات الدعم). |
+- **Structured**: "What translation tools are there?" ⇒ a filter on the
+  category field that returns the full list, in order. A list is only shown
+  when the question looks like a request for a list.
+- **Semantic**: "How do I verify the date of a photo?" is a question of
+  meaning, so it goes to hybrid search (lexical + vectors, fused by rank).
 
-كل مقطع يحمل مصدره ورخصته ورابط صفحته وتاريخ مراجعتها، وتعليمات النظام
-تُلزم بيان بذكرها في الجواب، وبأن يبقى إرشاداً عاماً لا حكماً على حالة
-السائل، وبإحالة من يذكر خطراً جارياً إلى منظمات الدعم. ما يُجلب يُحفظ في
-`DATA_DIR/safety.jsonl`؛ فإن تعطّل مصدر في دورة لاحقة بقيت نسخته السابقة
-ولم تفشل الفهرسة. `SAFETY_SOURCES` (افتراضياً `siab,dfak`) يحصر المصادر،
-وفارغاً يعطّل الجزء كله.
+Passages (articles, pages, team sources, external sources) go to the semantic
+path only. An article that has a version in the asker's language is not also
+retrieved in the other language.
 
 ---
 
-## مساران للاسترجاع
+## Why vectors are necessary, not optional
 
-الأدوات **قاعدة بيانات** لا نصوص، فلها مساران:
+Without vectors only lexical search runs, and it measures matching words, not
+meaning. `scripts/calibrate.py` measures the difference on a set of
+legitimate and out-of-scope questions (`scripts/calibration_questions.json`,
+add your own). In the reference deployment, lexical search alone wrongly
+refused 13 of 20 legitimate questions at the default threshold; with vectors,
+none. Separation is still not complete: out-of-scope questions deliberately
+close to your topics can pass the gate and are refused by the model in layers
+2 and 3, each a paid call. The threshold is tuned from the dashboard.
 
-- **منظَّم** — «ما أدوات الترجمة؟» ⇒ تصفية على حقل التصنيف تعيد القائمة
-  كاملة ومرتّبة. ولا تُعرض قائمة إلا حين يبدو السؤال طلب قائمة، كي لا
-  يُغرَق سائلٌ عن أداة واحدة.
-- **دلالي** — «كيف أتحقق من تاريخ صورة؟» سؤال معنى، يذهب للبحث الهجين.
+### The local embedding model (default)
 
-التحقيقات نصوص، فتذهب للمسار الدلالي وحده.
+`voyage-4-nano` runs on Bayan's own server, so no question leaves the server
+and no key or account is needed. Open weights (Apache 2.0), one vector space
+with the rest of the voyage-4 family.
 
----
+- **No code from the network**: the model code is copied into
+  `app/nano/modeling.py` from a pinned revision, with its licence, instead of
+  `trust_remote_code`.
+- **Pinned weights**: `scripts/fetch_model.py` downloads the weights (0.7 GB)
+  at the same revision when the Docker image is built and checks their SHA-256.
+  After the build the server runs offline from Hugging Face.
+- **CPU-only `torch`**, no CUDA.
 
-## ⚠ لماذا المتجهات ضرورية، لا اختيارية
+Measured in a Linux container on 10 cores with a 4 GB memory limit: loading
+4 s at startup (in the background), indexing about 1,000 passages 453 s,
+about 600 ms per question, 1.8 GB of memory while serving, under 3 GB at
+peak. **The server needs at least 4 GB of memory available to Bayan**;
+`EMBED_THREADS` sets the cores if the server is shared.
 
-بلا متجهات يعمل البحث اللفظي وحده، وهو يقيس تطابق الكلمات لا المعنى.
-`scripts/calibrate.py` يقيس الفرق على 20 سؤالاً مشروعاً و16 سؤالاً خارج
-النطاق (`scripts/calibration_questions.json`):
+### The Voyage service (optional)
 
-| عند العتبة 0.30 | بحث لفظي وحده | `voyage-4-nano` بـ1024 بُعداً |
-|---|---|---|
-| أسئلة مشروعة تُرفض خطأً | 13 من 20 | 0 من 20 |
-| أسئلة خارجة تصل إلى النموذج | 0 من 16 | 6 من 16 |
+`EMBED_PROVIDER=voyage` with `VOYAGE_API_KEY`. With this option the text of
+every question is sent to the service, including out-of-scope questions that
+never reach the answer model.
 
-«كيف أتحقق من موقع صورة جغرافياً؟» تسجّل بالبحث اللفظي أقل من «ما هي
-عاصمة فرنسا؟»، لأن السؤال يستعمل كلمات غير كلمات المحتوى، وهذا بالضبط
-شكل أسئلة الجمهور.
+### What protects the index
 
-الفصل بالمتجهات غير تام. أعلى الأسئلة الخارجة ثقةً قريبة من موضوعات
-الدليل عمداً، مثل «كيف أخترق حساب فيسبوك لشخص آخر؟» (0.46) وفي الدليل
-أدوات فيسبوك. لا عتبة تفصلها دون رفض أسئلة مشروعة، فيرفضها النموذج في
-الطبقتين ٢ و٣، وكل منها استدعاء مدفوع. العتبة 0.30 تفضّل ألّا يُرفض سائل
-مشروع، وتُرفع من اللوحة إن كثر «رفضه النموذج» في سجل الأسئلة.
-
-### النموذج المحلي `voyage-4-nano` (الافتراضي)
-
-يعمل على خادم بيان نفسه، فلا يغادر أي سؤال من أسئلة الجمهور الخادم، ولا
-يلزم مفتاح ولا حساب. النموذج مفتوح الأوزان (Apache 2.0) من Voyage AI، ويشترك
-في فضاء متجهات واحد مع بقية عائلة voyage-4.
-
-- **لا كود من الشبكة**: كود النموذج منقول إلى `app/nano/modeling.py` من
-  مراجعة مثبّتة، مع رخصته وملاحظة حقوقه، بدل `trust_remote_code`.
-- **أوزان مثبّتة**: `scripts/fetch_model.py` ينزّل الأوزان (0.7 GB) بالمراجعة
-  نفسها عند بناء صورة Docker، ويتحقق من بصمتها SHA-256. بعد البناء يعمل
-  الخادم دون اتصال بـ Hugging Face (`HF_HUB_OFFLINE=1`).
-- **`torch` للمعالج وحده**، فلا تُثبَّت مكتبات CUDA.
-
-ما قسناه في حاوية Docker لـ Linux على 10 أنوية، بحدّ ذاكرة 4 GB ودون
-شبكة. torch على Linux أبطأ منه على macOS، فهذه أقرب إلى ما ينتظر خادماً:
-
-| | |
-|---|---|
-| تحميل النموذج عند الإقلاع | 4 ثوانٍ، في الخلفية |
-| فهرسة 1,039 مقطعاً | 453 ثانية |
-| زمن السؤال الواحد (المتجه والاسترجاع) | نحو 600 ms |
-| ذاكرة الخادم وهو يعمل | 1.8 GB |
-| ذاكرة الذروة أثناء الفهرسة | أقل من 3 GB (اكتملت تحت حدّ 4 GB) |
-| حجم الصورة | 3.7 GB، منها النموذج 0.7 GB و torch 0.65 GB |
-
-**الخادم يحتاج 4 GB ذاكرة متاحة لبيان على الأقل.** `EMBED_THREADS` يحدّد
-عدد الأنوية إن شارك بيان الخادم مع غيره.
-
-### خدمة Voyage (اختيارية)
-
-`EMBED_PROVIDER=voyage` مع `VOYAGE_API_KEY`. المفتاح يُنشأ في MongoDB
-Atlas من قائمة «AI Model APIs»، ويعمل على `https://ai.mongodb.com/v1/embeddings`
-(`VOYAGE_ENDPOINT`). الحساب بلا وسيلة دفع كان محدوداً بثلاثة طلبات و10
-آلاف رمز في الدقيقة، وهذا أقل من دفعة واحدة من مقاطع بيان، فتحقّق من
-الحدود في Atlas قبل الفهرسة. مع هذا الخيار يُرسَل نص كل سؤال إلى الخدمة،
-ومنها الأسئلة الخارجة عن النطاق التي لا تصل إلى Claude أبداً.
-
-### ما يحمي الفهرس
-
-الفهرسة تولّد المتجهات **قبل** لمس الفهرس، فإن فشلت يبقى الفهرس السابق
-يعمل ويظهر الفشل في اللوحة. والخادم يلتقط الفهرس الجديد بنفسه دون إعادة
-تشغيل. وإن تعطّلت المتجهات أثناء سؤال حيّ، يُجاب السؤال بالبحث اللفظي بدل
-أن يصمت بيان. وتغيير المزوّد أو `EMBED_MODEL` أو `EMBED_DIM` يعطّل البحث
-الدلالي حتى تُعاد الفهرسة، لأن متجهات إعدادين مختلفين لا تُقارَن.
+Indexing generates the vectors **before** touching the index: if it fails,
+the previous index keeps working and the failure shows in the dashboard. The
+server picks up a new index by itself, without a restart. If vectors fail
+during a live question, the question is answered with lexical search instead
+of the bot going silent. Changing the provider, `EMBED_MODEL` or `EMBED_DIM`
+disables semantic search until the index is rebuilt.
 
 ---
 
-## القواعد التحريرية
+## Editorial rules
 
-مستمدّة من حقول بياناتكم نفسها، ومُنفَّذة في الكود لا في البرومبت وحده:
+Drawn from the fields of your data and enforced in code, not only in the
+prompt:
 
-- **`Verification` درجة دليل من تدقيق OTVS، لا حكم أمان.** بيان ممنوع من
-  قول «موثّقة» أو «آمنة» أو «معتمدة». `trained` تُنقل كـ«لم تُراجَع حيّاً
-  في آخر تدقيق».
-- **الأدوات الحسّاسة أو ذات `Caution`**: التحذير إلزامي النقل، والرابط
-  المباشر ممنوع — تُحال إلى `/osint-tools` ليُرى التحذير في سياقه، تماماً
-  كما يفعل موقعكم.
-- **الأدوات المُزالة (69)**: يُعلَن أنها أُزيلت ومتى ولماذا، بلا رابط ولا
-  نطاق قابل للفتح، مع البديل إن وُجد.
-- **التحقيقات**: لا نسب مسؤولية ولا نيّة إلا بصيغة التحقيق نفسه، ولا
-  تقدير أرقام، ولا تعميم من حادثة إلى نمط.
-- **البديل**: لا تُسمّى أداة بديلاً لأداة مُزالة إلا إن كانت في حقل البديل
-  في سجلّها. أدوات التصنيف نفسه تُذكر أدواتٍ أخرى، لا بدائل.
-- **المصادر**: كل مصدر يصل إلى النموذج مرقّم، والنموذج يختم إجابته بسطر
-  مخفي يذكر أرقام ما اعتمد عليه، فلا تُعرض للسائل إلا روابطها. بدون ذلك
-  كانت إجابة عن تتبّع الطائرات تذكر تحقيقين لا صلة لهما بها.
-- **القواعد نفسها بالإنجليزية**: verified و safe و approved و trusted
-  ممنوعة كمقابلاتها العربية.
-
----
-
-## اللغات ونموذج الإجابة
-
-- **إحدى عشرة لغة للجمهور**: العربية والإنجليزية (الأصل)، والبرتغالية
-  البرازيلية والإسبانية والفرنسية والسواحلية والهندية والأردية والفارسية
-  والتركية والإندونيسية. كل نص يصل الجمهور (الرفض والترحيب والإيقاف المؤقت
-  والحدّ اليومي ورسائل الاشتراك وردود التحية وخلاصة الخصوصية) في ملف JSON واحد
-  لكل لغة في `app/locales/` (`ar.json`، `en.json`، `pt-BR.json`…). ما ينقص من
-  ملف يُؤخذ من الإنجليزية. وتحمل الملفات نفسها قسم `dashboard` بكل نصوص لوحة
-  الفريق، فهي متاحة أيضاً بكل اللغات المدعومة.
-- **إضافة لغة**: انسخ `en.json` إلى `<الرمز>.json` وترجم قيمه ومنها قسم
-  `dashboard` (أبقِ «فرص» وأسماء
-  الأوامر مثل `/subscribe` كما هي، وأبقِ المتغيرات `{limit}` و`{wait}`
-  و`{bot_name}`)، وأضف الرمز إلى `SUPPORTED_LANGUAGES` في `app/i18n.py`، وإن
-  كانت اللغة بالحرف اللاتيني فأضف مجموعة من كلماتها الشائعة إلى `_MARKERS` هناك
-  كي تُكشف. لا شيء آخر يتغيّر: النموذج يجيب باللغة التي يسمّيها
-  `<لغة_الإجابة>`.
-- **كشف اللغة** (`app/i18n.py`، بلا مكتبات): الحرف أولاً: حرفان عربيان أو
-  أكثر يجعلان السؤال عربياً، إلا إن حمل حروفاً خاصة بالأردية (ے ٹ ڈ ڑ ں ھ ہ،
-  فأردية) أو بالفارسية (پ چ ژ گ ک ی، ففارسية)؛ والديفاناغاري هندية. وللحرف
-  اللاتيني قائمة صغيرة من الكلمات الشائعة والحروف المميزة لكل لغة (ã/õ/ç،
-  ñ/¿/¡، ğ/ı/ş) تختار البرتغالية أو الإسبانية أو الفرنسية أو التركية أو
-  الإندونيسية أو السواحلية، وما لم يُعرف إنجليزي. أسماء الأدوات لاتينية في
-  الغالب، فـ«ما هي أداة Google Earth Pro؟» تبقى عربية، واسم أداة وحده مثل
-  "Hunchly" إنجليزي. لغة واجهة تيليغرام (`language_code`) تحدد لغة `/start`
-  والرسالة بلا نص.
-- **المصادر تبقى بالعربية والإنجليزية**: لسؤال بلغة أخرى تُسترجع المصادر
-  بالإنجليزية (وبالعربية للأردية والفارسية)، وتعليمات النظام تأمر النموذج
-  بالترجمة الأمينة إلى اللغة المسمّاة في `<لغة_الإجابة>` ("Portuguese
-  (Brazil)"، "Swahili"…) مع إبقاء أسماء الأدوات والروابط كما هي وتطبيق كل
-  القواعد، ومنها الكلمات الممنوعة، في تلك اللغة.
-- **التحقيقات بلغتيها**: المُستخرِج يصدّر 20 تحقيقاً بالعربية و13 بالإنجليزية.
-  التحقيق الذي له نسخة بلغة السائل لا يُسترجع بلغته الأخرى، فلا تأخذ القصة
-  نفسها خانتين من المقاطع الستة.
-- **الرسائل الثابتة** من ملف لغة رسالة السائل؛ والترحيب بعد `/start` و `/help`
-  بالعربية والإنجليزية معاً حين لا تُعرف لغة الواجهة، لأن الأمر لا لغة له.
-  ونصوص الرفض والترحيب والإيقاف المؤقت المعدَّلة من صفحة «دور بيان» في اللوحة
-  تتقدّم على ملفي العربية والإنجليزية وحدهما، وبقية اللغات على نص ملفاتها.
-- **نموذج الإجابة**: `ANSWER_MODEL`، وعمق التفكير `ANSWER_EFFORT` (الافتراضي
-  `medium` لأن القواعد التحريرية صارمة). لا `temperature`: أزالتها الواجهة في
-  21 تشرين الأول/أكتوبر 2026، ورموز التفكير تُحسب من `MAX_OUTPUT_TOKENS`
-  (4000). رفض مصنِّف الأمان يُعامل «رفضه النموذج»، و `ANSWER_FALLBACK=default`
-  يعيد رفض فئتي cyber و frontier_llm على نموذج بديل كي لا يُرفض سؤال مشروع
-  عن أداة أمن رقمي خطأً. إصدار الحزمة مثبّت في `requirements.txt`: تحديث غير
-  مثبّت هو ما كسر كل الإجابات في أول نشر.
+- **A verification field is a grade of evidence, not a safety verdict**: the
+  bot passes on the grade's wording and is forbidden from saying "verified",
+  "safe", "approved" or "trusted" in either language.
+- **Sensitive entries, or entries with a caution**: the warning must be passed
+  on and the direct link is forbidden; the asker is referred to your catalogue
+  page so the warning is seen in context.
+- **Removed entries**: the bot says that they were removed, when and why, with
+  no link and no domain that can be opened, and names the replacement only if
+  the entry's own replacement field has one.
+- **Published articles**: no attribution of responsibility or intent except in
+  the article's own wording, no estimating of numbers, no generalising from
+  one case to a pattern.
+- **External sources**: the source is named once in the answer with the page's
+  review date; the licence is added after the link in the source line.
+- **Sources**: every source the model receives is numbered and the model ends
+  its answer with a hidden line naming the numbers it relied on, so the asker
+  sees only those links.
+- **Team rules**: an admin can append rules of their own from the dashboard;
+  they apply alongside the fixed ones and cannot override them.
 
 ---
 
-## التشغيل
+## Languages and the answer model
+
+- **Eleven languages from translation files**: Arabic and English (the
+  originals), Brazilian Portuguese, Spanish, French, Swahili, Hindi, Urdu,
+  Persian, Turkish and Indonesian. Each language is one JSON file in
+  `app/locales/` (`ar.json`, `en.json`, `pt-BR.json`, ...) holding every text
+  the public gets (greeting, welcome, refusal, daily limit, pause, error,
+  subscription, privacy gist) and a `dashboard` section with the dashboard's
+  strings. Whatever a file lacks falls back to English.
+- **Adding a language**: copy `en.json` to `<code>.json` and translate its
+  values, the `dashboard` section included, keeping the placeholders such as
+  `{limit}` and `{bot_name}` and the command names such as `/subscribe`; add
+  the code to `SUPPORTED_LANGUAGES` in `app/i18n.py`, and, for a Latin-script
+  language, a set of its common words to `_MARKERS` there so it can be
+  detected. Nothing else changes: the model answers in whatever language the
+  prompt names.
+- **Language detection** (`app/i18n.py`, no libraries): the script first
+  (Arabic script is Arabic unless it carries Urdu-only or Persian letters;
+  Devanagari is Hindi), then, for the Latin script, a small list of common
+  words and distinctive characters per language; anything unknown is English.
+  Names in Latin letters inside an Arabic sentence keep it Arabic, and a bare
+  name on its own is English. Telegram's interface language sets the language
+  of `/start` and of messages without text.
+- **The sources stay in Arabic and English**: for a question in another
+  language the sources are retrieved in English (Arabic for Urdu and Persian),
+  and the system instructions tell the model to translate faithfully into the
+  language named in the prompt, keeping names and links as they are and
+  applying every rule in that language.
+- **Fixed messages** come from the asker's language file. The refusal, welcome
+  and paused texts edited on the dashboard's role page override the Arabic
+  and English files only; the other languages keep their file's text.
+- **The answer model**: `ANSWER_MODEL` (a Claude model by default, with a
+  Gemini fallback if a key is set) and `ANSWER_EFFORT`. An optional local
+  OpenAI-compatible model (`ANSWER_MODEL=local`, for example llama.cpp) can
+  answer some channels, such as Facebook comments, at zero cost. A
+  safety-classifier decline is treated as a model refusal, and
+  `ANSWER_FALLBACK` reruns such declines on a fallback model so a legitimate
+  question about a security topic is not refused by mistake.
+
+---
+
+## Running
 
 ```bash
-cp .env.example .env     # اضبط ANTHROPIC_API_KEY ومفاتيح اللوحة والقنوات
-docker compose up -d --build   # البناء الأول ينزّل النموذج المحلي (0.7 GB)
+cp .env.example .env     # set ANTHROPIC_API_KEY and the dashboard and channel keys
+docker compose up -d --build   # the first build downloads the local model (0.7 GB)
 docker compose exec bayan python -m app.ingest
 ```
 
-بعد أول فهرسة، وبعد أي تغيير في نموذج المتجهات، عايِر العتبة:
+`python -m app.ingest` pulls your content repository, runs the extractor and
+indexes. Add `--no-pull` to index from existing files. After the first
+indexing, and after any change of embedding model, calibrate the threshold:
 `docker compose exec bayan python scripts/calibrate.py`.
 
-`python -m app.ingest` يسحب مستودع الموقع، يشغّل المُستخرِج، ويفهرس.
-أضف `--no-pull` للفهرسة من ملفات موجودة دون سحب.
-
-### التجربة قبل ربط أي قناة
-
-من المتصفح: صفحة «جرّب بيان» في اللوحة. ومن سطر الأوامر، من داخل الخادم
-وحده:
-
-```bash
-docker compose exec bayan curl -s localhost:8000/debug/ask \
-  -H 'content-type: application/json' \
-  -d '{"question":"ما هي أدوات الترجمة؟"}'
-```
-
-يُرجع الإجابة ودرجة الثقة والأدوات المطابقة والتصنيف والمقاطع. `/debug/ask`
-لا يجيب إلا من داخل الخادم، فمفتوحاً كان سيتيح لأي أحد استدعاء النموذج بلا
-حدّ معدل. ثم:
-
-```bash
-docker compose exec bayan python tests/test_bayan.py    # على الفهرس الحقيقي
-docker compose exec bayan python tests/test_offline.py  # بلا مفاتيح ولا شبكة
-```
+Try it before connecting a channel: the "Try Bayan" page in the dashboard, or
+from inside the server `curl -s localhost:8000/debug/ask -H 'content-type:
+application/json' -d '{"question":"…"}'` (the route only answers from inside
+the server). Tests: `tests/test_bayan.py` on the real index,
+`tests/test_offline.py` with no keys and no network.
 
 ---
 
-## لوحة التحكم
+## Dashboard
 
-على `PUBLIC_URL/admin`، بالإنجليزية افتراضياً وبأي لغة مدعومة (العربية
-والبرتغالية البرازيلية والإسبانية والفرنسية والسواحلية والهندية والأردية
-والفارسية والتركية والإندونيسية) من قائمة اللغات في الشريط الجانبي، كل لغة
-باسمها بلغتها؛ الاختيار يُحفظ في كوكي، والعربية والفارسية والأردية من اليمين،
-وكل ذلك من دون JavaScript. النصوص من قسم `dashboard` في
-`app/locales/<الرمز>.json`، والإنجليزية لما ينقص من لغة؛ ونصوص صفحة «دور بيان»
-القابلة للتحرير تبقى بالعربية والإنجليزية. تُفعَّل حين يُضبط في
-`.env`: `ADMIN_PASSWORD` (12 حرفاً على الأقل) و`SESSION_SECRET` (32 حرفاً
-على الأقل، `python -c "import secrets;print(secrets.token_urlsafe(48))"`).
+At `PUBLIC_URL/admin`, without JavaScript, in English by default and in any
+of the supported languages from the language list in the sidebar, each named
+in its own language; the choice is kept in a cookie, and Arabic, Persian and
+Urdu render right-to-left. The strings come from the `dashboard` section of
+`app/locales/<code>.json`, with English for anything a language lacks; the
+role page's editable texts stay Arabic and English. Enabled when `.env` sets `ADMIN_PASSWORD` and
+`SESSION_SECRET`; the team signs in with Google accounts of your domain
+(`GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`, `ALLOWED_EMAIL_DOMAIN`,
+`ADMIN_EMAILS`) with roles admin, editor and viewer, and every action is in
+an audit log.
 
-- **نظرة عامة**: حالة الفهرس والمتجهات، وتنبيه أحمر ما دام البحث الدلالي
-  معطّلاً مع سببه، ونتائج الأسئلة في آخر 7 أيام، وآخر فهرسة وزرّ لإعادتها.
-- **الأسئلة**: كل سؤال وردّ بيان عليه ودرجة ثقته، مع تصفية بالنتيجة
-  والقناة والتقييم. الأسئلة التي رفضتها البوابة مرتّبة حسب الثقة هي أداة ضبط
-  العتبة. تحت كل إجابة: تقييمها 👍 أو 👎 مع سبب وملاحظة، ورابط «اكتب تصحيحاً».
-- **التصحيحات**: إجابات معتمدة يكتبها الفريق بكلماته. كل سؤال جديد يُقارن
-  بأسئلتها، وما بلغ شبهه `CORRECTION_MIN_SIMILARITY` (0.75) يُرسل إلى النموذج
-  قبل غيره من المصادر ويُقدَّم عليها، من لحظة حفظه ودون إعادة فهرسة. وهي مجموعة
-  اختبار تكبر مع الوقت: `scripts/check_corrections.py` يعيد طرح أسئلتها بعد أي
-  تغيير.
-- **جرّب بيان**: محادثة كل عضو الخاصة مع بيان داخل اللوحة، يتذكّر فيها آخر
-  `HISTORY_TURNS` دورات كالقنوات العامة، مع المقاطع المسترجعة والتصحيحات
-  المطابقة تحت كل إجابة؛ لا تدخل في سجل الأسئلة ولا الأعداد ولا يحدّها الحدّ اليومي.
-- **مصادر البيانات** (المحرر فأعلى): الجزء الخامس من المعرفة يضيفه الفريق من
-  اللوحة: ملاحظة تُكتب، أو رابط صفحة يُجلب نصها ويُزامَن يومياً، أو ملف (PDF
-  أو Word أو Markdown أو نص أو HTML) يُحفظ نصه لا الملف. يدخل الفهرس فوراً
-  بمتجهاته دون إعادة فهرسة كاملة (`app/sources.py`)، وبيان يعتمده كمصدر ضمن
-  نطاقه ويذكر عنوان المستند. الروابط تُفحص قبل الجلب (http/https فقط، لا
-  عناوين محلية أو خاصة، كل تحويلة تُفحص، حدّ 8 ميغابايت) والملفات حتى 15
-  ميغابايت.
-- **دور بيان** (للمدير): نطاق بيان، وقواعد إضافية من الفريق تُلحق بتعليمات
-  النظام، ونصوص الرفض والترحيب والإيقاف المؤقت باللغتين، تُحرَّر من اللوحة
-  وتُطبَّق فوراً وتتقدّم على `.env`؛ الحقل الفارغ يعيد الافتراضي، والقواعد
-  الثابتة (لا معرفة عامة، قواعد الروابط والتحقيقات) لا تُغيَّر من هناك.
-  ومن الصفحة نفسها يُضبط اسم بيان باللغتين وأسلوب الردّ: النبرة (رسمية أو
-  ودودة) والطول (قصير أو متوسط أو طويل).
-- **الإعدادات** (للمدير): العتبة، وحدّ الأسئلة اليومي، وزرّ الإيقاف المؤقت،
-  وتُطبَّق دون إعادة تشغيل، وحالة ربط كل قناة، و**مفاتيح API**: مفاتيح
-  Claude وGemini وVoyage والنموذج المحلي ورمزا صفحة فيسبوك وواتساب تُحفظ من
-  اللوحة في قاعدة بيان وتتقدّم على `.env` وتعمل فوراً؛ لا يُعرض منها بعد
-  الحفظ إلا آخر أربعة أحرف، وكل حفظ أو مسح في سجلّ الإجراءات. رمز تيليغرام
-  وسرّ Meta يبقيان في `.env` لأن تغييرهما يحتاج إعادة تشغيل.
-- **المحظورون**: الحظر من سجل الأسئلة ورفعه.
+- **Overview**: the state of the index and the vectors, the outcomes and
+  topics of the last 7 days, unanswered questions, and the last indexing run.
+- **Questions**: every question with the reply and its confidence score,
+  filterable by outcome, channel and rating; a 👍/👎 rating with a reason, and
+  a "Write a correction" link.
+- **Corrections**: approved answers in the team's own words, matched to new
+  questions by similarity and sent to the model ahead of the other sources.
+  `scripts/check_corrections.py` re-asks them after any change.
+- **Try Bayan**: each member's own multi-turn conversation with the bot, with
+  the retrieved passages under each answer; outside the public counts.
+- **Weekly lists** and **subscribers**: paste the week's list, see who
+  subscribed, broadcast on the enabled channels.
+- **Data sources**: notes, page links and files (see above).
+- **Bayan's role**: the bot's name, scope, extra team rules, the refusal,
+  welcome and paused texts, the response tone and length, and a scenario
+  preview that shows how the bot replies with the current settings.
+- **Settings**: the threshold, the daily limit, the pause switch, the channel
+  status, and **API keys** saved from the dashboard (taking precedence over
+  `.env`, applied at once, only the last four characters shown).
+- **Team** and **Blocked**.
 
-**الخصوصية**: معرّف واتساب هو رقم الهاتف، فاللوحة لا تعرض أي معرّف. كل
-مستخدم يظهر ببصمة من ثمانية أحرف مشتقّة بـ `SESSION_SECRET`، فلا تُعكس إلى
-الرقم بتجربة كل الأرقام، والحظر يُنفَّذ برقم الرسالة. الجلسة كوكي موقّع
-`HttpOnly` و`SameSite=Strict` لمدة 12 ساعة، وتغيير كلمة المرور يُخرج كل
-الجلسات، ومحاولات الدخول محدودة بخمس كل ربع ساعة.
+**Privacy**: the dashboard shows no audience identifiers; each user appears as
+a keyed eight-character fingerprint. Sessions are signed `HttpOnly`,
+`SameSite=Strict` cookies, and login attempts are rate-limited.
 
 ---
 
-## التحديث الآلي
+## Automatic updates
 
-1. على خادم بيان: `bash scripts/setup_deploy_key.sh` وأضف المفتاح العام
-   في مستودع الموقع كـ **Deploy key بصلاحية قراءة فقط**.
-2. انسخ `site-workflow/bayan-reindex.yml` إلى مستودع الموقع تحت
-   `.github/workflows/`.
-3. أضف في أسرار مستودع الموقع: `BAYAN_REINDEX_URL` و`BAYAN_REINDEX_SECRET`.
+1. On Bayan's server: `bash scripts/setup_deploy_key.sh`, then add the public
+   key to your content repository as a **read-only deploy key**.
+2. Copy `site-workflow/bayan-reindex.yml` into that repository under
+   `.github/workflows/` and adapt its paths to your content.
+3. Add the repository secrets `BAYAN_REINDEX_URL` and `BAYAN_REINDEX_SECRET`.
 
-عند كل دمج يمسّ الأدوات أو التحقيقات، يشغّل الـ workflow المُستخرِج
-**للتحقق أولاً** — فإن كسره تعديل في بنية البيانات يفشل فوراً بدل أن
-يتوقف بيان صامتاً عن معرفة آخر تحقيق — ثم يرسل إشارة واحدة إلى الخادم.
-الخادم يردّ فوراً بـ 202 ويفهرس في الخلفية، لأن الفهرسة بالنموذج المحلي
-تستغرق دقائق (453 ثانية في حاوية على 10 أنوية)، ونتيجتها في اللوحة. وإن
-وصلت إشارة أثناء فهرسة جارية، تتبعها دورة واحدة تشمل آخر تعديل.
-
-**لا يمرّ أي مفتاح من مفاتيح بيان عبر CI الموقع.**
+On every merge that touches the content, the workflow runs the extractor as a
+check first, then sends one signal to the server, which replies with 202 and
+indexes in the background. **None of Bayan's keys pass through your CI.**
 
 ---
 
-## ربط القنوات
+## Connecting the channels
 
-**تيليغرام** (الأسرع، بلا موافقات): `@BotFather` ← `/newbot` ← ضع التوكن
-و`TELEGRAM_WEBHOOK_SECRET` في `.env` ← `python scripts/set_telegram_webhook.py`.
-السرّ إلزامي: بدونه يرفض الخادم كل تحديث، لأن أي أحد يعرف الرابط كان
-يستطيع إرسال تحديثات مزيّفة.
+**Telegram**: `@BotFather` → `/newbot` → put the token and
+`TELEGRAM_WEBHOOK_SECRET` in `.env` → `python scripts/set_telegram_webhook.py`.
 
-**واتساب**: تطبيق Business على developers.facebook.com ← منتج WhatsApp ←
-webhook على `…/webhooks/meta` مع `META_VERIFY_TOKEN` ← اشترك في `messages`.
-استعمل System User Token للإنتاج (التوكن المؤقت يصلح ٢٤ ساعة).
+**WhatsApp**: a Business app on developers.facebook.com → the WhatsApp product
+→ a webhook at `…/webhooks/meta` with `META_VERIFY_TOKEN` → subscribe to
+`messages`. Use a System User token in production.
 
-**ماسنجر**: نفس التطبيق ← منتج Messenger ← نفس رابط الـ webhook ← اشترك في
-`messages` و`messaging_postbacks` ← App Review على `pages_messaging`.
+**Messenger and Page comments**: the same app → the Messenger product → the
+same webhook → subscribe to `messages`; with a Page token the bot also polls
+the Page's latest posts and sends a private reply to comments that match an
+approved answer or mention the bot by name.
 
 ---
 
-## البنية
+## Structure
 
 ```
 app/
-  config.py     الإعدادات من .env
-  arabic.py     تطبيع عربي + تداخل موزون بالندرة
-  store.py      SQLite: chunks + tools + messages + settings
-  ingest.py     سحب المستودع، تشغيل المُستخرِج، الفهرسة
-  embed.py      المتجهات: النموذج المحلي أو خدمة Voyage
-  nano/         voyage-4-nano: الكود المنقول ورخصته والمراجعة المثبّتة
-  retrieve.py   المساران: منظَّم + دلالي
-  brain.py      ★ الطبقات الأربع والقواعد التحريرية
-  dashboard.py  لوحة التحكم، والتقييم، والتصحيحات المعتمدة
-  overview.py   النظرة العامة على الدليل والتحقيقات للأسئلة العامة
-  main.py       webhooks + /admin/reindex + /debug/ask
-  channels/     تيليغرام، واتساب، ماسنجر
-scripts/        ربط تيليغرام، مفتاح النشر، تنزيل النموذج، معايرة العتبة، فحص التصحيحات
-site-workflow/  يُنسخ إلى مستودع الموقع
-tests/          test_bayan على الفهرس الحقيقي، test_offline بلا مفاتيح
+  config.py     settings from .env
+  arabic.py     Arabic normalisation + overlap weighted by rarity
+  store.py      SQLite: chunks, entries, messages, settings, team, audit
+  ingest.py     pull the repository, run the extractor, index
+  safety.py     openly licensed external sources
+  sources.py    team sources from the dashboard
+  opportunities.py  weekly lists;  broadcast.py  their broadcast
+  embed.py      vectors: the local model or the Voyage service
+  nano/         voyage-4-nano: the copied code, its licence and the pinned revision
+  retrieve.py   the two paths: structured + semantic
+  brain.py      ★ the four layers and the editorial rules
+  role.py       the bot's role, texts and style, set from the dashboard
+  keys.py       API keys set from the dashboard
+  dashboard.py  the dashboard
+  i18n.py       languages and fixed messages;  privacy.py  the privacy page
+  main.py       webhooks, /admin/reindex, /debug/ask, background loops
+  channels/     Telegram, WhatsApp, Messenger
+scripts/        webhook setup, deploy key, model download, calibration, correction checks
+site-workflow/  the workflow to copy into your content repository
+tests/          test_bayan on the real index, test_offline with no keys
 ```
 
-## الخصوصية وحذف البيانات
+## Privacy and data deletion
 
-- **سياسة الخصوصية** على `PUBLIC_URL/privacy` بالعربية والإنجليزية (`app/privacy.py`)،
-  ويصل إليها السائل بالأمر `/privacy` أو «الخصوصية»، ويُذكر رابطها في الترحيب.
-  أرقامها (مدة الحفظ، الحدّ اليومي، ذاكرة المحادثة) تُقرأ من الإعدادات نفسها.
-- **الحذف التلقائي**: الأسئلة والإجابات تُحذف بعد `MESSAGE_RETENTION_DAYS`
-  (30 يوماً)، عند الإقلاع ثم كل 6 ساعات. والقاعدة تعمل بـ `secure_delete`، فلا يبقى
-  نص محذوف في ملفها.
-- **حذف المحادثة**: `/reset` أو «مسح» يحذف محادثة السائل فوراً. حدّ الأسئلة
-  اليومي يُحسب من سجلّ منفصل (المعرّف والوقت، 24 ساعة)، فلا يلغيه حذف المحادثة.
-- **التقييم والتصحيحات**: تقييم الإجابة يُحذف مع رسالتها. والتصحيح المعتمد يكتبه
-  الفريق بكلماته دون أي تفصيل شخصي من الرسالة، فيبقى بعد حذف الرسائل.
-- **السجلّات**: بيان لا يكتب نص الأسئلة في سجلّ الخادم، وسجلّ Docker محدود بـ 3
-  ملفات من 10 ميغابايت.
+- The privacy policy is served at `PUBLIC_URL/privacy` in both languages, and
+  its figures (retention, daily limit, memory) are read from the settings.
+- Questions and answers are deleted after `MESSAGE_RETENTION_DAYS` (30), with
+  `secure_delete` so deleted text does not linger in the file; `/reset`
+  deletes a conversation at once.
+- The bot writes no question text to the server log; the OAuth code and
+  webhook tokens are kept out of the access log.
 
-## ملاحظات أمنية
+## Security notes
 
-- توقيع `X-Hub-Signature-256` يُتحقق منه في كل طلب من Meta.
-- تيليغرام محمي بـ `secret_token` في الترويسة، وهو إلزامي.
-- `/debug/ask` من داخل الخادم وحده، و`/admin/status` خلف دخول اللوحة.
-- مُستخرِج الموقع يُشغَّل معزولاً، لأن ملفات `src/data` وحدات JavaScript
-  يكتبها كل من يدفع إلى `main` الموقع. يعمل بلا متغيرات بيئة، فلا يرى
-  مفاتيح بيان، ونموذج صلاحيات Node يحصر قراءته في مستودع الموقع وكتابته في
-  `bayan-export`، ويمنعه من تشغيل أوامر. فتعديل خبيث هناك لا يصل إلى
-  مفاتيح بيان ولا إلى قاعدة الأسئلة. Node 22 لا يقيّد الشبكة في هذا
-  النموذج، لكن لا شيء سرّياً متاح للمُستخرِج ليرسله.
-- اللوحة تمنع كل سكربت بترويسة CSP، وتهرّب كل نص من الجمهور، وترفض
-  الطلبات من مصدر آخر.
-- `seen_events` يمنع الرد المكرر عند إعادة إرسال الـ webhook.
-- حد معدل لكل مستخدم + جدول حظر.
-- حدّ يومي: 10 أسئلة لكل مستخدم في أي 24 ساعة، لكل قناة (`DAILY_LIMIT`،
-  ويُعدَّل من اللوحة). من يبلغه يتلقى رسالة تخبره متى يسأل مجدداً، ولا
-  يُستدعى النموذج. الأوامر مثل `/start` لا تُحسب.
-- `.env` و`data/` مستثناة في `.gitignore` ولا تُرفع أبداً؛ المستودع عام والأسرار
-  على الخادم وحده، وgitleaks يفحص كل دفع.
+- Meta's `X-Hub-Signature-256` is verified on every request; Telegram's
+  `secret_token` is required.
+- `/debug/ask` works only from inside the server.
+- The extractor runs with no environment variables and under Node's permission
+  model (reads only the content repository, writes only the export folder, no
+  child processes), so a malicious change in the content repository cannot
+  reach the bot's keys or its database.
+- Links added as team sources are checked before fetching (http/https only, no
+  local or private addresses, every redirect checked, size caps).
+- CSP blocks all scripts in the dashboard; all public text is escaped;
+  cross-origin requests are rejected.
+- Per-user rate limit, a daily limit (`DAILY_LIMIT`, adjustable from the
+  dashboard), a block table, and duplicate-event protection on webhooks.
+- `.env` and `data/` are never committed; CI runs Bandit, pip-audit and
+  gitleaks over the whole history.
 
 ---
 
-## الرخصة
+## License
 
-الكود برخصة [Apache 2.0](LICENSE) (انظر `NOTICE`). اسم «باكس ميموريا» واسم
-«بيان» كما تستعمله المنظمة والصورة الرمزية في `assets/` ليست مشمولة بالرخصة.
-المعرفة التي يجلبها بيان وقت التشغيل ليست جزءاً من المستودع وتبقى برخصها:
-عدّة الأمان (CC BY-SA 4.0)، وعدّة الإسعاف الأولي الرقمي (CC BY 4.0)، ودليل
-باكس ميموريا وتحقيقاتها. الإصدار الحالي في `app/__init__.py` وسجلّه في
-`CHANGELOG.md`.
+The code is under the [Apache License 2.0](LICENSE) (see `NOTICE`). The
+names "Pax Memoria" and "Bayan / بيان" as the organisation uses them, and the
+avatar in `assets/`, are not covered by the licence. Content fetched at run
+time is not part of the repository and keeps its own licences. The current
+version is in `app/__init__.py` and its history in `CHANGELOG.md`.
