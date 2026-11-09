@@ -432,5 +432,18 @@ tests/          test_bayan on the real index, test_offline with no keys
   (`DAILY_LIMIT`, adjustable from the dashboard). Anyone who reaches it gets a
   message telling them when they can ask again, and the model is not called.
   Commands such as `/start` are not counted.
-- `.env` and `data/` are excluded in `.gitignore`. Keep the repository
-  **private**.
+- `.env` and `data/` are excluded in `.gitignore` and never pushed; the
+  repository is public, the secrets live on the server only, and gitleaks
+  checks every push.
+
+---
+
+## License
+
+The code is under the [Apache License 2.0](LICENSE) (see `NOTICE`). The name
+"Pax Memoria", the name "Bayan / بيان" as the organisation uses it, and the
+avatar in `assets/` are not covered by the licence. The knowledge Bayan
+fetches at run time is not part of the repository and keeps its own licences:
+Security in a Box (CC BY-SA 4.0), the Digital First Aid Kit (CC BY 4.0), and
+Pax Memoria's guide and investigations. The current version is in
+`app/__init__.py` and its history in `CHANGELOG.md`.

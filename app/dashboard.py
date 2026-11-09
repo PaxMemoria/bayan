@@ -39,8 +39,8 @@ import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
-from . import (brain, broadcast, config, embed, ingest, keys, opportunities, retrieve, role,
-               sources, store)
+from . import (__version__, brain, broadcast, config, embed, ingest, keys, opportunities,
+               retrieve, role, sources, store)
 
 log = logging.getLogger("dashboard")
 router = APIRouter()
@@ -997,7 +997,7 @@ def page(request: Request, title: str, body: str, active: str = "", nav: bool = 
             who = f'<div class="who"><b>{e(label)}</b>{T("role_" + m["role"])}</div>'
         doc = f"""{head}
 <body class="shell"><aside class="side"><div class="brand">{e(name)}
-<small>{T("dashboard")}</small></div><nav>{links}</nav>
+<small>{T("dashboard")} · v{__version__}</small></div><nav>{links}</nav>
 <div class="foot">{who}<div class="actions">{lang_btn}
 <form method="post" action="/admin/logout"><button type="submit">{T("logout")}</button>
 </form></div></div></aside>
