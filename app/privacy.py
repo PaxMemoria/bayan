@@ -17,8 +17,8 @@ from fastapi.responses import HTMLResponse
 
 from . import brain, config
 
-UPDATED_AR = "9 تشرين الثاني/نوفمبر 2026"
-UPDATED_EN = "9 November 2026"
+UPDATED_AR = "11 تشرين الثاني/نوفمبر 2026"
+UPDATED_EN = "11 November 2026"
 GENERAL_POLICY = "https://paxmemoria.org/privacy-policy"
 
 CSS = """
@@ -52,7 +52,7 @@ def _arabic(days: int, limit: int, turns: int, contact: str) -> str:
 <h1>سياسة الخصوصية لبيان</h1>
 <p class="muted">آخر تحديث: {UPDATED_AR}</p>
 <p>بيان مساعد آلي تديره باكس ميموريا، يجيب عن دليل أدوات المصادر المفتوحة
-والتحقيقات المنشورة وفرص الأسبوع عبر تطبيقات المراسلة (تيليغرام وواتساب)، ويقدّم
+والتحقيقات المنشورة وفرص الأسبوع عبر تطبيقات المراسلة (تيليغرام وواتساب) والدردشة على موقعنا، ويقدّم
 إرشادات عامة في السلامة الرقمية من مصدرين مفتوحي الرخصة هما «عدّة الأمان»
 (Security in a Box، CC BY-SA 4.0) و«عدّة الإسعاف الأولي الرقمي» (Digital First
 Aid Kit، CC BY 4.0)، ولا يرسل إليهما شيئاً من أسئلتك. تشرح هذه الصفحة ما
@@ -65,6 +65,10 @@ Aid Kit، CC BY 4.0)، ولا يرسل إليهما شيئاً من أسئلتك
 <li>معرّفك في القناة التي تراسلنا منها: رقم المحادثة في تيليغرام، أو المعرّف الذي
 يمنحه واتساب لمحادثتك معنا (ورقم هاتفك إن لم يرسل واتساب هذا المعرّف)، أو المعرّف
 الذي تمنحه فيسبوك لمحادثتك مع صفحتنا في ماسنجر.</li>
+<li>في الدردشة على موقعنا: معرّف عشوائي للمحادثة ينشئه متصفحك ويحفظه في تخزينه
+المحلي، ولا نستعمل له كوكي. عنوان IP يُستعمل في ذاكرة الخادم وحدها، ببصمة لا
+تُعكس إليه، للحدّ من الإساءة، ولا يُحفظ. زر «محادثة جديدة» يحذف المحادثة ويبدأ
+معرّفاً جديداً.</li>
 <li>وقت كل رسالة، وهل أُجيبت أم رُفضت.</li>
 <li>إن اشتركت في قائمة الفرص الأسبوعية بكتابة /subscribe: معرّفك في تلك القناة ووقت
 اشتراكك، حتى تلغي الاشتراك.</li>
@@ -129,7 +133,8 @@ def _english(days: int, limit: int, turns: int, contact: str) -> str:
 <p class="muted">Last updated: {UPDATED_EN}</p>
 <p>Bayan is an automated assistant run by Pax Memoria. It answers questions
 about our open-source tools guide, our published investigations and the weekly
-opportunities through messaging apps (Telegram and WhatsApp), and gives general
+opportunities through messaging apps (Telegram and WhatsApp) and the chat on our
+website, and gives general
 digital-safety guidance from two openly licensed sources, Security in a Box
 (CC BY-SA 4.0) and the Digital First Aid Kit (CC BY 4.0), to which none of your
 questions is sent. This page explains what Bayan stores about
@@ -143,6 +148,11 @@ you and what it does with it, and supplements
 the ID WhatsApp assigns to your conversation with us (or your phone number, if
 WhatsApp does not send that ID), or the ID Facebook assigns to your
 conversation with our page on Messenger.</li>
+<li>In the chat on our website: a random conversation ID that your browser
+creates and keeps in its own local storage; no cookie is used for it. Your IP
+address is used in the server's memory only, as a fingerprint that cannot be
+turned back into it, to limit abuse, and is never stored. The "New conversation"
+button deletes the conversation and starts a new ID.</li>
 <li>The time of each message, and whether it was answered or refused.</li>
 <li>If you subscribe to the weekly opportunities list by sending /subscribe:
 your identifier on that channel and the time you subscribed, until you

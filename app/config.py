@@ -285,6 +285,32 @@ MESSENGER_PAGE_TOKEN = os.getenv("MESSENGER_PAGE_TOKEN", "")
 
 PUBLIC_URL = os.getenv("PUBLIC_URL", "")
 
+# ───────────────────────────── الدردشة على الموقع / Website chat (app/web.py)
+# المواقع التي يُسمح لها بتضمين الدردشة: افتراضياً موقع المنظمة (SITE_URL) ونسخته
+# بـ www. قيمة "none" تعطّل القناة.
+# The sites allowed to embed the chat: by default the organisation's site
+# (SITE_URL) and its www. variant. The value "none" disables the channel.
+def _web_origins() -> set[str]:
+    raw = os.getenv("WEB_CHAT_ORIGINS", "").strip()
+    if raw.lower() == "none":
+        return set()
+    if raw:
+        return {o.strip().rstrip("/") for o in raw.split(",") if o.strip()}
+    base = SITE_URL.rstrip("/")
+    scheme, _, host = base.partition("://")
+    if not host:
+        return set()
+    alt = host[4:] if host.startswith("www.") else f"www.{host}"
+    return {base, f"{scheme}://{alt}"}
+
+
+WEB_CHAT_ORIGINS = _web_origins()
+# حدود لكل عنوان IP، في ذاكرة الخادم وحدها: دفعة قصيرة، ويوم كامل
+# Per-IP limits, in the server's memory only: a short burst, and a whole day
+WEB_IP_BURST = int(os.getenv("WEB_IP_BURST", "20"))
+WEB_IP_BURST_WINDOW = int(os.getenv("WEB_IP_BURST_WINDOW", "600"))
+WEB_IP_DAILY = int(os.getenv("WEB_IP_DAILY", "60"))
+
 # ───────────────────────────────── اللوحة والحدود / Dashboard and limits
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
 SESSION_SECRET = os.getenv("SESSION_SECRET", "")

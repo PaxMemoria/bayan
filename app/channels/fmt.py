@@ -117,3 +117,12 @@ def to_plain(text: str) -> str:
     """بلا أي تنسيق، لماسنجر ولما يرفضه تيليغرام.
     No formatting at all, for Messenger and for whatever Telegram rejects."""
     return _BOLD.sub(r"\1", _prepare(text))
+
+
+def to_web(text: str) -> str:
+    """للدردشة على الموقع: العناوين الفرعية في أسطرها، والخط العريض يبقى ‎**نص**
+    ليعرضه الودجت عريضاً بنفسه، وبلا علامات الاتجاه (المتصفح يضبطه بـ dir=auto).
+    For the website chat: subheadings on their own lines, bold kept as **text**
+    for the widget to render, and no direction marks (the browser handles
+    direction with dir=auto)."""
+    return _layout(_normalise(text))

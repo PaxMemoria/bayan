@@ -2300,6 +2300,107 @@ check("سيناريو غير معروف يُرفض، والمشاهد لا يع�
                                   follow_redirects=False).headers["location"]
       and viewer.post("/admin/role/preview", data={"scenario": "greeting"}).status_code == 403)
 
+# ── الدردشة على الموقع / The website chat ──
+print("\n── الدردشة على الموقع ──")
+from app import web  # noqa: E402
+
+old_origins, old_pub = config.WEB_CHAT_ORIGINS, config.PUBLIC_URL
+config.WEB_CHAT_ORIGINS = {"https://site.test", "https://www.site.test"}
+config.PUBLIC_URL = "https://bayan.test"
+store.set_setting("web_chat", "1")
+web.reset_limits()
+site = TestClient(server.app)
+ORIGIN = {"Origin": "https://site.test"}
+SID = "a1b2c3d4e5f6a7b8c9d0e1f2"
+
+r = site.get("/widget.js")
+check("widget.js يُقدَّم سكربتاً بنقطة الإرسال ونصوص اللغات كلها",
+      r.status_code == 200 and r.headers["content-type"].startswith("application/javascript")
+      and "__BAYAN_CONFIG__" not in r.text and "https://bayan.test/chat" in r.text
+      and all(f'"{c}"' in r.text for c in i18n.SUPPORTED_LANGUAGES) and "</script" not in r.text,
+      r.headers.get("content-type"))
+cfg = web.widget_config()
+check("نصوص الودجت بأسماء البوت والمنظمة لكل لغة، والعربية والفارسية والأردية من اليمين",
+      config.BOT_NAME in cfg["strings"]["ar"]["intro"] and config.BOT_NAME_EN in cfg["strings"]["pt-BR"]["intro"]
+      and "{" not in cfg["strings"]["fa"]["intro"] and set(cfg["rtl"]) == {"ar", "fa", "ur"}
+      and cfg["privacy"] == "https://bayan.test/privacy",
+      cfg["rtl"])
+check("ملفات اللغات كلها فيها قسم الودجت بمفاتيح الإنجليزية نفسها",
+      all(set(i18n.LOCALES[c]["widget"]) == set(i18n.LOCALES["en"]["widget"]) for c in i18n.SUPPORTED_LANGUAGES))
+
+r = site.options("/chat", headers={**ORIGIN, "Access-Control-Request-Method": "POST"})
+check("طلب CORS المسبق من موقع مسموح يُقبل برأسه",
+      r.status_code == 204 and r.headers.get("access-control-allow-origin") == "https://site.test")
+check("طلب CORS من موقع آخر يُرفض",
+      site.options("/chat", headers={"Origin": "https://evil.test"}).status_code == 403)
+check("سؤال بلا Origin أو من موقع آخر يُرفض",
+      site.post("/chat", json={"session": SID, "message": "Olá"}).status_code == 403
+      and site.post("/chat", json={"session": SID, "message": "Olá"},
+                    headers={"Origin": "https://evil.test"}).status_code == 403)
+
+r = site.post("/chat", json={"session": SID, "message": "Olá", "lang": "pt-BR"}, headers=ORIGIN)
+msgs = r.json().get("messages", [])
+check("تحية بالبرتغالية: ردّ التحية ثم الترحيب بلا أوامر القنوات، برأس CORS",
+      r.status_code == 200 and len(msgs) == 2 and msgs[0] == "Olá 👋"
+      and "/subscribe" not in msgs[1] and "/privacy" not in msgs[1]
+      and r.headers.get("access-control-allow-origin") == "https://site.test", (r.status_code, msgs[:1]))
+from app.channels import fmt as _fmt  # noqa: E402
+_w = _fmt.to_web("- **عنوان:** نص التفصيل\n## قسم")
+check("الخط العريض يبقى **نص** للودجت والعنوان في سطره، بلا علامات اتجاه",
+      "**عنوان**\nنص التفصيل" in _w and "**قسم**" in _w and "\u200f" not in _w
+      and "\u200f" not in "".join(msgs), _w)
+check("معرّف محادثة غير صالح أو سؤال فارغ يُرفض",
+      site.post("/chat", json={"session": "short", "message": "hi"}, headers=ORIGIN).status_code == 400
+      and site.post("/chat", json={"session": SID, "message": "  "}, headers=ORIGIN).status_code == 400
+      and site.post("/chat", content=b"not json", headers={**ORIGIN, "Content-Type": "application/json"}).status_code == 400)
+long_q = "س" * (config.MAX_QUESTION_CHARS + 200)
+site.post("/chat", json={"session": SID + "x", "message": long_q}, headers=ORIGIN)
+web_q = [q for q in store.questions() if q.get("channel") == "web"]
+check("أسئلة الموقع تُسجَّل على قناة web بمعرّف المحادثة، والطويل يُقصّ",
+      web_q and all(len(q["content"]) <= config.MAX_QUESTION_CHARS for q in web_q), len(web_q))
+check("قناة الموقع في اللوحة: اسمها في الأسئلة وحالها وزرّها في الإعدادات",
+      "Website" in client.get("/admin/messages?lang=en&channel=web").text
+      and 'name="web_chat"' in client.get("/admin/settings?lang=en").text
+      and "/widget.js" in client.get("/admin/settings?lang=en").text)
+
+web.reset_limits()
+old_burst = config.WEB_IP_BURST
+config.WEB_IP_BURST = 3
+codes = [site.post("/chat", json={"session": SID, "message": "Hello"}, headers=ORIGIN).status_code
+         for _ in range(4)]
+r = site.post("/chat", json={"session": SID, "message": "Hola"}, headers=ORIGIN)
+check("حدّ العنوان: الرابع يُرفض بـ 429 ورسالة الحدّ بلغة السائل",
+      codes == [200, 200, 200, 429] and r.status_code == 429
+      and r.json()["messages"] == [i18n.msg("rate", "es")], (codes, r.json()))
+config.WEB_IP_BURST = old_burst
+web.reset_limits()
+check("العنوان من X-Forwarded-For (آخره) خلف وكيل محلي فقط",
+      web.client_ip("172.17.0.1", "1.2.3.4, 5.6.7.8") == "5.6.7.8"
+      and web.client_ip("127.0.0.1", "9.9.9.9") == "9.9.9.9"
+      and web.client_ip("8.8.4.4", "1.2.3.4") == "8.8.4.4")
+t0 = 1_000_000.0
+config.WEB_IP_DAILY, old_daily = 2, config.WEB_IP_DAILY
+check("الحدّ اليومي للعنوان في الذاكرة، ويُفتح بعد 24 ساعة",
+      web.ip_allowed("8.8.8.8", t0) and web.ip_allowed("8.8.8.8", t0 + 700)
+      and not web.ip_allowed("8.8.8.8", t0 + 1400) and web.ip_allowed("8.8.8.8", t0 + 86400 + 800))
+config.WEB_IP_DAILY = old_daily
+web.reset_limits()
+
+store.set_setting("web_chat", "0")
+r = site.post("/chat", json={"session": SID, "message": "Hello"}, headers=ORIGIN)
+check("القناة مطفأة من اللوحة: الودجت فارغ والأسئلة ترفض بـ 503",
+      r.status_code == 503 and "switched off" in site.get("/widget.js").text
+      and "__bayanChat" not in site.get("/widget.js").text)
+store.set_setting("web_chat", "1")
+check("WEB_CHAT_ORIGINS الافتراضي من SITE_URL ونسخة www، و none يعطّل",
+      config._web_origins() == {config.SITE_URL.rstrip("/"),
+                                config.SITE_URL.rstrip("/").replace("://", "://www.", 1)}
+      or config.SITE_URL.startswith("https://www."))
+os.environ["WEB_CHAT_ORIGINS"] = "none"
+check("قيمة none تعطّل القناة", config._web_origins() == set())
+os.environ.pop("WEB_CHAT_ORIGINS")
+config.WEB_CHAT_ORIGINS, config.PUBLIC_URL = old_origins, old_pub
+
 embed.embed = real_embed
 print(f"\nالنتيجة: {ok}/{ok + fail}")
 sys.exit(0 if fail == 0 else 1)

@@ -303,6 +303,17 @@ same webhook → subscribe to `messages`; with a Page token the bot also polls
 the Page's latest posts and sends a private reply to comments that match an
 approved answer or mention the bot by name.
 
+**Website**: add one line to your site's pages,
+`<script src="https://<PUBLIC_URL>/widget.js" defer></script>`. It puts a chat
+bubble in the corner of every page, in the page's language and direction, and
+sends questions to `POST /chat`, which only accepts requests from the sites in
+`WEB_CHAT_ORIGINS` (default: `SITE_URL` and its `www.` variant; `none`
+disables it). No cookie and no sign-in: the browser keeps a random
+conversation ID in its local storage, and the IP address is used in memory
+only for the per-address limits (`WEB_IP_BURST`, `WEB_IP_DAILY`) on top of the
+daily limit. The channel is switched off from Settings, and the bubble then
+disappears from the site.
+
 ---
 
 ## Structure

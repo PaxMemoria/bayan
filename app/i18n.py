@@ -286,13 +286,19 @@ def greeting_reply(key: str, lang: str) -> str:
     return GREETING_REPLIES.get(key) or msg("greeting", lang)
 
 
-def welcome(lang: str | None, limit: int, opener: str | None = None) -> str:
+def welcome(lang: str | None, limit: int, opener: str | None = None,
+            commands: bool = True) -> str:
     """الترحيب بلغة السائل، أو بالعربية والإنجليزية إن لم تُعرف لغته. opener
     السطر الأول: None يعني «أهلاً بك» بلغته، و"" يعني بلا سطر أول (جاء ردّ
     التحية قبله).
     The welcome in the asker's language, or in Arabic and English if it is not
     known. opener is the first line: None means "أهلاً بك" in its language,
-    and "" means no first line (the greeting reply came before it)."""
+    and "" means no first line (the greeting reply came before it).
+
+    commands=False يحذف سطري /subscribe و/privacy، لقناة لا أوامر فيها (الموقع،
+    وفيه رابط الخصوصية تحت النافذة). commands=False drops the /subscribe and
+    /privacy lines, for a channel with no commands (the website, which shows
+    the privacy link under the window)."""
     def one(code: str) -> str:
         base = msg("welcome", code)
         first = msg("opener", code) if opener is None else opener
@@ -301,8 +307,9 @@ def welcome(lang: str | None, limit: int, opener: str | None = None) -> str:
         lines = []
         if limit > 0:
             lines.append(msg("welcome_limit", code, limit=limit))
-        lines.append(msg("welcome_subscribe", code))
-        lines.append(msg("welcome_privacy", code))
+        if commands:
+            lines.append(msg("welcome_subscribe", code))
+            lines.append(msg("welcome_privacy", code))
         return base + "\n" + "\n".join(lines)
     if lang in LOCALES:
         return one(lang)

@@ -64,7 +64,7 @@ OUTCOMES = {
     "answered": "ok", "tool_list": "ok", "refused_gate": "warn",
     "refused_model": "muted", "error": "bad",
 }
-CHANNELS = ("telegram", "whatsapp", "messenger")
+CHANNELS = ("telegram", "whatsapp", "messenger", "web")
 
 # ───────────────────────────────────────────────────── النصوص / Strings
 # كل نص في اللوحة من القسم "dashboard" في ملف لغته (app/locales/<code>.json)،
@@ -1580,6 +1580,7 @@ def _channel_state(T) -> str:
               meta and bool(config.WHATSAPP_TOKEN and config.WHATSAPP_PHONE_NUMBER_ID),
               T("need_wa"))
         + row(T("ch_messenger"), meta and bool(config.MESSENGER_PAGE_TOKEN), T("need_ms"))
+        + row(T("ch_web"), bool(config.WEB_CHAT_ORIGINS), T("need_web"))
     )
 
 
@@ -1606,6 +1607,8 @@ async def settings(request: Request, msg: str = "", error: str = ""):
     ]
     fixed_rows = "".join(f"<tr><th>{e(k)}</th><td>{e(str(v))}</td></tr>" for k, v in fixed)
     paused_msg = i18n.msg("paused", lang)
+    web_on = store.setting("web_chat", "1") == "1"
+    web_tag = f'<script src="{(config.PUBLIC_URL or "").rstrip("/")}/widget.js" defer></script>'
     body = f"""{err_html}<div class="card"><form method="post" action="/admin/settings">
 <label for="t">{T("s_thr")}</label>
 <p class="help">{T("s_thr_help", v=f"{config.MIN_RELEVANCE:.2f}")}</p>
@@ -1618,6 +1621,9 @@ value="{brain.daily_limit()}" style="max-width:140px">
 <label><input type="checkbox" name="paused" value="1" {'checked' if paused else ''}>
 {T("s_pause")}</label>
 <p class="help">{e(T("s_pause_help", m=paused_msg))}</p>
+<label><input type="checkbox" name="web_chat" value="1" {'checked' if web_on else ''}>
+{T("s_web")}</label>
+<p class="help">{e(T("s_web_help", tag=web_tag))}</p>
 <p class="row"><button type="submit">{T("save")}</button>
 <button class="ghost" type="submit" name="reset" value="1">{T("reset_thr")}</button></p>
 </form></div>
@@ -1652,6 +1658,7 @@ async def save_settings(request: Request):
             return _back("/admin/settings", error="threshold")
         store.set_setting("min_relevance", f"{thr:.2f}")
     store.set_setting("paused", "1" if form.get("paused") else "0")
+    store.set_setting("web_chat", "1" if form.get("web_chat") else "0")
     store.audit(who(request), "settings")
     return _back("/admin/settings", msg="saved")
 

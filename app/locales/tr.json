@@ -394,6 +394,24 @@
     "flash_opp_sent": "Haftanın listesi etkin kanallardaki abonelere gönderiliyor; sonuç tamamlanınca burada görünür.",
     "lang_label": "Kontrol paneli dili",
     "lang_go": "Uygula",
-    "prompt_chars": "{n} karakter"
+    "prompt_chars": "{n} karakter",
+    "ch_web": "Web sitesi",
+    "need_web": "WEB_CHAT_ORIGINS (sohbeti sayfasına eklemesine izin verilen site adresleri)",
+    "s_web": "Web sitesi sohbeti",
+    "s_web_help": "WEB_CHAT_ORIGINS içindeki sitelerin tek satırla eklediği sohbet balonu: {tag}. İşaret kaldırılırsa balon siteden kaybolur ve sohbet soruları reddeder."
+  },
+  "widget": {
+    "open": "{bot_name} ile sohbet",
+    "title": "{bot_name} · {org_name}",
+    "intro": "Merhaba! Ben {bot_name}, {org_name} asistanıyım. Yalnızca {org_name} tarafından yayımlanan içeriğe dayanarak, sizin dilinizde yanıt veririm. Ne öğrenmek istersiniz?",
+    "placeholder": "Sorunuzu yazın…",
+    "send": "Gönder",
+    "close": "Kapat",
+    "thinking": "{bot_name} yazıyor…",
+    "error": "Kısa süreli bir sorun oluştu. Lütfen tekrar deneyin.",
+    "unavailable": "Sohbet şu anda kullanılamıyor.",
+    "disclaimer": "Otomatik asistan: hata yapabilir, bu yüzden kaynağı kontrol edin.",
+    "privacy": "Gizlilik",
+    "new": "Yeni sohbet"
   }
 }

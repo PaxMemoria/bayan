@@ -397,6 +397,24 @@
     "flash_opp_sent": "Orodha ya wiki inatumwa kwa waliojisajili kwenye chaneli zilizowashwa; matokeo yataonekana hapa itakapokamilika.",
     "lang_label": "Lugha ya dashibodi",
     "lang_go": "Tumia",
-    "prompt_chars": "Herufi {n}"
+    "prompt_chars": "Herufi {n}",
+    "ch_web": "Tovuti",
+    "need_web": "WEB_CHAT_ORIGINS (anwani za tovuti zinazoruhusiwa kuweka gumzo)",
+    "s_web": "Gumzo kwenye tovuti",
+    "s_web_help": "Kiputo cha gumzo ambacho tovuti zilizo katika WEB_CHAT_ORIGINS huweka kwa mstari mmoja: {tag}. Kikiondolewa alama, kiputo hutoweka kwenye tovuti na gumzo hukataa maswali."
+  },
+  "widget": {
+    "open": "Muulize {bot_name}",
+    "title": "{bot_name} · {org_name}",
+    "intro": "Habari! Mimi ni {bot_name}, msaidizi wa {org_name}. Ninajibu kutoka kwa maudhui yaliyochapishwa na {org_name} pekee, kwa lugha yako. Ungependa kujua nini?",
+    "placeholder": "Andika swali lako…",
+    "send": "Tuma",
+    "close": "Funga",
+    "thinking": "{bot_name} anaandika…",
+    "error": "Hitilafu imetokea kwa muda. Tafadhali jaribu tena.",
+    "unavailable": "Gumzo halipatikani kwa sasa.",
+    "disclaimer": "Msaidizi wa kiotomatiki: anaweza kukosea, kwa hiyo hakiki chanzo.",
+    "privacy": "Faragha",
+    "new": "Mazungumzo mapya"
   }
 }

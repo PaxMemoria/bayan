@@ -394,6 +394,24 @@
     "flash_opp_sent": "The week's list is being sent to subscribers on the enabled channels; the result appears here once it is done.",
     "lang_label": "Dashboard language",
     "lang_go": "Apply",
-    "prompt_chars": "{n} characters"
+    "prompt_chars": "{n} characters",
+    "ch_web": "Website",
+    "need_web": "WEB_CHAT_ORIGINS (the site addresses allowed to embed the chat)",
+    "s_web": "Website chat",
+    "s_web_help": "The chat bubble that the sites in WEB_CHAT_ORIGINS embed with one line: {tag}. Unticked, the bubble disappears from the site and the chat refuses questions."
+  },
+  "widget": {
+    "open": "Ask {bot_name}",
+    "title": "{bot_name} · {org_name}",
+    "intro": "Hello! I'm {bot_name}, {org_name}'s assistant. I answer only from {org_name}'s published content, in your language. What would you like to know?",
+    "placeholder": "Type your question…",
+    "send": "Send",
+    "close": "Close",
+    "thinking": "{bot_name} is writing…",
+    "error": "Something went wrong for a moment. Please try again.",
+    "unavailable": "The chat is not available right now.",
+    "disclaimer": "An automated assistant: it can make mistakes, so check the source.",
+    "privacy": "Privacy",
+    "new": "New conversation"
   }
 }

@@ -14,7 +14,7 @@ from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 
 from . import (brain, config, dashboard, embed, i18n, ingest, keys, logfilter, privacy,
-               retrieve, role, sources, store)
+               retrieve, role, sources, store, web)
 from .channels import messenger, telegram, whatsapp
 
 logging.basicConfig(
@@ -43,6 +43,8 @@ KEEP_WARM_MINUTES = 5
 
 app = FastAPI(title="Bayan", docs_url=None, redoc_url=None, openapi_url=None)
 app.include_router(dashboard.router)
+# الدردشة على الموقع: /widget.js و/chat / The website chat: /widget.js and /chat
+app.include_router(web.router)
 
 
 @app.on_event("startup")

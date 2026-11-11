@@ -394,6 +394,24 @@
     "flash_opp_sent": "Daftar minggu ini sedang dikirim ke pelanggan di kanal yang aktif; hasilnya muncul di sini setelah selesai.",
     "lang_label": "Bahasa dasbor",
     "lang_go": "Terapkan",
-    "prompt_chars": "{n} karakter"
+    "prompt_chars": "{n} karakter",
+    "ch_web": "Situs web",
+    "need_web": "WEB_CHAT_ORIGINS (alamat situs yang boleh menyematkan obrolan)",
+    "s_web": "Obrolan di situs web",
+    "s_web_help": "Gelembung obrolan yang disematkan situs-situs dalam WEB_CHAT_ORIGINS dengan satu baris: {tag}. Jika tidak dicentang, gelembung hilang dari situs dan obrolan menolak pertanyaan."
+  },
+  "widget": {
+    "open": "Tanya {bot_name}",
+    "title": "{bot_name} · {org_name}",
+    "intro": "Halo! Saya {bot_name}, asisten {org_name}. Saya hanya menjawab dari konten yang diterbitkan {org_name}, dalam bahasa Anda. Apa yang ingin Anda ketahui?",
+    "placeholder": "Ketik pertanyaan Anda…",
+    "send": "Kirim",
+    "close": "Tutup",
+    "thinking": "{bot_name} sedang menulis…",
+    "error": "Terjadi gangguan sesaat. Silakan coba lagi.",
+    "unavailable": "Obrolan sedang tidak tersedia.",
+    "disclaimer": "Asisten otomatis: bisa keliru, jadi periksa sumbernya.",
+    "privacy": "Privasi",
+    "new": "Percakapan baru"
   }
 }
