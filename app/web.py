@@ -41,7 +41,7 @@ from pathlib import Path
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response
 
-from . import brain, config, i18n, store
+from . import brain, config, geo, i18n, store
 from .channels import fmt
 
 log = logging.getLogger("web")
@@ -129,7 +129,7 @@ def _origin(request: Request) -> str | None:
 def _cors(origin: str) -> dict[str, str]:
     return {
         "Access-Control-Allow-Origin": origin,
-        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
         "Access-Control-Allow-Headers": "Content-Type",
         "Access-Control-Max-Age": "600",
         "Vary": "Origin",
@@ -181,6 +181,24 @@ async def chat(request: Request):
                         headers=headers)
 
 
+@router.get("/lang", include_in_schema=False)
+async def visitor_lang(request: Request):
+    """لغة الودجت حسب بلد الزائر، من قاعدة محلية؛ لا يُحفظ العنوان ولا البلد،
+    ولا يُحسب الطلب من حدود الأسئلة.
+    The widget's language from the visitor's country, from a local database;
+    neither the address nor the country is stored, and the request does not
+    count towards the question limits."""
+    origin = _origin(request)
+    if not origin:
+        return JSONResponse({"error": "origin"}, status_code=403)
+    headers = {**_cors(origin), "Cache-Control": "private, no-store"}
+    code = None
+    if enabled():
+        code = geo.language(client_ip(request.client.host if request.client else None,
+                                      request.headers.get("x-forwarded-for")))
+    return JSONResponse({"lang": code}, headers=headers)
+
+
 # ─────────────────────────────────────────── الودجت / The widget
 def widget_config() -> dict:
     """ما يحقنه الخادم في widget.js: نقطة الإرسال، ورابط الخصوصية، ونصوص
@@ -197,6 +215,7 @@ def widget_config() -> dict:
         if i18n.script_of(code) == "arabic":
             rtl.append(code)
     return {"endpoint": f"{base}/chat", "privacy": f"{base}/privacy",
+            "geo": f"{base}/lang" if config.GEO_LANG else "",
             "languages": list(i18n.SUPPORTED_LANGUAGES), "rtl": rtl, "strings": strings}
 
 

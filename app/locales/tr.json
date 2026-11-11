@@ -9,7 +9,7 @@
   "paused": "{bot_name} şimdilik duraklatıldı.\nAraç rehberi ve araştırmalar {site_url} adresinde.",
   "error": "Geçici bir sorun oluştu. Lütfen kısa bir süre sonra yeniden deneyin.",
   "rate": "Kısa sürede çok sayıda mesaj gönderdiniz. Lütfen bir dakika bekleyip yeniden deneyin.",
-  "daily": "Son 24 saatte {limit} soru sınırına ulaştınız.\n{wait} sonra yeniden soru sorabilirsiniz.\nAraç rehberi ve araştırmalar her zaman {site} adresinde.",
+  "daily": "Günlük soru sınırına ulaştınız.\n{wait} sonra yeniden soru sorabilirsiniz.\nAraç rehberi ve araştırmalar her zaman {site} adresinde.",
   "sources": "🔗 Kaynak:",
   "text_only": "Yalnızca metin okurum; fotoğraf, video, ses ya da dosya inceleyemem.\nSorunuzu rehberimizdeki bir araç ya da araştırmalarımızdan biri hakkında metin olarak yazın.",
   "reset": "Kayıtlı konuşmanız silindi ve yeni bir konuşma başladı. Sorunuzu yazın.",
@@ -37,7 +37,6 @@
     "selamlar",
     "merhabalar"
   ],
-  "welcome_limit": "Sınır: her 24 saatte {limit} soru.",
   "welcome_subscribe": "Haftalık fırsat listesi: /subscribe",
   "welcome_privacy": "Gizlilik politikası: /privacy",
   "privacy_gist": "{bot_name} gizlilik politikası: {url}\nSorularınızı ve yanıtlarını {days} gün saklar, sonra otomatik olarak sileriz. Konuşmanızı şimdi silmek için /reset gönderin.",

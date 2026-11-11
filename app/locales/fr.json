@@ -9,7 +9,7 @@
   "paused": "{bot_name} est en pause pour le moment.\nLe guide des outils et les enquêtes restent disponibles sur {site_url}",
   "error": "Un problème passager est survenu. Réessayez dans un instant, s'il vous plaît.",
   "rate": "Vous avez envoyé beaucoup de messages en peu de temps. Attendez une minute, puis réessayez.",
-  "daily": "Vous avez atteint la limite de {limit} questions au cours des dernières 24 heures.\nVous pourrez poser une question à nouveau dans {wait}.\nLe guide des outils et les enquêtes restent toujours disponibles sur {site}",
+  "daily": "Vous avez atteint la limite quotidienne de questions.\nVous pourrez poser une question à nouveau dans {wait}.\nLe guide des outils et les enquêtes restent toujours disponibles sur {site}",
   "sources": "🔗 Source :",
   "text_only": "Je ne lis que du texte et je ne peux pas examiner de photos, de vidéos, d'audio ni de fichiers.\nÉcrivez votre question sur un outil de notre guide ou sur l'une de nos enquêtes.",
   "reset": "Votre conversation enregistrée a été supprimée et une nouvelle a commencé. Posez votre question.",
@@ -35,7 +35,6 @@
     "coucou",
     "bonjour à tous"
   ],
-  "welcome_limit": "Limite : {limit} questions par 24 heures.",
   "welcome_subscribe": "Liste hebdomadaire des opportunités : /subscribe",
   "welcome_privacy": "Politique de confidentialité : /privacy",
   "privacy_gist": "Politique de confidentialité de {bot_name} : {url}\nNous conservons vos questions et leurs réponses pendant {days} jours, puis nous les supprimons automatiquement. Envoyez /reset pour supprimer votre conversation maintenant.",

@@ -9,7 +9,7 @@
   "paused": "{bot_name} está en pausa por ahora.\nLa guía de herramientas y las investigaciones están disponibles en {site_url}",
   "error": "Ocurrió un problema momentáneo. Inténtalo de nuevo en un momento, por favor.",
   "rate": "Enviaste muchos mensajes en poco tiempo. Espera un minuto e inténtalo de nuevo.",
-  "daily": "Alcanzaste el límite de {limit} preguntas en las últimas 24 horas.\nPuedes preguntar de nuevo en {wait}.\nLa guía de herramientas y las investigaciones están siempre en {site}",
+  "daily": "Alcanzaste el límite diario de preguntas.\nPuedes preguntar de nuevo en {wait}.\nLa guía de herramientas y las investigaciones están siempre en {site}",
   "sources": "🔗 Fuente:",
   "text_only": "Solo leo texto y no puedo revisar fotos, videos, audios ni archivos.\nEscribe tu pregunta sobre una herramienta de nuestra guía o sobre una de nuestras investigaciones.",
   "reset": "Tu conversación guardada se borró y empezó una nueva. Escribe tu pregunta.",
@@ -37,7 +37,6 @@
     "buenas",
     "qué tal"
   ],
-  "welcome_limit": "Límite: {limit} preguntas cada 24 horas.",
   "welcome_subscribe": "Lista semanal de oportunidades: /subscribe",
   "welcome_privacy": "Política de privacidad: /privacy",
   "privacy_gist": "Política de privacidad de {bot_name}: {url}\nGuardamos tus preguntas y respuestas durante {days} días y luego las borramos automáticamente. Envía /reset para borrar tu conversación ahora.",

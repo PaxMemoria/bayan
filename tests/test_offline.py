@@ -491,18 +491,18 @@ print("\n── الحدّ اليومي ──")
 store.set_setting("daily_limit", "3")
 replies = [brain.handle(f"ما هي عاصمة بلد رقم {i}؟", "telegram", "u-limit") for i in range(4)]
 check("الأسئلة الثلاثة الأولى تُجاب أو تُرفض كالعادة",
-      all("الحدّ المسموح" not in r for r in replies[:3]))
+      all("الحدّ اليومي للأسئلة" not in r for r in replies[:3]))
 check("الرابع يتلقى رسالة الحدّ ومتى يعود",
-      "الحدّ المسموح، وهو 3" in replies[3] and "بعد" in replies[3], replies[3])
+      "بلغت الحدّ اليومي للأسئلة" in replies[3] and "3" not in replies[3].split("\n")[0] and "بعد" in replies[3], replies[3])
 check("رسالة الحدّ لا تُحسب سؤالاً",
       len(store.questions_since("telegram", "u-limit", time.time() - 86400)) == 3)
 check("/start يعمل بعد بلوغ الحدّ",
       brain.handle("/start", "telegram", "u-limit") == i18n.welcome(None, brain.daily_limit()))
-check("مستخدم آخر لا يتأثر", "الحدّ المسموح" not in brain.handle("سؤال", "telegram", "u-other"))
+check("مستخدم آخر لا يتأثر", "الحدّ اليومي للأسئلة" not in brain.handle("سؤال", "telegram", "u-other"))
 check("المعرّف نفسه في قناة أخرى لا يتأثر",
-      "الحدّ المسموح" not in brain.handle("سؤال", "whatsapp", "u-limit"))
+      "الحدّ اليومي للأسئلة" not in brain.handle("سؤال", "whatsapp", "u-limit"))
 store.set_setting("daily_limit", "0")
-check("0 يعني بلا حدّ", "الحدّ المسموح" not in brain.handle("سؤال", "telegram", "u-limit"))
+check("0 يعني بلا حدّ", "الحدّ اليومي للأسئلة" not in brain.handle("سؤال", "telegram", "u-limit"))
 r = client.post("/admin/settings", data={"threshold": "0.30", "daily_limit": "abc"},
                 follow_redirects=False)
 check("حدّ يومي غير صالح يُرفض من اللوحة", "error=limit" in r.headers["location"])
@@ -531,8 +531,9 @@ check("/start بواجهة إنجليزية: بالإنجليزية وحدها",
 check("الترحيب يقول ما يستطيع بيان وما لا يستطيع",
       "ما أستطيع فعله" in w_ar and "ما لا أستطيع فعله" in w_ar
       and "What I can do" in w_en and "What I can't do" in w_en)
-check("الترحيب يذكر الحدّ اليومي كما في اللوحة",
-      f"حدّ الأسئلة: {brain.daily_limit()} في كل 24 ساعة" in w_ar)
+check("الترحيب لا يذكر عدد الأسئلة المسموح",
+      "حدّ الأسئلة" not in w_ar and str(brain.daily_limit()) not in w_ar.split("\n\n", 1)[-1]
+      and "Limit:" not in w_en)
 before = len(store.questions_since("whatsapp", "u-greet", time.time() - 86400))
 g_ar = brain.handle("مرحباً!", "whatsapp", "u-greet")
 g_en = brain.handle("Hello 👋", "whatsapp", "u-greet")
@@ -584,8 +585,9 @@ check("ماسنجر: مرفق بلا نص يصل بنص فارغ",
           "mid": "x", "attachments": [{"type": "image"}]}}]}]}) == [("fb:x", "p", "")])
 store.set_setting("daily_limit", "1")
 brain.handle("Is there a tool for photos?", "telegram", "u-en-limit")
-check("رسالة الحدّ اليومي بلغة السائل",
-      "You have reached the limit of 1" in brain.handle("And for videos?", "telegram", "u-en-limit"))
+_limited = brain.handle("And for videos?", "telegram", "u-en-limit")
+check("رسالة الحدّ اليومي بلغة السائل ولا تذكر العدد، والحدّ يبقى مطبَّقاً",
+      "You have reached the daily question limit" in _limited and "limit of 1" not in _limited)
 store.set_setting("daily_limit", "10")
 sens_t = {"name": "X", "category_en": "Search", "summary_en": "s", "sensitive": 1,
           "caution": None, "link": "https://bad.example", "verification": "trained", "removed": 0}
@@ -638,7 +640,7 @@ check("ملف ترجمة لكل لغة مدعومة، بمفاتيح en.json ن�
 check("كل ملف يُبقي «فرص» والأوامر حرفياً ومتغيرات النصوص",
       all("فرص" in loc["out_of_scope"] and "فرص" in loc["welcome"]
           and "/subscribe" in loc["welcome_subscribe"] and "/unsubscribe" in loc["subscribed"]
-          and "{limit}" in loc["daily"] and "{wait}" in loc["daily"] and "{bot_name}" in loc["paused"]
+          and "{limit}" not in loc["daily"] and "{wait}" in loc["daily"] and "{bot_name}" in loc["paused"]
           for loc in i18n.LOCALES.values()))
 misses = [(lang, s, i18n.detect(s)) for lang, ss in LOCALE_SAMPLES.items() for s in ss
           if i18n.detect(s) != lang]
@@ -679,8 +681,8 @@ check("خلاصة الخصوصية بالفرنسية برابطها ومدة ا
 store.set_setting("daily_limit", "1")
 brain.handle("Quelles enquêtes avez-vous sur le Yémen ?", "telegram", "u-fr-limit")
 r_fr = brain.handle("Et sur la Syrie ?", "telegram", "u-fr-limit")
-check("رسالة الحدّ اليومي بالفرنسية، بالحدّ والمدة",
-      r_fr.startswith("Vous avez atteint la limite de 1 questions") and "heure" in r_fr
+check("رسالة الحدّ اليومي بالفرنسية، بالمدة ودون العدد",
+      r_fr.startswith("Vous avez atteint la limite quotidienne de questions") and " 1 " not in r_fr and "heure" in r_fr
       and config.SITE_URL in r_fr, r_fr[:80])
 store.set_setting("daily_limit", "10")
 check("المدة بالساعات بلغتها: المثنى العربي، وعدد في غيرها",
@@ -1232,7 +1234,7 @@ brain.handle("سؤال ثانٍ عن أداة", "telegram", "u-reset")
 brain.handle("/reset", "telegram", "u-reset")
 brain.handle("/start", "telegram", "u-reset")
 check("حذف المحادثة لا يلغي حدّ الأسئلة اليومي",
-      "الحدّ المسموح" in brain.handle("سؤال ثالث", "telegram", "u-reset"))
+      "الحدّ اليومي للأسئلة" in brain.handle("سؤال ثالث", "telegram", "u-reset"))
 store.set_setting("daily_limit", "10")
 
 pv = brain.handle("الخصوصية", "telegram", "u-p")
@@ -1453,9 +1455,9 @@ r = client.post("/admin/try", data={"q": "سؤال ثالث عن Hunchly؟", "ac
 for i in range(2):
     brain.handle(f"سؤال {i}", "telegram", "u-cap")
 check("الحدّ اليومي (2 هنا) يُطبَّق على القناة العامة لا على الفريق",
-      "الحدّ المسموح" not in r.text and "سؤال ثالث عن Hunchly؟" in r.text
+      "الحدّ اليومي للأسئلة" not in r.text and "سؤال ثالث عن Hunchly؟" in r.text
       and store.questions_since("team", "owner", time.time() - 86400) == []
-      and "الحدّ المسموح" in brain.handle("ما هي أداة Hunchly؟", "telegram", "u-cap"))
+      and "الحدّ اليومي للأسئلة" in brain.handle("ما هي أداة Hunchly؟", "telegram", "u-cap"))
 r = client.post("/admin/try", data={"action": "new"})
 check("«محادثة جديدة» تمسح الخيط",
       r.status_code == 200 and "لا محادثة بعد" in r.text and store.thread("team", "owner", 20) == []
@@ -2319,6 +2321,8 @@ check("widget.js يُقدَّم سكربتاً بنقطة الإرسال ونص�
       and "__BAYAN_CONFIG__" not in r.text and "https://bayan.test/chat" in r.text
       and all(f'"{c}"' in r.text for c in i18n.SUPPORTED_LANGUAGES) and "</script" not in r.text,
       r.headers.get("content-type"))
+check("الفقاعة ترتفع فوق شريط ثابت أسفل الصفحة (مثل شريط الكوكيز) ولا تغطّيه",
+      "elementsFromPoint" in r.text and "--lift" in r.text and "var(--lift,0px)" in r.text)
 cfg = web.widget_config()
 check("نصوص الودجت بأسماء البوت والمنظمة لكل لغة، والعربية والفارسية والأردية من اليمين",
       config.BOT_NAME in cfg["strings"]["ar"]["intro"] and config.BOT_NAME_EN in cfg["strings"]["pt-BR"]["intro"]
@@ -2399,6 +2403,57 @@ check("WEB_CHAT_ORIGINS الافتراضي من SITE_URL ونسخة www، و non
 os.environ["WEB_CHAT_ORIGINS"] = "none"
 check("قيمة none تعطّل القناة", config._web_origins() == set())
 os.environ.pop("WEB_CHAT_ORIGINS")
+
+print("\n── لغة الودجت حسب البلد ──")
+from app import geo  # noqa: E402
+
+
+class _FakeGeo:
+    TABLE = {"5.0.0.1": "BR", "5.0.0.2": "SY", "5.0.0.3": "SE", "5.0.0.4": "KE"}
+
+    def get(self, ip):
+        cc = self.TABLE.get(ip)
+        return {"country": {"iso_code": cc}} if cc else None
+
+    def close(self):
+        pass
+
+
+old_reader = geo._reader
+geo._reader = _FakeGeo()
+check("البلد ← اللغة: البرازيل برتغالية، سوريا عربية، كينيا سواحلية، السويد بلا لغة",
+      geo.language("5.0.0.1") == "pt-BR" and geo.language("5.0.0.2") == "ar"
+      and geo.language("5.0.0.4") == "sw" and geo.language("5.0.0.3") is None)
+check("عنوان خاص أو غير صالح بلا بلد", geo.country("10.0.0.5") is None and geo.country("nope") is None)
+check("كل لغة في جدول البلدان لغة مدعومة",
+      set(geo.COUNTRY_LANG.values()) <= set(i18n.SUPPORTED_LANGUAGES))
+# عميل الاختبار ليس وكيلاً محلياً، فيُؤخذ العنوان من الترويسة هنا
+# The test client is not a local proxy, so the address comes from the header here
+real_client_ip = web.client_ip
+web.client_ip = lambda host, xff: xff or "?"
+r = site.get("/lang", headers={**ORIGIN, "X-Forwarded-For": "5.0.0.1"})
+check("/lang يعيد لغة البلد بلا تخزين مؤقت وبـ CORS",
+      r.status_code == 200 and r.json() == {"lang": "pt-BR"}
+      and r.headers.get("access-control-allow-origin") == "https://site.test"
+      and "no-store" in r.headers.get("cache-control", ""), r.text)
+check("/lang يرفض موقعاً غير مسموح",
+      site.get("/lang", headers={"Origin": "https://evil.test"}).status_code == 403)
+r = site.get("/lang", headers={**ORIGIN, "X-Forwarded-For": "5.0.0.3"})
+check("بلد بلا لغة هنا: null فتبقى لغة الصفحة", r.json() == {"lang": None})
+web.client_ip = real_client_ip
+before = len(store.questions_since("web", "geo-none", time.time() - 86400))
+check("/lang لا يُحفظ سؤالاً", before == 0)
+w = site.get("/widget.js").text
+check("الودجت يطلب لغة البلد ويقدّم لغة الصفحة إن غيّرها الزائر",
+      "https://bayan.test/lang" in w and "geoLang" in w and "pageTouched = true" in w)
+config.GEO_LANG = False
+check("GEO_LANG=0 يطفئ اللغة حسب البلد",
+      geo.language("5.0.0.1") is None and '"geo": ""' in site.get("/widget.js").text)
+config.GEO_LANG = True
+check("أشهر التنزيل: الحالي ثم السابق، ويناير يعود إلى ديسمبر",
+      geo._months(__import__("datetime").date(2027, 1, 3)) == ["2027-01", "2026-12"])
+check("بلا ملف القاعدة: لا لغة ولا خطأ", (lambda: (setattr(geo, "_reader", None), geo.language("5.0.0.1"))[1])() is None)
+geo._reader = old_reader
 config.WEB_CHAT_ORIGINS, config.PUBLIC_URL = old_origins, old_pub
 
 embed.embed = real_embed

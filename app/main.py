@@ -13,7 +13,7 @@ import time
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 
-from . import (brain, config, dashboard, embed, i18n, ingest, keys, logfilter, privacy,
+from . import (brain, config, dashboard, embed, geo, i18n, ingest, keys, logfilter, privacy,
                retrieve, role, sources, store, web)
 from .channels import messenger, telegram, whatsapp
 
@@ -66,6 +66,7 @@ async def startup() -> None:
     # Loading the local model takes seconds, so it runs in the background
     # while the server accepts requests
     threading.Thread(target=_preload, daemon=True).start()
+    geo.start()
     # حذف الأسئلة الأقدم من مدة الحفظ: عند الإقلاع ثم كل 6 ساعات
     # Delete questions older than the retention period: at startup, then
     # every 6 hours

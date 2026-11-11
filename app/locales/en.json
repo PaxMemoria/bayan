@@ -9,7 +9,7 @@
   "paused": "{bot_name} is paused for now.\nThe tools guide and the investigations are available at {site_url}",
   "error": "Something went wrong for a moment. Please try again shortly.",
   "rate": "You sent many messages in a short time. Please wait a minute and try again.",
-  "daily": "You have reached the limit of {limit} questions in the last 24 hours.\nYou can ask again in {wait}.\nThe tools guide and the investigations are always at {site}",
+  "daily": "You have reached the daily question limit.\nYou can ask again in {wait}.\nThe tools guide and the investigations are always at {site}",
   "sources": "🔗 Source:",
   "text_only": "I read text only, and can't check photos, video, audio or files.\nType your question about a tool in our guide or one of our investigations.",
   "reset": "Your saved conversation was deleted and a new one started. Ask your question.",
@@ -37,7 +37,6 @@
     "hi there",
     "hello there"
   ],
-  "welcome_limit": "Limit: {limit} questions every 24 hours.",
   "welcome_subscribe": "Weekly opportunities list: /subscribe",
   "welcome_privacy": "Privacy policy: /privacy",
   "privacy_gist": "{bot_name}'s privacy policy: {url}\nWe keep your questions and answers for {days} days, then delete them automatically. Send /reset to delete your conversation now.",
