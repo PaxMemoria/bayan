@@ -9,7 +9,7 @@
   "paused": "{bot_name} sedang dijeda untuk saat ini.\nPanduan alat dan investigasi tersedia di {site_url}",
   "error": "Terjadi gangguan sesaat. Silakan coba lagi sebentar lagi.",
   "rate": "Anda mengirim banyak pesan dalam waktu singkat. Mohon tunggu satu menit lalu coba lagi.",
-  "daily": "Anda telah mencapai batas {limit} pertanyaan dalam 24 jam terakhir.\nAnda bisa bertanya lagi dalam {wait}.\nPanduan alat dan investigasi selalu tersedia di {site}",
+  "daily": "Anda telah mencapai batas harian pertanyaan.\nAnda bisa bertanya lagi dalam {wait}.\nPanduan alat dan investigasi selalu tersedia di {site}",
   "sources": "🔗 Sumber:",
   "text_only": "Saya hanya membaca teks, dan tidak bisa memeriksa foto, video, audio, atau berkas.\nTulis pertanyaan Anda tentang sebuah alat di panduan kami atau salah satu investigasi kami.",
   "reset": "Percakapan tersimpan Anda telah dihapus dan percakapan baru dimulai. Tulis pertanyaan Anda.",
@@ -37,7 +37,6 @@
     "hai",
     "permisi"
   ],
-  "welcome_limit": "Batas: {limit} pertanyaan setiap 24 jam.",
   "welcome_subscribe": "Daftar peluang mingguan: /subscribe",
   "welcome_privacy": "Kebijakan privasi: /privacy",
   "privacy_gist": "Kebijakan privasi {bot_name}: {url}\nKami menyimpan pertanyaan dan jawaban Anda selama {days} hari, lalu menghapusnya secara otomatis. Kirim /reset untuk menghapus percakapan Anda sekarang.",

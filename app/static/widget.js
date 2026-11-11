@@ -55,7 +55,15 @@
     for (i = 0; i < C.languages.length; i++) if (C.languages[i].toLowerCase().split("-")[0] === primary) return C.languages[i];
     return "en";
   }
-  function lang() { return pickLang(document.documentElement.lang || navigator.language); }
+  // لغة بلد الزائر (من الخادم) أولاً، ولغة الصفحة إن لم يكن للبلد لغة أو غيّر
+  // الزائر لغة الصفحة / The visitor's country language (from the server) first,
+  // and the page's language when the country has none or the visitor switches
+  // the page's language
+  var geoLang = null, pageTouched = false;
+  function lang() {
+    if (geoLang && !pageTouched) return geoLang;
+    return pickLang(document.documentElement.lang || navigator.language);
+  }
   function S(key) {
     var s = C.strings[lang()] || C.strings.en;
     return s[key] || C.strings.en[key] || "";
@@ -96,12 +104,12 @@
     ":host{all:initial;font-family:inherit}",
     "*{box-sizing:border-box;font-family:inherit}",
     ".wrap{--bg:#fcfaf5;--paper:#f3efe6;--ink:#1b1f1c;--muted:#6b6f68;--line:#e3dbcb;--accent:#3b7350;--accent-ink:#fff;--me:#e4efe6;",
-    "position:fixed;bottom:20px;inset-inline-end:20px;z-index:2147483000;font-size:15px;line-height:1.55;color:var(--ink)}",
+    "position:fixed;bottom:calc(20px + var(--lift,0px));inset-inline-end:20px;z-index:2147483000;transition:bottom .2s;font-size:15px;line-height:1.55;color:var(--ink)}",
     "@media (prefers-color-scheme:dark){.wrap{--bg:#172926;--paper:#0f1715;--ink:#ecebe6;--muted:#9faea4;--line:#24403a;--accent:#8fd1a6;--accent-ink:#0f1a19;--me:#1d3226}}",
     ".bubble{width:56px;height:56px;border-radius:50%;border:0;background:var(--accent);color:var(--accent-ink);cursor:pointer;display:grid;place-items:center;box-shadow:0 6px 20px rgba(0,0,0,.22)}",
     ".bubble svg{width:26px;height:26px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}",
     ".bubble:focus-visible,button:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}",
-    ".panel{position:absolute;bottom:72px;inset-inline-end:0;width:min(380px,calc(100vw - 24px));height:min(560px,calc(100vh - 110px));background:var(--bg);",
+    ".panel{position:absolute;bottom:72px;inset-inline-end:0;width:min(380px,calc(100vw - 24px));height:min(560px,calc(100vh - 110px - var(--lift,0px)));background:var(--bg);",
     "border:1px solid var(--line);border-radius:16px;box-shadow:0 18px 50px rgba(0,0,0,.25);display:flex;flex-direction:column;overflow:hidden}",
     ".panel[hidden]{display:none}",
     ".head{display:flex;align-items:center;gap:8px;padding:12px 14px;background:var(--accent);color:var(--accent-ink)}",
@@ -119,7 +127,7 @@
     ".send:disabled{opacity:.55;cursor:default}",
     ".foot{padding:6px 12px 9px;font-size:11.5px;color:var(--muted);background:var(--bg);display:flex;gap:6px;flex-wrap:wrap}",
     ".foot a{color:var(--muted)}",
-    "@media (max-width:480px){.wrap{bottom:12px;inset-inline-end:12px}.panel{bottom:66px}}",
+    "@media (max-width:480px){.wrap{bottom:calc(12px + var(--lift,0px));inset-inline-end:12px}.panel{bottom:66px}}",
     "@media print{.wrap{display:none}}"
   ].join("");
 
@@ -309,9 +317,67 @@
     // لغة الصفحة قد تتغيّر دون إعادة تحميل (تطبيق صفحة واحدة) / The page language
     // may change without a reload (a single-page app)
     if (window.MutationObserver) {
-      new MutationObserver(function () { texts(); if (!panel.hidden) draw(); })
+      new MutationObserver(function () { pageTouched = true; texts(); if (!panel.hidden) draw(); })
         .observe(document.documentElement, { attributes: true, attributeFilter: ["lang"] });
     }
+
+    if (C.geo && window.fetch) {
+      fetch(C.geo, { credentials: "omit" })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (d) {
+          if (!d || !d.lang || pageTouched || C.languages.indexOf(d.lang) < 0) return;
+          var before = lang();
+          geoLang = d.lang;
+          if (lang() !== before) { texts(); if (!panel.hidden) draw(); }
+        })
+        .catch(function () {});
+    }
+
+    // لا تغطّي الفقاعة شريطاً ثابتاً أسفل الصفحة، مثل شريط الموافقة على الكوكيز:
+    // ترتفع فوقه ما دام ظاهراً وتعود حين يختفي.
+    // The bubble does not cover a bar fixed to the bottom of the page, such as a
+    // cookie consent banner: it rises above it while it shows and drops back when
+    // it goes.
+    var lifted = 0, queued = false;
+    function lift() {
+      queued = false;
+      if (!document.elementsFromPoint) return;
+      var vh = window.innerHeight, r = bubble.getBoundingClientRect(), need = 0;
+      var hits = document.elementsFromPoint(r.left + r.width / 2, Math.min(r.bottom + lifted - 4, vh - 1));
+      for (var i = 0; i < hits.length; i++) {
+        for (var n = hits[i]; n && n !== document.body && n !== document.documentElement; n = n.parentElement) {
+          if (n === host) break;
+          var st = getComputedStyle(n);
+          if (st.position !== "fixed" && st.position !== "sticky") continue;
+          var b = n.getBoundingClientRect();
+          if (b.bottom >= vh - 2 && b.height < vh * 0.6 && st.visibility !== "hidden" &&
+              st.pointerEvents !== "none" && parseFloat(st.opacity) > 0) {
+            need = Math.max(need, Math.ceil(vh - b.top + 8));
+          }
+          break;
+        }
+      }
+      if (need !== lifted) {
+        lifted = need;
+        wrap.style.setProperty("--lift", need + "px");
+      }
+    }
+    function queue() {
+      if (queued) return;
+      queued = true;
+      (window.requestAnimationFrame || setTimeout)(lift);
+    }
+    window.addEventListener("resize", queue);
+    window.addEventListener("scroll", queue, { passive: true });
+    document.addEventListener("transitionend", queue, true);
+    document.addEventListener("animationend", queue, true);
+    if (window.MutationObserver) {
+      new MutationObserver(queue).observe(document.body, {
+        childList: true, subtree: true, attributes: true, attributeFilter: ["class", "style", "hidden"]
+      });
+    }
+    setInterval(queue, 2000);
+    queue();
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", mount);

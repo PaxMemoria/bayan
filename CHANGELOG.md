@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+**Website chat follow-ups / متابعات الدردشة على الموقع**
+- The chat window opens in the language of the visitor's country (a local DB-IP Lite lookup, CC BY 4.0, refreshed monthly; nothing stored), and in the page's language otherwise. `GET /lang`, `GEO_LANG`, `GEO_DB`.
+- The bubble rises above a bar fixed to the bottom of the page, such as a cookie banner, instead of covering its buttons.
+- The number of questions allowed per day is no longer shown to users (welcome, limit message, privacy page, facts given to the model); the limit still applies.
+- تفتح نافذة الدردشة بلغة بلد الزائر (بحث محلي في DB-IP Lite برخصة CC BY 4.0، يُحدَّث شهرياً، ولا يُحفظ شيء)، وبلغة الصفحة في غير ذلك.
+- ترتفع الفقاعة فوق شريط ثابت أسفل الصفحة، مثل شريط الكوكيز، بدل أن تغطّي أزراره.
+- لم يعد عدد الأسئلة المسموح يومياً يظهر للمستخدمين (الترحيب ورسالة الحدّ وصفحة الخصوصية وما يُعطى للنموذج)، والحدّ ما زال مطبَّقاً.
+
 **Website chat / الدردشة على الموقع**
 - A `web` channel: one script tag puts a chat bubble on the organisation's site, in the page's language and direction, answered through the same path as the other channels. CORS limited to `WEB_CHAT_ORIGINS`, no cookie (a random conversation ID in the browser's local storage), per-IP limits kept in memory only, a switch in Settings, and the welcome without the commands that only messaging apps use.
 - قناة `web`: سطر سكربت واحد يضع فقاعة دردشة على موقع المنظمة بلغة الصفحة واتجاهها، تُجاب بالمسار نفسه للقنوات الأخرى. CORS محصور في `WEB_CHAT_ORIGINS`، بلا كوكي (معرّف عشوائي للمحادثة في تخزين المتصفح)، وحدود لكل عنوان IP في الذاكرة وحدها، وزرّ في الإعدادات، وترحيب بلا أوامر تطبيقات المراسلة.

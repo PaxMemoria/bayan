@@ -310,6 +310,10 @@ WEB_CHAT_ORIGINS = _web_origins()
 WEB_IP_BURST = int(os.getenv("WEB_IP_BURST", "20"))
 WEB_IP_BURST_WINDOW = int(os.getenv("WEB_IP_BURST_WINDOW", "600"))
 WEB_IP_DAILY = int(os.getenv("WEB_IP_DAILY", "60"))
+# لغة الودجت حسب بلد الزائر (قاعدة DB-IP Lite محلية) / The widget's language
+# from the visitor's country (a local DB-IP Lite database)
+GEO_LANG = os.getenv("GEO_LANG", "1").strip().lower() not in ("0", "false", "no", "off")
+GEO_DB = Path(os.getenv("GEO_DB", DATA_DIR / "geo" / "dbip-country-lite.mmdb"))
 
 # ───────────────────────────────── اللوحة والحدود / Dashboard and limits
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")

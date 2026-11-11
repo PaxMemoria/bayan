@@ -9,7 +9,7 @@
   "paused": "{bot_name} amesimamishwa kwa sasa.\nMwongozo wa zana na uchunguzi vinapatikana kwenye {site_url}",
   "error": "Kuna hitilafu ya muda. Tafadhali jaribu tena baada ya muda mfupi.",
   "rate": "Umetuma ujumbe mwingi kwa muda mfupi. Tafadhali subiri dakika moja kisha ujaribu tena.",
-  "daily": "Umefikia kikomo cha maswali {limit} katika saa 24 zilizopita.\nUnaweza kuuliza tena baada ya {wait}.\nMwongozo wa zana na uchunguzi vinapatikana wakati wote kwenye {site}",
+  "daily": "Umefikia kikomo cha maswali kwa siku.\nUnaweza kuuliza tena baada ya {wait}.\nMwongozo wa zana na uchunguzi vinapatikana wakati wote kwenye {site}",
   "sources": "🔗 Chanzo:",
   "text_only": "Ninasoma maandishi tu, na siwezi kukagua picha, video, sauti au faili.\nAndika swali lako kuhusu zana katika mwongozo wetu au mojawapo ya uchunguzi wetu.",
   "reset": "Mazungumzo yako yaliyohifadhiwa yamefutwa na mapya yameanza. Andika swali lako.",
@@ -40,7 +40,6 @@
     "mambo",
     "niaje"
   ],
-  "welcome_limit": "Kikomo: maswali {limit} kila saa 24.",
   "welcome_subscribe": "Orodha ya fursa ya kila wiki: /subscribe",
   "welcome_privacy": "Sera ya faragha: /privacy",
   "privacy_gist": "Sera ya faragha ya {bot_name}: {url}\nTunahifadhi maswali yako na majibu yake kwa siku {days}, kisha tunayafuta kiotomatiki. Tuma /reset kufuta mazungumzo yako sasa.",

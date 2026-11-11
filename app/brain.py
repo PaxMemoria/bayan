@@ -382,7 +382,7 @@ def guide_overview() -> str:
         "- لا يفحص بيان الصور أو الروابط أو الملفات، ويقرأ النص وحده.",
     ]
     if limit > 0:
-        lines.append(f"- يتيح بيان {limit} أسئلة لكل مستخدم في كل 24 ساعة.")
+        lines.append("- لبيان حدّ يومي للأسئلة لكل مستخدم، ولا يذكر بيان عدده.")
     lines.append(f"- تُحذف المحادثات بعد {config.MESSAGE_RETENTION_DAYS} يوماً.")
     if config.PUBLIC_URL:
         lines.append(f"- سياسة الخصوصية: {config.PUBLIC_URL}/privacy")

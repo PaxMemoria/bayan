@@ -314,6 +314,15 @@ only for the per-address limits (`WEB_IP_BURST`, `WEB_IP_DAILY`) on top of the
 daily limit. The channel is switched off from Settings, and the bubble then
 disappears from the site.
 
+The chat window opens in the language of the visitor's country when Bayan has
+one (Brazil in Portuguese, Kenya in Swahili, Syria in Arabic, and so on), and
+in the page's language otherwise or when the visitor switches the page's
+language. The country is looked up on the server in DB-IP's free "IP to
+Country Lite" database ([IP Geolocation by DB-IP](https://db-ip.com), CC BY
+4.0), which Bayan downloads and refreshes monthly into `data/geo/`; the
+address is sent nowhere and neither it nor the country is stored. `GEO_LANG=0`
+turns this off.
+
 ---
 
 ## Structure

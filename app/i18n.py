@@ -304,13 +304,13 @@ def welcome(lang: str | None, limit: int, opener: str | None = None,
         first = msg("opener", code) if opener is None else opener
         if first:
             base = f"{first}\n\n{base}"
+        # الحدّ اليومي يُطبَّق ولا يُعلَن عدده / The daily limit applies but its
+        # number is not announced
         lines = []
-        if limit > 0:
-            lines.append(msg("welcome_limit", code, limit=limit))
         if commands:
             lines.append(msg("welcome_subscribe", code))
             lines.append(msg("welcome_privacy", code))
-        return base + "\n" + "\n".join(lines)
+        return base + ("\n" + "\n".join(lines) if lines else "")
     if lang in LOCALES:
         return one(lang)
     return f"{one('ar')}\n\n{one('en')}"

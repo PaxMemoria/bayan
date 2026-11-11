@@ -46,7 +46,7 @@ HEADERS = {
 
 
 def _arabic(days: int, limit: int, turns: int, contact: str) -> str:
-    limit_line = (f"<li>لتطبيق حدّ الأسئلة ({limit} في كل 24 ساعة) ومنع إساءة الاستعمال.</li>"
+    limit_line = ("<li>لتطبيق حدّ الأسئلة اليومي ومنع إساءة الاستعمال.</li>"
                   if limit > 0 else "<li>لمنع إساءة الاستعمال.</li>")
     return f"""
 <h1>سياسة الخصوصية لبيان</h1>
@@ -67,8 +67,10 @@ Aid Kit، CC BY 4.0)، ولا يرسل إليهما شيئاً من أسئلتك
 الذي تمنحه فيسبوك لمحادثتك مع صفحتنا في ماسنجر.</li>
 <li>في الدردشة على موقعنا: معرّف عشوائي للمحادثة ينشئه متصفحك ويحفظه في تخزينه
 المحلي، ولا نستعمل له كوكي. عنوان IP يُستعمل في ذاكرة الخادم وحدها، ببصمة لا
-تُعكس إليه، للحدّ من الإساءة، ولا يُحفظ. زر «محادثة جديدة» يحذف المحادثة ويبدأ
-معرّفاً جديداً.</li>
+تُعكس إليه، للحدّ من الإساءة، ولا يُحفظ. ويُطابَق العنوان أيضاً ببلده في قاعدة على
+خادمنا نفسه لاختيار لغة نافذة الدردشة، فلا يُرسل إلى أي جهة، ولا يُحفظ العنوان ولا
+البلد. القاعدة من <a href="https://db-ip.com">DB-IP</a> برخصة CC BY 4.0. زر «محادثة
+جديدة» يحذف المحادثة ويبدأ معرّفاً جديداً.</li>
 <li>وقت كل رسالة، وهل أُجيبت أم رُفضت.</li>
 <li>إن اشتركت في قائمة الفرص الأسبوعية بكتابة /subscribe: معرّفك في تلك القناة ووقت
 اشتراكك، حتى تلغي الاشتراك.</li>
@@ -126,7 +128,7 @@ Aid Kit، CC BY 4.0)، ولا يرسل إليهما شيئاً من أسئلتك
 
 
 def _english(days: int, limit: int, turns: int, contact: str) -> str:
-    limit_line = (f"<li>To apply the question limit ({limit} every 24 hours) and prevent "
+    limit_line = ("<li>To apply the daily question limit and prevent "
                   "misuse.</li>" if limit > 0 else "<li>To prevent misuse.</li>")
     return f"""
 <h1>Bayan privacy policy</h1>
@@ -151,8 +153,12 @@ conversation with our page on Messenger.</li>
 <li>In the chat on our website: a random conversation ID that your browser
 creates and keeps in its own local storage; no cookie is used for it. Your IP
 address is used in the server's memory only, as a fingerprint that cannot be
-turned back into it, to limit abuse, and is never stored. The "New conversation"
-button deletes the conversation and starts a new ID.</li>
+turned back into it, to limit abuse, and is never stored. The address is also
+matched to its country in a database on our own server to choose the language
+of the chat window; it is sent nowhere, and neither the address nor the country
+is stored. The database is from <a href="https://db-ip.com">IP Geolocation by
+DB-IP</a>, licensed CC BY 4.0. The "New conversation" button deletes the
+conversation and starts a new ID.</li>
 <li>The time of each message, and whether it was answered or refused.</li>
 <li>If you subscribe to the weekly opportunities list by sending /subscribe:
 your identifier on that channel and the time you subscribed, until you

@@ -9,7 +9,7 @@
   "paused": "{bot_name} está pausado no momento.\nO guia de ferramentas e as investigações estão disponíveis em {site_url}",
   "error": "Ocorreu um problema momentâneo. Tente novamente em instantes, por favor.",
   "rate": "Você enviou muitas mensagens em pouco tempo. Aguarde um minuto e tente novamente.",
-  "daily": "Você atingiu o limite de {limit} perguntas nas últimas 24 horas.\nVocê pode perguntar de novo em {wait}.\nO guia de ferramentas e as investigações estão sempre em {site}",
+  "daily": "Você atingiu o limite diário de perguntas.\nVocê pode perguntar de novo em {wait}.\nO guia de ferramentas e as investigações estão sempre em {site}",
   "sources": "🔗 Fonte:",
   "text_only": "Leio apenas texto e não consigo examinar fotos, vídeos, áudios ou arquivos.\nEscreva sua pergunta sobre uma ferramenta do nosso guia ou sobre uma das nossas investigações.",
   "reset": "Sua conversa salva foi apagada e uma nova começou. Escreva sua pergunta.",
@@ -38,7 +38,6 @@
     "oi tudo bem",
     "olá tudo bem"
   ],
-  "welcome_limit": "Limite: {limit} perguntas a cada 24 horas.",
   "welcome_subscribe": "Lista semanal de oportunidades: /subscribe",
   "welcome_privacy": "Política de privacidade: /privacy",
   "privacy_gist": "Política de privacidade de {bot_name}: {url}\nGuardamos suas perguntas e respostas por {days} dias e depois as apagamos automaticamente. Envie /reset para apagar sua conversa agora.",
