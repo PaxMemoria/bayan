@@ -1115,7 +1115,7 @@ def handle(question: str, channel: str, user_id: str, lang_hint: str | None = No
             wl = "en"
         else:
             wl = hint
-        return i18n.welcome(wl, daily_limit())
+        return i18n.welcome(wl, daily_limit(), commands=channel != "web")
     if cmd in ("/reset", "/clear", "reset", "جديد", "مسح"):
         store.clear_history(channel, user_id)
         if cmd in ("جديد", "مسح") or (cmd.startswith("/") and hint == "ar"):
@@ -1150,7 +1150,7 @@ def handle(question: str, channel: str, user_id: str, lang_hint: str | None = No
     # what Bayan does in a second
     if _is_greeting(question):
         return (i18n.greeting_reply(_greeting_key(question), lang) + MESSAGE_BREAK
-                + i18n.welcome(lang, daily_limit(), opener=""))
+                + i18n.welcome(lang, daily_limit(), opener="", commands=channel != "web"))
 
     # بعد الأوامر: /start و /help لا تُحسب من الحدّ ولا يمنعها
     # After the commands: /start and /help do not count toward the limit, and

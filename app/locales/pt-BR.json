@@ -395,6 +395,24 @@
     "flash_opp_sent": "A lista da semana está sendo enviada aos assinantes nos canais ativados; o resultado aparece aqui quando terminar.",
     "lang_label": "Idioma do painel",
     "lang_go": "Aplicar",
-    "prompt_chars": "{n} caracteres"
+    "prompt_chars": "{n} caracteres",
+    "ch_web": "Site",
+    "need_web": "WEB_CHAT_ORIGINS (os endereços dos sites autorizados a incorporar o chat)",
+    "s_web": "Chat no site",
+    "s_web_help": "O balão de chat que os sites em WEB_CHAT_ORIGINS incorporam com uma linha: {tag}. Desmarcado, o balão some do site e o chat recusa perguntas."
+  },
+  "widget": {
+    "open": "Pergunte ao {bot_name}",
+    "title": "{bot_name} · {org_name}",
+    "intro": "Olá! Eu sou {bot_name}, assistente da {org_name}. Respondo apenas com base no conteúdo publicado pela {org_name}, no seu idioma. O que você gostaria de saber?",
+    "placeholder": "Digite sua pergunta…",
+    "send": "Enviar",
+    "close": "Fechar",
+    "thinking": "{bot_name} está escrevendo…",
+    "error": "Algo deu errado por um momento. Tente novamente.",
+    "unavailable": "O chat não está disponível no momento.",
+    "disclaimer": "Assistente automático: pode errar, então confira a fonte.",
+    "privacy": "Privacidade",
+    "new": "Nova conversa"
   }
 }
